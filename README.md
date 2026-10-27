@@ -1,6 +1,6 @@
 # Nanuq
 
-*Watch out where the huskies go, and don't you eat that rusty data.*
+> Watch out where the huskies go, and don't you eat that rusty data.
 
 Nanuq (Inuit for "polar bear") brings [Polars](https://pola.rs) DataFrames to Nim.
 
