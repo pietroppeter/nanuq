@@ -31,9 +31,13 @@ two), L (more).
     `-d:nanuqLib=auto|prebuilt|source` picks the policy. A checksum mismatch is an
     error, every other miss falls back to cargo with a hint.
   - *Decided (Pietro, 2026-10-27).* Download by default (`auto`). Windows is MinGW
-    (`-gnu`) only for now. Lib releases are tagged by hand.
-  - *Open.* An x86-64-v3 (AVX2/FMA) variant next to the baseline x86-64 build: start
-    with baseline only and measure. Measure the archive size with `lto = "fat"` first.
+    (`-gnu`) only for now. Lib releases are tagged by hand. CPU variants as Explorer
+    does: x86_64 targets ship a modern build (x86-64-v3, AVX2/FMA) and a `legacy-cpu`
+    baseline build. On Linux `ffi.nim` reads `/proc/cpuinfo` at compile time and picks
+    legacy when a flag is missing; elsewhere legacy is only chosen with
+    `-d:nanuqLegacyCpu`, which also forces it everywhere (e.g. when building for older
+    machines than the build host). arm64 targets have one build.
+  - *Before implementing.* Measure the archive size with `lto = "fat"`.
 - **`nimble install` support** (S-M). Today the package expects `rust/` next to `src/`.
   Pairs with prebuilt binaries.
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
