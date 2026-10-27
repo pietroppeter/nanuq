@@ -24,8 +24,8 @@ its OpenSpec change is archived. Format based on
   `series` from `Option`, `readCsv(nullValues = ...)`, and `isNull`, `isNotNull`,
   `fillNull` and `dropNulls` in queries. (#5)
 - `nanuq/datasets` with `penguins()`, the Palmer penguins data (CC0) bundled for
-  examples and tests. The README, the basic example and the tests use it instead of
-  iris. (#8)
+  examples and tests. The README, the basic example, the tests and both dev-log posts
+  use it instead of iris, and the iris sample is gone. The README links the posts. (#8)
 
 ### Changed
 - `toSeq` reads a whole column in one FFI call (two for strings) instead of one per

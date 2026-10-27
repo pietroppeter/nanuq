@@ -37,8 +37,12 @@ data (CC0) for examples and tests.
 ## Documentation
 
 The development log, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
-The first post explains how Nanuq works. Official documentation will come later.
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>:
+
+- [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
+- [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
+
+Official documentation will come later.
 
 ## How it works
 
