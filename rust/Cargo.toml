@@ -10,7 +10,7 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-full"] }
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt"] }
 
 [profile.release]
 opt-level = 3
