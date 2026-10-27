@@ -30,8 +30,10 @@ two), L (more).
     (`~/.cache/nanuq/<libver>/<triple>/`), then `curl` + `tar` + checksum, then cargo.
     `-d:nanuqLib=auto|prebuilt|source` picks the policy. A checksum mismatch is an
     error, every other miss falls back to cargo with a hint.
-  - *Open questions.* Download by default or opt-in, MSVC on Windows, x86-64-v3 variant,
-    manual or automatic lib releases. Measure the archive size with `lto = "fat"` first.
+  - *Decided (Pietro, 2026-10-27).* Download by default (`auto`). Windows is MinGW
+    (`-gnu`) only for now. Lib releases are tagged by hand.
+  - *Open.* An x86-64-v3 (AVX2/FMA) variant next to the baseline x86-64 build: start
+    with baseline only and measure. Measure the archive size with `lto = "fat"` first.
 - **`nimble install` support** (S-M). Today the package expects `rust/` next to `src/`.
   Pairs with prebuilt binaries.
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
