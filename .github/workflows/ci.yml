@@ -12,6 +12,8 @@ on:
       - ".gitignore"
       - "openspec/**"
       - ".claude/**"
+      - "tools/specview.nim"
+      - ".github/workflows/openspec.yml"
   pull_request:
     paths-ignore:
       - "**.md"
@@ -19,6 +21,8 @@ on:
       - ".gitignore"
       - "openspec/**"
       - ".claude/**"
+      - "tools/specview.nim"
+      - ".github/workflows/openspec.yml"
   workflow_dispatch:
 
 # The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.

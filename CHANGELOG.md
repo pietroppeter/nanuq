@@ -19,6 +19,9 @@ its OpenSpec change is archived. Format based on
 - Dev log post "Plotting with ggplotnim": plot a Nanuq DataFrame by converting columns
   to a Datamancer DataFrame, and the options for a smoother bridge. (#4)
 
+- `tools/specview.nim`: an HTML review page for OpenSpec changes (stage, proposal,
+  spec deltas with word diffs, tasks, file diffs), run in CI on planning PRs. (#5)
+
 ### Changed
 - CI builds the Rust library only when `rust/` changes, and shares it with the test and
   docs jobs. Dropped the unused Polars `dtype-full` feature, which cuts the static

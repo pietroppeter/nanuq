@@ -67,7 +67,12 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
   `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
   `openspec` CLI (`npm i -g @fission-ai/openspec`).
-- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger CI.
+- **Reviewing changes**: `nimble specview` writes `specview.html`, a page showing where
+  each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
+  requirements as word diffs against the current spec) and the changed files. On PRs
+  that touch `openspec/` or `BACKLOG.md`, CI posts a summary on the run page and
+  attaches the full page as the `specview` artifact.
+- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger the main CI.
 
 ## Requirements
 

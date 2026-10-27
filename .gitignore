@@ -5,3 +5,5 @@ nimcache/
 *.out
 /docs/**/*.html
 /docs/**/*.png
+/specview.html
+/tools/specview

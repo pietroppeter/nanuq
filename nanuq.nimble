@@ -28,3 +28,6 @@ task docs, "Render the nimib dev log posts in docs/blog (needs nimib and ggplotn
   for f in listFiles("docs/blog"):
     if f.endsWith(".nim"):
       exec "nim r --hints:off " & f
+
+task specview, "Render the OpenSpec review page to specview.html, with file diffs against origin/main":
+  exec "nim r --hints:off tools/specview.nim --base:origin/main"
