@@ -73,28 +73,13 @@ two), L (more).
 
 ## Datasets
 
-- **Sample datasets** (S-M). *In progress in OpenSpec change `add-sample-datasets`.*
-  Small, well-known datasets for examples, tests and the docs,
-  loadable with one call (e.g. `import nanuq/datasets; let df = penguins()`).
-  How others do it:
-  - *Bundled in the package*: R's `datasets`, ggplot2 (`mpg`, `diamonds`), Plotly
-    Express (`px.data.iris()`, gzipped CSVs) and scikit-learn's `load_iris`.
-  - *Downloaded and cached on first use*: seaborn's `load_dataset("penguins")` (from the
-    `seaborn-data` GitHub repo, cached under `~/seaborn-data`) and scikit-learn's
-    `fetch_*` for larger sets. vega_datasets mixes both.
-  - *Plain files in the repo, read by path*: ggplotnim (`data/mpg.csv`). Polars and pandas
-    ship none, and their docs read CSVs from URLs.
-  For Nanuq, the simplest is CSVs in the repo plus a small module that finds them via
-  `currentSourcePath`. Keep the bundled sets small and download anything large.
-  - **Unbundle the datasets later.** Bundling them is a convenience for early
-    development. Once Nanuq matures, drop them from the library and vendor them from
-    elsewhere (a separate package, or download and cache).
-  - **CSV from a string or bytes.** Like Python's `pl.read_csv(io.StringIO(...))`. Would
-    also let datasets be embedded with `staticRead` for self-contained binaries. Needs a
-    new bridge function (Cursor over the bytes).
-  - **Replace iris with penguins** ([palmerpenguins](https://allisonhorst.github.io/palmerpenguins/),
-    CC0, 344 rows) in the examples, tests and dev log. Penguins has missing values, so it
-    loads with `readCsv(path, nullValues = ["NA"])` now that nulls are supported.
+- **Unbundle the datasets** (S). `nanuq/datasets` bundles penguins as a convenience for
+  early development. Once Nanuq matures, drop the data from the library and vendor it
+  from elsewhere (a separate package, or download and cache, like seaborn's
+  `load_dataset`).
+- **CSV from a string or bytes** (S). Like Python's `pl.read_csv(io.StringIO(...))`.
+  Would also let datasets be embedded with `staticRead` for self-contained binaries.
+  Needs a new bridge function (Cursor over the bytes).
 
 ## Docs
 

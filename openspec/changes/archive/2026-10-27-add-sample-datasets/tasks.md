@@ -9,7 +9,7 @@
 
 - [x] 2.1 Rewrite the README example and its output, and `examples/basic.nim`, with penguins (e.g. mean body mass and count per species, after `dropNulls`); verify `nimble example` prints what the README shows
 - [x] 2.2 Switch the CSV read test in `tests/test_basic.nim` to penguins or the fixture, and update the `src/nanuq.nim` module doc example; verify `nimble test` passes
-- [ ] 2.3 Check CI is green on the PR
+- [x] 2.3 Check CI is green on the PR
 
 ## Workflow follow-up
 
