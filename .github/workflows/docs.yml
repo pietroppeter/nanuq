@@ -1,0 +1,55 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # ubuntu-24.04 still ships libpcre3, which nimib's markdown renderer needs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.4"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y libpcre3
+      - run: nimble install -y nimib
+      - run: nimble docs
+      - name: Assemble site
+        run: |
+          mkdir -p _site/blog
+          cp docs/blog/*.html _site/blog/
+          # until there is a blog index, the site root opens the latest post
+          latest=$(ls docs/blog/*.html | sort | tail -1 | xargs basename)
+          echo "<!doctype html><meta http-equiv=\"refresh\" content=\"0; url=blog/$latest\"><a href=\"blog/$latest\">Nanuq dev log</a>" > _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

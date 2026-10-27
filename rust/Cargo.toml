@@ -1,0 +1,16 @@
+[package]
+name = "nanuq_ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI over Polars, consumed by the Nanuq Nim library"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-full"] }
+
+[profile.release]
+opt-level = 3
