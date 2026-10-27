@@ -14,7 +14,8 @@ two), L (more).
 
 ## Distribution
 
-- **Prebuilt binaries for users** (M). Removes the ~10 minute first build for users.
+- **Prebuilt binaries for users** (M). *In progress in OpenSpec change
+  `ship-prebuilt-binaries`.* Removes the ~10 minute first build for users.
   Researched 2026-10-27 (Explorer/rustler_precompiled, r-polars, nwaku's `librln`,
   Julia JLLs, Zig, Go, Node, Ruby, Deno), written up in the dev log post "Shipping the
   Rust half" (`docs/blog/shipping_rust_binaries.nim`). The plan that came out of it:
@@ -39,8 +40,9 @@ two), L (more).
     `-d:nanuqLegacyCpu`, which also forces it everywhere (e.g. when building for older
     machines than the build host). arm64 targets have one build.
   - *Before implementing.* Measure the archive size with `lto = "fat"`.
-- **`nimble install` support** (S-M). Today the package expects `rust/` next to `src/`.
-  Pairs with prebuilt binaries.
+- **`nimble install` support** (S-M). *In progress in OpenSpec change
+  `ship-prebuilt-binaries`* (the crate moves to `src/rust/`, since nimble installs only
+  `srcDir`).
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
   lib (about 300 MB unstripped), with runtime loading.
 
