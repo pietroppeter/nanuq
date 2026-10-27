@@ -1,6 +1,7 @@
 name: CI
 
-# Commits that only touch prose (README, LICENSE, ...) don't run CI.
+# Commits that only touch prose (README, BACKLOG, LICENSE, ...) or OpenSpec
+# planning files (openspec/, .claude/) don't run CI.
 # Changes under docs/ still do, since they rebuild the dev log.
 on:
   push:
@@ -9,11 +10,15 @@ on:
       - "**.md"
       - "LICENSE"
       - ".gitignore"
+      - "openspec/**"
+      - ".claude/**"
   pull_request:
     paths-ignore:
       - "**.md"
       - "LICENSE"
       - ".gitignore"
+      - "openspec/**"
+      - ".claude/**"
   workflow_dispatch:
 
 # The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.

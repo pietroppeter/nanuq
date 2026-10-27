@@ -47,6 +47,16 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 (`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
 The first post explains how Nanuq works. Official documentation will come later.
 
+## How we work
+
+- **Ideas** go in [BACKLOG.md](BACKLOG.md).
+- **Changes** are planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
+  `openspec/specs/` describes how Nanuq behaves today, and each change gets a proposal,
+  spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
+  `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
+  `openspec` CLI (`npm i -g @fission-ai/openspec`).
+- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger CI.
+
 ## Requirements
 
 - Nim >= 2.0
@@ -75,7 +85,4 @@ is missing, importing `nanuq` also runs `cargo build` at compile time
 
 ## Next steps
 
-- Generate `src/nanuq/ffi.nim` with [nbindgen](https://github.com/arnetheduck/nbindgen) instead of by hand
-- Zero-copy column exchange through the Arrow C Data Interface
-- More IO (Parquet, scan_csv), joins, more dtypes (dates, nulls)
-- Prebuilt libraries so users don't need cargo; `nimble install` support
+See [BACKLOG.md](BACKLOG.md).
