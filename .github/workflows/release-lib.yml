@@ -64,8 +64,8 @@ jobs:
       - name: Build
         run: |
           if [ -n "${{ matrix.cpu }}" ]; then export RUSTFLAGS="-C target-cpu=${{ matrix.cpu }}"; fi
-          cargo build --release --manifest-path src/rust/Cargo.toml --target ${{ matrix.target }}
-          tar czf "$ARCHIVE" -C src/rust/target/${{ matrix.target }}/release libnanuq_ffi.a
+          cargo build --profile dist --manifest-path src/rust/Cargo.toml --target ${{ matrix.target }}
+          tar czf "$ARCHIVE" -C src/rust/target/${{ matrix.target }}/dist libnanuq_ffi.a
           ls -l "$ARCHIVE"
       - uses: actions/upload-artifact@v4
         with:

@@ -3,7 +3,7 @@
 ## 1. Move the crate and measure
 
 - [x] 1.1 Move `rust/` to `src/rust/` (git mv). Update `ffi.nim`, `nanuq.nimble` tasks, `.gitignore`, `ci.yml` paths and cache keys, `openspec/config.yaml` context, README and the dev-log posts' mentions of `rust/`, and add `skipDirs` for `rust/target`. Verify `nimble test` passes and `nimble install` into a temporary `--nimbleDir` contains `rust/Cargo.toml` but no `rust/target`.
-- [ ] 1.2 Measure the archive (`tar czf` of `libnanuq_ffi.a`) with the current profile and with `lto = "fat"`, `codegen-units = 1`. Keep the LTO settings if the archive is clearly smaller and the build stays under ~20 minutes. Record the numbers in the PR description.
+- [x] 1.2 Measure the archive (`tar czf` of `libnanuq_ffi.a`) with the current profile and with `lto = "fat"`, `codegen-units = 1`. Keep the LTO settings if the archive is clearly smaller and the build stays under ~20 minutes. Record the numbers in the PR description.
 
 ## 2. Version in the library
 
