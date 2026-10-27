@@ -4,19 +4,102 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.
+# It is built once per change of rust/, cached by a hash of its sources, and
+# shared with the other jobs as a prebuilt static library.
+env:
+  LIB_DIR: rust/target/release
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  rust-lib:
+    name: build libnanuq_ffi
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - id: key
+        run: echo "key=nanuq-ffi-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/Cargo.toml', 'rust/Cargo.lock', 'rust/src/**') }}" >> "$GITHUB_OUTPUT"
+      # exact-key cache of the finished library: a hit skips Rust entirely
+      - id: lib-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIB_DIR }}/libnanuq_ffi.a
+          key: ${{ steps.key.outputs.key }}
+      - if: steps.lib-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+      # on a miss, reuse compiled dependencies (Polars) so only our crate rebuilds
+      - if: steps.lib-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+      - if: steps.lib-cache.outputs.cache-hit != 'true'
+        run: cargo build --release --manifest-path rust/Cargo.toml
+      - run: ls -lh "$LIB_DIR/libnanuq_ffi.a"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libnanuq_ffi-linux-x64
+          path: ${{ env.LIB_DIR }}/libnanuq_ffi.a
+          retention-days: 7
+
+  test:
+    needs: rust-lib
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libnanuq_ffi-linux-x64
+          path: ${{ env.LIB_DIR }}
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nimble test
-      - run: nimble example
+      # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
+      - run: nim r -d:nanuqNoCargo --hints:off tests/test_basic.nim
+      - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
+
+  docs:
+    needs: rust-lib
+    runs-on: ubuntu-24.04  # still ships libpcre3, which nimib's markdown renderer needs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libnanuq_ffi-linux-x64
+          path: ${{ env.LIB_DIR }}
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.4"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: sudo apt-get update && sudo apt-get install -y libpcre3
+      - run: nimble install -y nimib
+      - name: Render dev log posts
+        run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done
+      - name: Assemble site
+        run: |
+          mkdir -p _site/blog
+          cp docs/blog/*.html _site/blog/
+          # until there is a blog index, the site root opens the latest post
+          latest=$(ls docs/blog/*.html | sort | tail -1 | xargs basename)
+          echo "<!doctype html><meta http-equiv=\"refresh\" content=\"0; url=blog/$latest\"><a href=\"blog/$latest\">Nanuq dev log</a>" > _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy-docs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [docs, test]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
