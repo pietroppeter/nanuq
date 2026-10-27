@@ -1,0 +1,143 @@
+name: Release lib
+
+# Builds the prebuilt Polars wrapper (libnanuq_ffi.a) for every supported target,
+# smoke-tests each archive on its own platform, and, for a pushed lib-v<version>
+# tag, publishes them as a GitHub Release and opens a PR with their SHA-256 sums
+# (src/nanuq/lib-sums.txt). Run it by hand (workflow_dispatch) to build and test
+# without publishing.
+on:
+  push:
+    tags: ["lib-v*"]
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version=$(grep -m1 '^version' src/rust/Cargo.toml | cut -d'"' -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "lib-v$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match the crate version $version"
+            exit 1
+          fi
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds run in manylinux_2_28, so they link on glibc 2.28 and newer
+          - { target: x86_64-unknown-linux-gnu, variant: "", cpu: x86-64-v3, os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64" }
+          - { target: x86_64-unknown-linux-gnu, variant: "-legacy-cpu", cpu: "", os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64" }
+          - { target: aarch64-unknown-linux-gnu, variant: "", cpu: "", os: ubuntu-24.04-arm, container: "quay.io/pypa/manylinux_2_28_aarch64" }
+          - { target: aarch64-apple-darwin, variant: "", cpu: "", os: macos-15, container: "" }
+          # gnu, so the library links with Nim's default MinGW gcc
+          - { target: x86_64-pc-windows-gnu, variant: "", cpu: x86-64-v3, os: windows-latest, container: "" }
+          - { target: x86_64-pc-windows-gnu, variant: "-legacy-cpu", cpu: "", os: windows-latest, container: "" }
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    env:
+      ARCHIVE: libnanuq_ffi-${{ needs.version.outputs.version }}-${{ matrix.target }}${{ matrix.variant }}.tar.gz
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          # the GitHub runners have rustup, the manylinux containers don't
+          if command -v rustup > /dev/null; then
+            rustup target add ${{ matrix.target }}
+          else
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --target ${{ matrix.target }}
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Build
+        run: |
+          if [ -n "${{ matrix.cpu }}" ]; then export RUSTFLAGS="-C target-cpu=${{ matrix.cpu }}"; fi
+          cargo build --release --manifest-path src/rust/Cargo.toml --target ${{ matrix.target }}
+          tar czf "$ARCHIVE" -C src/rust/target/${{ matrix.target }}/release libnanuq_ffi.a
+          ls -l "$ARCHIVE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 7
+
+  # Each archive is linked and run on a plain runner of its platform, with the
+  # default Nim toolchain (MinGW on Windows).
+  smoke-test:
+    needs: [version, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, variant: "", os: ubuntu-24.04 }
+          - { target: x86_64-unknown-linux-gnu, variant: "-legacy-cpu", os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, variant: "", os: ubuntu-24.04-arm }
+          - { target: aarch64-apple-darwin, variant: "", os: macos-15 }
+          - { target: x86_64-pc-windows-gnu, variant: "", os: windows-latest }
+          - { target: x86_64-pc-windows-gnu, variant: "-legacy-cpu", os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    env:
+      ARCHIVE: libnanuq_ffi-${{ needs.version.outputs.version }}-${{ matrix.target }}${{ matrix.variant }}.tar.gz
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.4"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: mkdir prebuilt && tar xzf "$ARCHIVE" -C prebuilt
+      - run: nim r -d:nanuqLibDir=prebuilt --hints:off tests/test_basic.nim
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, smoke-test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Sums
+        run: |
+          cd dist && sha256sum libnanuq_ffi-*.tar.gz > lib-sums.txt && cat lib-sums.txt
+      - name: Publish the release
+        run: |
+          gh release create "lib-v$VERSION" dist/*.tar.gz dist/lib-sums.txt \
+            --title "Polars wrapper library $VERSION" \
+            --notes "Prebuilt libnanuq_ffi $VERSION. Nanuq downloads these at compile time; see the README."
+      - name: Commit the sums in a PR
+        run: |
+          head -3 src/nanuq/lib-sums.txt > header.txt
+          cat header.txt dist/lib-sums.txt > src/nanuq/lib-sums.txt
+          branch="lib-sums-$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add src/nanuq/lib-sums.txt
+          git commit -m "lib-sums.txt for lib-v$VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Prebuilt library sums for lib-v$VERSION" \
+            --body "Turns on downloads of the lib-v$VERSION archives. Generated by the Release lib workflow."

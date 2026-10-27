@@ -2,11 +2,11 @@ schema: spec-driven
 
 context: |
   Nanuq wraps the Rust Polars library for Nim through a C ABI:
-  rust/ (nanuq_ffi crate, extern "C", opaque pointers) -> src/nanuq/ffi.nim (raw importc)
+  src/rust/ (nanuq_ffi crate, extern "C", opaque pointers) -> src/nanuq/ffi.nim (raw importc)
   -> src/nanuq.nim (Nim API with destructors).
-  Every change to the C ABI must update rust/src/lib.rs and src/nanuq/ffi.nim together.
+  Every change to the C ABI must update src/rust/src/lib.rs and src/nanuq/ffi.nim together.
   A cold Rust build compiles Polars and takes about 10 minutes, so CI and user-facing
-  workflows should avoid rebuilding it when rust/ has not changed.
+  workflows should avoid rebuilding it when src/rust/ has not changed.
   Targets: Nim >= 2.0, stable Rust; Linux x64 first, then macOS and Windows.
   Ideas that are not yet a change live in BACKLOG.md at the repo root.
 

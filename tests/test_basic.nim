@@ -1,5 +1,6 @@
 import std/[os, unittest, strutils, math]
 import nanuq
+from nanuq/ffi import lacksModernCpu
 
 const dataDir = currentSourcePath.parentDir.parentDir / "src" / "nanuq" / "data"
 
@@ -92,3 +93,11 @@ suite "expressions and queries":
       discard df.select(col("nope"))
     expect NanuqError:
       discard df.getInt("nope", 0)
+
+suite "library":
+  test "linked library matches the crate version":
+    check polarsWrapperVersion() == nanuqLibVersion
+    check nanuqLibVersion.len > 0
+  test "CPU detection picks the legacy build without AVX2":
+    check not lacksModernCpu("flags\t\t: fpu sse2 avx avx2 bmi1 bmi2 fma f16c movbe\n")
+    check lacksModernCpu("flags\t\t: fpu sse2 avx\n")

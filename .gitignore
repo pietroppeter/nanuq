@@ -1,4 +1,4 @@
-rust/target/
+src/rust/target/
 nimcache/
 /examples/basic
 /tests/test_basic
