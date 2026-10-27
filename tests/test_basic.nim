@@ -1,7 +1,7 @@
 import std/[os, unittest, strutils, math]
 import nanuq
 
-const dataDir = currentSourcePath.parentDir.parentDir / "examples"
+const dataDir = currentSourcePath.parentDir.parentDir / "src" / "nanuq" / "data"
 
 suite "dataframe construction":
   test "from series":
@@ -27,10 +27,10 @@ suite "dataframe construction":
 
 suite "csv":
   test "read":
-    let df = readCsv(dataDir / "iris_sample.csv")
-    check df.shape == (12, 5)
-    check df.dtype("sepal_length") == "f64"
-    check df.getFloat("sepal_length", 0) == 5.1
+    let df = readCsv(dataDir / "penguins.csv", nullValues = ["NA"])
+    check df.shape == (344, 8)
+    check df.dtype("bill_length_mm") == "f64"
+    check df.getFloat("bill_length_mm", 0) == 39.1
 
   test "missing file raises":
     expect NanuqError:

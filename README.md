@@ -7,30 +7,32 @@ Nanuq (Inuit for "polar bear") brings [Polars](https://pola.rs) DataFrames to Ni
 > **Status: proof of concept.** The API is small and will change.
 
 ```nim
-import nanuq
+import nanuq, nanuq/datasets
 
-let iris = readCsv("examples/iris_sample.csv")
-echo iris.lazy
-  .filter(col("sepal_length") > 5.0)
+echo penguins().lazy
+  .dropNulls("body_mass_g")
   .groupBy(col("species"))
-  .agg(col("sepal_length").mean.alias("mean_sepal_length"),
+  .agg(col("body_mass_g").mean.alias("mean_body_mass_g"),
        col("species").count.alias("n"))
-  .sort("mean_sepal_length", descending = true)
+  .sort("mean_body_mass_g", descending = true)
   .collect
 ```
 
 ```
 shape: (3, 3)
-┌────────────┬───────────────────┬─────┐
-│ species    ┆ mean_sepal_length ┆ n   │
-│ ---        ┆ ---               ┆ --- │
-│ str        ┆ f64               ┆ u32 │
-╞════════════╪═══════════════════╪═════╡
-│ versicolor ┆ 6.45              ┆ 4   │
-│ virginica  ┆ 6.425             ┆ 4   │
-│ setosa     ┆ 5.25              ┆ 2   │
-└────────────┴───────────────────┴─────┘
+┌───────────┬──────────────────┬─────┐
+│ species   ┆ mean_body_mass_g ┆ n   │
+│ ---       ┆ ---              ┆ --- │
+│ str       ┆ f64              ┆ u32 │
+╞═══════════╪══════════════════╪═════╡
+│ Gentoo    ┆ 5076.01626       ┆ 123 │
+│ Chinstrap ┆ 3733.088235      ┆ 68  │
+│ Adelie    ┆ 3700.662252      ┆ 151 │
+└───────────┴──────────────────┴─────┘
 ```
+
+`nanuq/datasets` bundles the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
+data (CC0) for examples and tests.
 
 ## Documentation
 
