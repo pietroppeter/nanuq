@@ -4,10 +4,12 @@ name: Release lib
 # smoke-tests each archive on its own platform, and, for a pushed lib-v<version>
 # tag, publishes them as a GitHub Release and opens a PR with their SHA-256 sums
 # (src/nanuq/lib-sums.txt). Run it by hand (workflow_dispatch) to build and test
-# without publishing.
+# without publishing; PRs that change this workflow do the same.
 on:
   push:
     tags: ["lib-v*"]
+  pull_request:
+    paths: [".github/workflows/release-lib.yml"]
   workflow_dispatch:
 
 jobs:
