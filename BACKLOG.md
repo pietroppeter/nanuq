@@ -14,10 +14,24 @@ two), L (more).
 
 ## Distribution
 
-- **Prebuilt binaries for users** (M). A release workflow builds `libnanuq_ffi` for
-  Linux x64, macOS arm64 and Windows and attaches it to GitHub Releases. `ffi.nim`
-  downloads the one matching the package version at compile time and falls back to
-  cargo. This removes the ~10 minute first build for users.
+- **Prebuilt binaries for users** (M). Removes the ~10 minute first build for users.
+  Researched 2026-10-27 (Explorer/rustler_precompiled, r-polars, nwaku's `librln`,
+  Julia JLLs, Zig, Go, Node, Ruby, Deno). The plan that came out of it:
+  - *Release.* A workflow on `lib-v*` tags builds the static lib for
+    `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.28 floor),
+    `aarch64-apple-darwin` and `x86_64-pc-windows-gnu` (gnu, so it links with Nim's
+    default MinGW), and attaches `libnanuq_ffi-<libver>-<triple>.tar.gz` plus SHA-256 sums.
+  - *Versioning.* The lib version is `rust/Cargo.toml`'s, separate from the Nim package
+    version, so Nim-only releases reuse the last lib. Sums are committed (e.g.
+    `rust/lib-sums.txt`). A `-dev` lib version never downloads, and CI fails if `rust/`
+    changed without a version bump. Rust exports `nq_version()` for a runtime check.
+  - *Download.* At compile time in `ffi.nim`, not in a nimble hook (Atlas, nimby and git
+    clones don't run hooks): `nanuqLibDir`, then local cargo output, then a user cache
+    (`~/.cache/nanuq/<libver>/<triple>/`), then `curl` + `tar` + checksum, then cargo.
+    `-d:nanuqLib=auto|prebuilt|source` picks the policy. A checksum mismatch is an
+    error, every other miss falls back to cargo with a hint.
+  - *Open questions.* Download by default or opt-in, MSVC on Windows, x86-64-v3 variant,
+    manual or automatic lib releases. Measure the archive size with `lto = "fat"` first.
 - **`nimble install` support** (S-M). Today the package expects `rust/` next to `src/`.
   Pairs with prebuilt binaries.
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
