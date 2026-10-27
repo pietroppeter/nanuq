@@ -75,6 +75,27 @@ two), L (more).
 - **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
   work.
 
+## Datasets
+
+- **Sample datasets** (S-M). Small, well-known datasets for examples, tests and the docs,
+  loadable with one call (e.g. `import nanuq/datasets; let df = penguins()`).
+  How others do it:
+  - *Bundled in the package*: R's `datasets`, ggplot2 (`mpg`, `diamonds`), Plotly
+    Express (`px.data.iris()`, gzipped CSVs) and scikit-learn's `load_iris`.
+  - *Downloaded and cached on first use*: seaborn's `load_dataset("penguins")` (from the
+    `seaborn-data` GitHub repo, cached under `~/seaborn-data`) and scikit-learn's
+    `fetch_*` for larger sets. vega_datasets mixes both.
+  - *Plain files in the repo, read by path*: ggplotnim (`data/mpg.csv`). Polars and pandas
+    ship none, and their docs read CSVs from URLs.
+  For Nanuq, the simplest is CSVs in the repo plus a small module. In Nim, `staticRead`
+  can embed the CSV in the binary, so loading needs no path and no network. That needs
+  a read-CSV-from-string function in the bridge. Keep the bundled sets small and
+  download anything large.
+  - **Replace iris with penguins** ([palmerpenguins](https://allisonhorst.github.io/palmerpenguins/),
+    CC0, 344 rows) in the examples, tests and dev log. Penguins has missing values, so it
+    needs null handling first (see "Nulls and more dtypes" under API). Until then, a
+    cleaned subset without NAs could stand in.
+
 ## Docs
 
 - **Blog index page** (S). A list of dev-log posts instead of redirecting to the
