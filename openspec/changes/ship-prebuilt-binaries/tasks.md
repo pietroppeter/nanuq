@@ -11,8 +11,8 @@
 
 ## 3. Release workflow
 
-- [ ] 3.1 Add `.github/workflows/release-lib.yml` (on `lib-v*` tags and `workflow_dispatch` without publishing): check the tag against `Cargo.toml`, run the 6-archive build matrix as in design.md (manylinux_2_28 for Linux, macos-15, windows-latest with MinGW, v3 / legacy-cpu for x86_64), smoke-test each archive with `tests/test_basic.nim` on its runner, then publish the release with the sums file and open a PR that updates `src/nanuq/lib-sums.txt`. Verify with a `workflow_dispatch` run that all six jobs build and pass their smoke tests.
-- [ ] 3.2 Add the Windows system libraries to `ffi.nim`'s link flags. Verify via the Windows smoke test in 3.1.
+- [x] 3.1 Add `.github/workflows/release-lib.yml` (on `lib-v*` tags and `workflow_dispatch` without publishing): check the tag against `Cargo.toml`, run the 6-archive build matrix as in design.md (manylinux_2_28 for Linux, macos-15, windows-latest with MinGW, v3 / legacy-cpu for x86_64), smoke-test each archive with `tests/test_basic.nim` on its runner, then publish the release with the sums file and open a PR that updates `src/nanuq/lib-sums.txt`. Verify with a `workflow_dispatch` run that all six jobs build and pass their smoke tests.
+- [x] 3.2 Add the Windows system libraries to `ffi.nim`'s link flags. Verify via the Windows smoke test in 3.1.
 
 ## 4. Compile-time download
 
