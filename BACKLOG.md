@@ -42,6 +42,28 @@ two), L (more).
 - **Column access as Nim seqs without per-cell calls** (S). Bulk copy instead of
   `toSeq` reading cell by cell.
 
+## Ecosystem
+
+- **Plotting with ggplotnim** (S-M). ggplotnim plots Datamancer DataFrames
+  (Arraymancer tensors per column), so a Nanuq DataFrame has to reach that shape. Options,
+  from simplest to leanest:
+  1. *Convert to Datamancer.* `toDatamancer(df)` copies each column into a tensor. It
+     lives in an optional module (`nanuq/datamancer`) so the core doesn't depend on
+     Datamancer. Simple, but it copies every column.
+  2. *Convert only what the plot uses.* A `ggplot(df: nanuq.DataFrame, aes(...))`
+     overload reads the column names in `aes` and converts only those. The user can also
+     aggregate in Polars first (`groupBy/agg`) and convert the small result. This is the
+     lightweight path, and it covers most plots.
+  3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
+     Polars buffers as tensors without copying. Only worth it for very large plots.
+  Start with 2, built on 1.
+- **Datamancer interop both ways** (S). `toDatamancer` / `fromDatamancer`, so existing
+  Datamancer code can use Polars for the heavy queries.
+- **nimib integration** (S). Render a DataFrame as an HTML table in nimib documents
+  (`nbDataFrame` or a `toHtml` proc) instead of the text table.
+- **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
+  work.
+
 ## Docs
 
 - **Blog index page** (S). A list of dev-log posts instead of redirecting to the
