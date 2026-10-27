@@ -60,7 +60,8 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 
 ## How we work
 
-- **Ideas** go in [BACKLOG.md](BACKLOG.md).
+- **Ideas** go in [BACKLOG.md](BACKLOG.md). When an idea has been implemented, it moves
+  from the backlog to [CHANGELOG.md](CHANGELOG.md).
 - **Changes** are planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
   `openspec/specs/` describes how Nanuq behaves today, and each change gets a proposal,
   spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use

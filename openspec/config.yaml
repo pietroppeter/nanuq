@@ -10,6 +10,17 @@ context: |
   Targets: Nim >= 2.0, stable Rust; Linux x64 first, then macOS and Windows.
   Ideas that are not yet a change live in BACKLOG.md at the repo root.
 
+rules:
+  proposal:
+    - If the change comes from a BACKLOG.md entry, name that entry, and mark it in
+      BACKLOG.md as in progress with the change name
+
+operations:
+  archive:
+    guidance:
+      - Remove the change's entry from BACKLOG.md, if it has one
+      - Add a line for the change to CHANGELOG.md under Unreleased (Added, Changed or Fixed), with the PR number
+
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
 # Include constraints an agent cannot infer by reading the code.
