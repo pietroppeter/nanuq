@@ -19,10 +19,27 @@ echo iris.lazy
   .collect
 ```
 
+```
+shape: (3, 3)
+┌────────────┬───────────────────┬─────┐
+│ species    ┆ mean_sepal_length ┆ n   │
+│ ---        ┆ ---               ┆ --- │
+│ str        ┆ f64               ┆ u32 │
+╞════════════╪═══════════════════╪═════╡
+│ versicolor ┆ 6.45              ┆ 4   │
+│ virginica  ┆ 6.425             ┆ 4   │
+│ setosa     ┆ 5.25              ┆ 2   │
+└────────────┴───────────────────┴─────┘
+```
+
+## Documentation
+
+The development log, written with [nimib](https://github.com/pietroppeter/nimib)
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
+The first post explains how Nanuq works. Official documentation will come later.
+
 ## How it works
 
-This follows the approach discussed in the Nim forum thread
-[nbindgen - calling rust code from nim](https://forum.nim-lang.org/t/5816#57150):
 Rust can export a C-compatible API, and Nim can call it like any C library.
 
 ```
@@ -40,12 +57,6 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   in Polars), so Nim values can be shared freely.
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
   `NanuqError`.
-
-## Documentation
-
-The development log, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
-The first post explains how Nanuq works. Official documentation will come later.
 
 ## How we work
 
