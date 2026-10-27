@@ -59,8 +59,11 @@ Rust reuses Polars' formatting and is a single vectorised operation.
 is false: "column 'a' has N nulls; read it as Option[T] or fill them first".
 `toSeq(df, col, Option[T])` builds `some`/`none` from the mask. Both share one internal
 `readColumn` per type returning `(values, valid)`. The single-cell `df[col, row,
-Option[T]]` and `isNull` use a new `nq_df_is_null(df, name, row, out: *mut bool)`
-together with the existing getters, because a single cell doesn't need the bulk path.
+Option[T]]` uses a new `nq_df_cell_is_null(df, name, row, out: *mut bool)` together
+with the existing getters, because a single cell doesn't need the bulk path. That
+function is internal: the Nim API has no cell-level `isNull` (see proposal,
+"Differences from Polars"). `nullCount` uses `nq_df_null_count`, and `hasNulls` is
+`nullCount > 0`.
 - *Why strict by default:* a null that silently becomes 0 is the bug this change is
   meant to prevent. Users who want defaults write `fillNull` in the query, or map over
   the Option seq.

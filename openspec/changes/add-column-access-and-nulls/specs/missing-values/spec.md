@@ -28,11 +28,15 @@ read include a null, and the message SHALL name the column.
 - **THEN** `NanuqError` is raised before any value is returned, naming column "a"
 
 ### Requirement: Inspecting nulls
-The API SHALL report the number of nulls in a column and whether a given cell is null.
+The API SHALL report the number of nulls in a column and whether it has any.
 
 #### Scenario: Counting
 - **WHEN** a column of 3 values has 1 null
-- **THEN** `nullCount(df, "a")` is 1, `isNull(df, "a", 1)` is true and `isNull(df, "a", 0)` is false
+- **THEN** `nullCount(df, "a")` is 1 and `hasNulls(df, "a")` is true
+
+#### Scenario: No nulls
+- **WHEN** a column has no nulls
+- **THEN** `nullCount` is 0 and `hasNulls` is false
 
 ### Requirement: Building columns with nulls
 `series` SHALL accept `openArray[Option[T]]` for int, float, bool and string, storing

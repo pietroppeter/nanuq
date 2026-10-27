@@ -9,7 +9,7 @@
 ## 2. Reading and inspecting nulls
 
 - [ ] 2.1 Add `toSeq(df, col, Option[T])` from the validity mask; verify with a test on a column 1, null, 3
-- [ ] 2.2 Add `nq_df_null_count` and `nq_df_is_null`, plus `nullCount`, `isNull` and `df[col, row, Option[T]]` in Nim; verify with tests
+- [ ] 2.2 Add `nq_df_null_count` and `nq_df_cell_is_null`, plus `nullCount`, `hasNulls` and `df[col, row, Option[T]]` in Nim; verify with tests
 - [ ] 2.3 Add `nq_series_new_*_opt` and `series(name, openArray[Option[T]])` for the four types; verify a round-trip test (build with nulls, read back as Option, `dtype` unchanged)
 
 ## 3. Nulls in queries and IO
@@ -21,7 +21,7 @@
 
 ## 4. Docs and integration
 
-- [ ] 4.1 Update README "What is there" and the `toSeq` doc comments for Option reads, `nullCount`, `fillNull`, `dropNulls` and `nullValues`; verify `nimble test` and `nimble example` pass
+- [ ] 4.1 Update README "What is there" and the `toSeq` doc comments for Option reads, `nullCount`, `hasNulls`, `fillNull`, `dropNulls` and `nullValues`; verify `nimble test` and `nimble example` pass
 - [ ] 4.2 Check that CI is green on the PR, including the one-off Rust rebuild
 
 ## Workflow follow-up
