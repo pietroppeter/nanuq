@@ -5,13 +5,13 @@
 ## released automatically when the Nim value goes out of scope.
 ##
 ## .. code-block:: nim
-##   import nanuq
+##   import nanuq, nanuq/datasets
 ##
-##   let df = readCsv("iris.csv")
+##   let df = penguins()  # or readCsv("penguins.csv", nullValues = ["NA"])
 ##   echo df.lazy
-##     .filter(col("sepal_length") > 5.0)
+##     .filter(col("bill_length_mm") > 40.0)
 ##     .groupBy(col("species"))
-##     .agg(col("sepal_width").mean.alias("mean_width"), col("species").count.alias("n"))
+##     .agg(col("bill_depth_mm").mean.alias("mean_depth"), col("species").count.alias("n"))
 ##     .sort("species")
 ##     .collect
 ##

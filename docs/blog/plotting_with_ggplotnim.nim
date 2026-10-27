@@ -1,6 +1,6 @@
 import nimib
 import std/os
-import nanuq
+import nanuq, nanuq/datasets
 import ggplotnim
 import ../nanuqtheme
 
@@ -34,31 +34,35 @@ us seqs with `toSeq(df, column, T)`. That is the whole bridge for now.
 ## Importing both
 
 Both libraries have a `DataFrame` and a `readCsv`, so with both imported Nim asks us
-to pick. Qualifying the call as `nanuq.readCsv` is enough; everything else (`col`,
-`filter`, `ggplot`, `aes`) resolves by type.
+to pick when we call `readCsv`: qualifying it as `nanuq.readCsv` is enough. Everything
+else (`col`, `filter`, `ggplot`, `aes`) resolves by type. Here we don't even need
+`readCsv`, since we use the Palmer penguins data bundled in `nanuq/datasets`.
 
 ```nim
-import nanuq
+import nanuq, nanuq/datasets
 import ggplotnim
 ```
 """
 
 nbCode:
-  let iris = nanuq.readCsv("examples/iris_sample.csv")
-  echo iris.shape
+  let penguins = penguins()
+  echo penguins.shape
 
 nbText: """
 ## From Nanuq to Datamancer
 
 `toDf` takes a table constructor of column names and seqs. Each `toSeq` copies one
-Polars column into a Nim seq.
+Polars column into a Nim seq. Two penguins have no measurements, and `toSeq` refuses a
+column with nulls (it would otherwise have to invent values), so we drop those rows in
+Polars first.
 """
 
 nbCode:
+  let measured = penguins.dropNulls("flipper_length_mm", "body_mass_g")
   let points = toDf({
-    "sepal_length": iris.toSeq("sepal_length", float),
-    "petal_length": iris.toSeq("petal_length", float),
-    "species": iris.toSeq("species", string),
+    "flipper_length_mm": measured.toSeq("flipper_length_mm", float),
+    "body_mass_g": measured.toSeq("body_mass_g", float),
+    "species": measured.toSeq("species", string),
   })
   echo points.head(3)
 
@@ -67,49 +71,48 @@ nbText: """
 """
 
 nbCode:
-  ggplot(points, aes("sepal_length", "petal_length", color = "species")) +
-    geom_point(size = 3.0) +
-    ggtitle("Iris sample: petal vs sepal length") +
-    ggsave("docs/blog/2026-10-27-iris-scatter.png", width = 640, height = 420)
+  ggplot(points, aes("flipper_length_mm", "body_mass_g", color = "species")) +
+    geom_point(size = 2.0) +
+    ggtitle("Palmer penguins: body mass vs flipper length") +
+    ggsave("docs/blog/2026-10-27-penguins-scatter.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-iris-scatter.png" alt="Scatter plot of petal length against sepal length, coloured by species"></figure>"""
+nbRawHtml: """<figure><img src="2026-10-27-penguins-scatter.png" alt="Scatter plot of body mass against flipper length, coloured by species"></figure>"""
 
 nbText: """
 ## Aggregate in Polars, plot the result
 
 Most plots don't need every row. The heavy work can stay in Polars, and only the
-small result crosses over to Datamancer. Here Polars computes the mean petal length
-per species, and three rows are converted.
+small result crosses over to Datamancer. Here Polars computes the mean body mass per
+species (the mean skips nulls), and three rows are converted.
 """
 
 nbCode:
-  let means = iris.lazy
+  let means = penguins.lazy
     .groupBy(col("species"))
-    .agg(col("petal_length").mean.alias("mean_petal_length"))
+    .agg(col("body_mass_g").mean.alias("mean_body_mass_g"))
     .sort("species")
     .collect
   echo means
 
   let bars = toDf({
     "species": means.toSeq("species", string),
-    "mean_petal_length": means.toSeq("mean_petal_length", float),
+    "mean_body_mass_g": means.toSeq("mean_body_mass_g", float),
   })
-  ggplot(bars, aes("species", "mean_petal_length", fill = "species")) +
+  ggplot(bars, aes("species", "mean_body_mass_g", fill = "species")) +
     geom_bar(stat = "identity", position = "identity") +
-    ggtitle("Mean petal length per species (computed by Polars)") +
-    ggsave("docs/blog/2026-10-27-iris-means.png", width = 640, height = 420)
+    ggtitle("Mean body mass per species (computed by Polars)") +
+    ggsave("docs/blog/2026-10-27-penguins-means.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-iris-means.png" alt="Bar chart of mean petal length for setosa, versicolor and virginica"></figure>"""
+nbRawHtml: """<figure><img src="2026-10-27-penguins-means.png" alt="Bar chart of mean body mass for Adelie, Chinstrap and Gentoo"></figure>"""
 
 nbText: """
 ## What this costs
 
-The recipe works with no glue code, but it has two costs:
+The recipe works with no glue code, but it has a cost:
 
 - **Copies.** Every column goes from Polars' Arrow buffers to a Nim seq, then into a
-  Datamancer column. For a plot of a few thousand points this doesn't matter.
-- **Reading cell by cell.** `toSeq` currently reads one cell per FFI call. Bulk column
-  access is already in the backlog and would make this a single call per column.
+  Datamancer column. `toSeq` copies a whole column in one FFI call, so for a plot of a
+  few thousand points this doesn't matter.
 
 And one inconvenience: we have to spell out the columns twice, once in `toDf` and once
 in `aes`.

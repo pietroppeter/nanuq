@@ -20,8 +20,8 @@ This takes up the BACKLOG.md entry "Sample datasets" (Datasets), including its s
   works from any working directory and needs no network and no change to the Rust bridge.
   This is a convenience while Nanuq is young; the datasets are expected to move out later.
 - The README example, `examples/basic.nim` and the CSV tests use penguins instead of
-  iris. The dated dev-log posts stay as written, so `examples/iris_sample.csv` stays for
-  them.
+  iris. (During implementation Pietro asked to switch the two dev-log posts to penguins
+  too and remove `examples/iris_sample.csv`.)
 
 ## Capabilities
 

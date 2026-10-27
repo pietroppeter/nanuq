@@ -1,6 +1,6 @@
 import nimib
-import std/[os, strutils]
-import nanuq
+import std/[os, strutils, math]
+import nanuq, nanuq/datasets
 import ../nanuqtheme
 
 nbInit
@@ -151,30 +151,34 @@ nbCode:
   echo people.withColumns((2026 - col("born")).alias("years_since_birth"))
 
 nbText: """
-## Reading a CSV and running a lazy query
+## Loading a dataset and running a lazy query
 
 `lazy` turns a DataFrame into a `LazyFrame`, a query plan. Each step returns a new
 plan, and nothing runs until `collect`. This lets Polars optimize the whole query
-first. Below, the example uses a 12-row sample of the classic iris dataset.
+first. Below, the example uses the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
+data, which Nanuq bundles in `nanuq/datasets` (`import nanuq/datasets`): `penguins()` reads its CSV with
+`readCsv`, turning "NA" fields into nulls.
 """
 
 nbCode:
-  let iris = readCsv(currentSourcePath.parentDir.parentDir.parentDir / "examples" / "iris_sample.csv")
-  echo iris.head(3)
+  let df = penguins()
+  echo df.head(3)
 
-  let query = iris.lazy
-    .filter(col("sepal_length") > 5.0)
+  let query = df.lazy
+    .dropNulls("body_mass_g")
+    .filter(col("bill_length_mm") > 40.0)
     .groupBy(col("species"))
     .agg(
-      col("sepal_length").mean.alias("mean_sepal_length"),
-      col("petal_width").max.alias("max_petal_width"),
+      col("body_mass_g").mean.alias("mean_body_mass_g"),
+      col("flipper_length_mm").max.alias("max_flipper_length_mm"),
       col("species").count.alias("n"),
     )
-    .sort("mean_sepal_length", descending = true)
+    .sort("mean_body_mass_g", descending = true)
 
 nbText: """
-`explain` prints the optimized plan. Notice the `PROJECT 3/5 COLUMNS` line at the
-bottom: Polars noticed that only three columns are used and reads only those.
+`explain` prints the optimized plan. Notice the `PROJECT 4/8 COLUMNS` line at the
+bottom: Polars noticed that only four columns are used and reads only those. The
+`dropNulls` step became a filter, merged with ours.
 """
 
 nbCode:
@@ -192,8 +196,8 @@ Cells and whole columns can be copied back into ordinary Nim values.
 
 nbCode:
   let top = summary["species", 0, string]
-  let topMean = summary["mean_sepal_length", 0, float]
-  echo "top species: ", top, " (mean sepal length ", topMean, " cm)"
+  let topMean = summary["mean_body_mass_g", 0, float]
+  echo "heaviest species: ", top, " (mean body mass ", topMean.round(0), " g)"
   echo "counts: ", summary.toSeq("n", int)
 
 nbText: """
@@ -205,7 +209,7 @@ the original message.
 
 nbCode:
   try:
-    discard iris.select(col("petal_colour"))
+    discard df.select(col("wing_colour"))
   except NanuqError as e:
     echo "NanuqError: ", e.msg.splitLines[0]
 
