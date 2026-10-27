@@ -1,6 +1,7 @@
 name: CI
 
-# Commits that only touch prose (README, LICENSE, ...) don't run CI.
+# Commits that only touch prose (README, BACKLOG, LICENSE, ...) or OpenSpec
+# planning files (openspec/, .claude/) don't run CI.
 # Changes under docs/ still do, since they rebuild the dev log.
 on:
   push:
@@ -9,11 +10,15 @@ on:
       - "**.md"
       - "LICENSE"
       - ".gitignore"
+      - "openspec/**"
+      - ".claude/**"
   pull_request:
     paths-ignore:
       - "**.md"
       - "LICENSE"
       - ".gitignore"
+      - "openspec/**"
+      - ".claude/**"
   workflow_dispatch:
 
 # The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.
@@ -82,14 +87,15 @@ jobs:
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: sudo apt-get update && sudo apt-get install -y libpcre3
-      - run: nimble install -y nimib
+      - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2 liblapack3 libblas3
+      # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror
+      - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim
       - name: Render dev log posts
         run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done
       - name: Assemble site
         run: |
           mkdir -p _site/blog
-          cp docs/blog/*.html _site/blog/
+          cp docs/blog/*.html docs/blog/*.png _site/blog/
           # until there is a blog index, the site root opens the latest post
           latest=$(ls docs/blog/*.html | sort | tail -1 | xargs basename)
           echo "<!doctype html><meta http-equiv=\"refresh\" content=\"0; url=blog/$latest\"><a href=\"blog/$latest\">Nanuq dev log</a>" > _site/index.html

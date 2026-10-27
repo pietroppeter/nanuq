@@ -19,10 +19,27 @@ echo iris.lazy
   .collect
 ```
 
+```
+shape: (3, 3)
+┌────────────┬───────────────────┬─────┐
+│ species    ┆ mean_sepal_length ┆ n   │
+│ ---        ┆ ---               ┆ --- │
+│ str        ┆ f64               ┆ u32 │
+╞════════════╪═══════════════════╪═════╡
+│ versicolor ┆ 6.45              ┆ 4   │
+│ virginica  ┆ 6.425             ┆ 4   │
+│ setosa     ┆ 5.25              ┆ 2   │
+└────────────┴───────────────────┴─────┘
+```
+
+## Documentation
+
+The development log, written with [nimib](https://github.com/pietroppeter/nimib)
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
+The first post explains how Nanuq works. Official documentation will come later.
+
 ## How it works
 
-This follows the approach discussed in the Nim forum thread
-[nbindgen - calling rust code from nim](https://forum.nim-lang.org/t/5816#57150):
 Rust can export a C-compatible API, and Nim can call it like any C library.
 
 ```
@@ -41,11 +58,16 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
   `NanuqError`.
 
-## Documentation
+## How we work
 
-The development log, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
-The first post explains how Nanuq works. Official documentation will come later.
+- **Ideas** go in [BACKLOG.md](BACKLOG.md). When an idea has been implemented, it moves
+  from the backlog to [CHANGELOG.md](CHANGELOG.md).
+- **Changes** are planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
+  `openspec/specs/` describes how Nanuq behaves today, and each change gets a proposal,
+  spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
+  `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
+  `openspec` CLI (`npm i -g @fission-ai/openspec`).
+- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger CI.
 
 ## Requirements
 
@@ -75,7 +97,4 @@ is missing, importing `nanuq` also runs `cargo build` at compile time
 
 ## Next steps
 
-- Generate `src/nanuq/ffi.nim` with [nbindgen](https://github.com/arnetheduck/nbindgen) instead of by hand
-- Zero-copy column exchange through the Arrow C Data Interface
-- More IO (Parquet, scan_csv), joins, more dtypes (dates, nulls)
-- Prebuilt libraries so users don't need cargo; `nimble install` support
+See [BACKLOG.md](BACKLOG.md).

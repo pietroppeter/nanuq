@@ -1,0 +1,53 @@
+schema: spec-driven
+
+context: |
+  Nanuq wraps the Rust Polars library for Nim through a C ABI:
+  rust/ (nanuq_ffi crate, extern "C", opaque pointers) -> src/nanuq/ffi.nim (raw importc)
+  -> src/nanuq.nim (Nim API with destructors).
+  Every change to the C ABI must update rust/src/lib.rs and src/nanuq/ffi.nim together.
+  A cold Rust build compiles Polars and takes about 10 minutes, so CI and user-facing
+  workflows should avoid rebuilding it when rust/ has not changed.
+  Targets: Nim >= 2.0, stable Rust; Linux x64 first, then macOS and Windows.
+  Ideas that are not yet a change live in BACKLOG.md at the repo root.
+
+rules:
+  proposal:
+    - If the change comes from a BACKLOG.md entry, name that entry, and mark it in
+      BACKLOG.md as in progress with the change name
+
+operations:
+  archive:
+    guidance:
+      - Remove the change's entry from BACKLOG.md, if it has one
+      - Add a line for the change to CHANGELOG.md under Unreleased (Added, Changed or Fixed), with the PR number
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
