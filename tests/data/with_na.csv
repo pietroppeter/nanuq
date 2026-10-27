@@ -1,0 +1,4 @@
+id,mass,species,flag
+1,3750,Adelie,true
+2,NA,Adelie,NA
+3,4250,NA,false

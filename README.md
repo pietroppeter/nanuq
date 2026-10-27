@@ -95,7 +95,13 @@ is missing, importing `nanuq` also runs `cargo build` at compile time
 ## What is there
 
 - Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
-- Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`, `toSeq`
+- Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
+  `toSeq(df, "col", float)` (one FFI call per column)
+- Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,
+  `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
+  `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
+  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toSeq(df, "col", int)`
+  raises on a column with nulls.
 - Expressions: `col`, `lit`, `+ - * /`, comparisons, `and or not`, `sum mean min max count first last nUnique std`, `alias`
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)

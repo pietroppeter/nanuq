@@ -75,7 +75,7 @@ jobs:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
-      - run: nim r -d:nanuqNoCargo --hints:off tests/test_basic.nim
+      - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
 
   docs:

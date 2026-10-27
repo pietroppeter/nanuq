@@ -14,8 +14,19 @@
 ##     .agg(col("sepal_width").mean.alias("mean_width"), col("species").count.alias("n"))
 ##     .sort("species")
 ##     .collect
+##
+## Missing values (Polars nulls) are read as `Option[T]`:
+##
+## .. code-block:: nim
+##   let df = newDataFrame(series("a", [some(1), none(int), some(3)]))
+##   echo df.toSeq("a", Option[int])   # @[some(1), none(int), some(3)]
+##   echo df.nullCount("a")            # 1
+##   df.toSeq("a", int)                # raises NanuqError: column has nulls
 
+import std/options
 import nanuq/ffi
+
+export options  # some/none/Option, for null-aware reads and series
 
 type
   NanuqError* = object of CatchableError
@@ -110,6 +121,35 @@ proc series*(name: string, data: openArray[string]): Series =
   for i, x in data: buf[i] = x.cstring
   wrap nq_series_new_str(name.cstring, buf.firstOrNil, buf.len.csize_t)
 
+proc optBuffers[T, B](data: openArray[Option[T]], conv: proc (x: T): B): (seq[B], seq[bool]) =
+  result = (newSeq[B](data.len), newSeq[bool](data.len))
+  for i, x in data:
+    if x.isSome:
+      result[0][i] = conv(x.get)
+      result[1][i] = true
+
+proc series*(name: string, data: openArray[Option[int]]): Series =
+  ## A column with nulls where `data` is `none`.
+  let (buf, valid) = optBuffers(data, proc (x: int): int64 = x.int64)
+  wrap nq_series_new_i64_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
+
+proc series*(name: string, data: openArray[Option[float]]): Series =
+  let (buf, valid) = optBuffers(data, proc (x: float): float64 = x)
+  wrap nq_series_new_f64_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
+
+proc series*(name: string, data: openArray[Option[bool]]): Series =
+  let (buf, valid) = optBuffers(data, proc (x: bool): bool = x)
+  wrap nq_series_new_bool_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
+
+proc series*(name: string, data: openArray[Option[string]]): Series =
+  var buf = newSeq[cstring](data.len)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      buf[i] = x.get.cstring   # data stays alive for the call
+      valid[i] = true
+  wrap nq_series_new_str_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
+
 proc newDataFrame*(columns: varargs[Series]): DataFrame =
   ## Builds a DataFrame from columns of equal length.
   ##
@@ -119,9 +159,12 @@ proc newDataFrame*(columns: varargs[Series]): DataFrame =
   for i, c in columns: buf[i] = c.raw
   wrap nq_df_new(buf.firstOrNil, buf.len.csize_t)
 
-proc readCsv*(path: string): DataFrame =
-  ## Reads a CSV file with a header row.
-  wrap nq_df_read_csv(path.cstring)
+proc readCsv*(path: string, nullValues: openArray[string] = []): DataFrame =
+  ## Reads a CSV file with a header row. Fields equal to one of `nullValues`
+  ## (e.g. `["NA"]`) are read as null; empty fields always are.
+  var nulls = newSeq[cstring](nullValues.len)
+  for i, v in nullValues: nulls[i] = v.cstring
+  wrap nq_df_read_csv(path.cstring, nulls.firstOrNil, nulls.len.csize_t)
 
 proc writeCsv*(df: DataFrame, path: string) =
   if not nq_df_write_csv(df.raw, path.cstring): raiseLast()
@@ -149,6 +192,7 @@ proc dtype*(df: DataFrame, column: string): string =
   takeString nq_df_column_dtype(df.raw, column.cstring)
 
 proc getInt*(df: DataFrame, column: string, row: int): int =
+  ## Raises `NanuqError` if the cell is null; see `df[column, row, Option[int]]`.
   var v: int64
   if not nq_df_get_i64(df.raw, column.cstring, row.csize_t, v.addr): raiseLast()
   v.int
@@ -156,16 +200,89 @@ proc getInt*(df: DataFrame, column: string, row: int): int =
 proc getFloat*(df: DataFrame, column: string, row: int): float =
   if not nq_df_get_f64(df.raw, column.cstring, row.csize_t, result.addr): raiseLast()
 
+proc getBool*(df: DataFrame, column: string, row: int): bool =
+  if not nq_df_get_bool(df.raw, column.cstring, row.csize_t, result.addr): raiseLast()
+
 proc getStr*(df: DataFrame, column: string, row: int): string =
   takeString nq_df_get_str(df.raw, column.cstring, row.csize_t)
 
 proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[int]): int = df.getInt(column, row)
 proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[float]): float = df.getFloat(column, row)
+proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[bool]): bool = df.getBool(column, row)
 proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[string]): string = df.getStr(column, row)
 
-proc toSeq*(df: DataFrame, column: string, T: typedesc): seq[T] =
-  ## Copies a whole column into a Nim seq (T is int, float or string).
-  for i in 0 ..< df.height: result.add df[column, i, T]
+proc `[]`*[T: int | float | bool | string](df: DataFrame, column: string, row: int,
+                                           _: typedesc[Option[T]]): Option[T] =
+  ## One cell, `none` if it is null.
+  var isNull: bool
+  if not nq_df_cell_is_null(df.raw, column.cstring, row.csize_t, isNull.addr): raiseLast()
+  if not isNull: result = some(df[column, row, T])
+
+proc nullCount*(df: DataFrame, column: string): int =
+  ## Number of nulls in a column.
+  result = nq_df_null_count(df.raw, column.cstring).int
+  if result < 0: raiseLast()
+
+proc hasNulls*(df: DataFrame, column: string): bool = df.nullCount(column) > 0
+
+proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[bool]) =
+  ## Values and validity mask of a whole column, in one FFI call (two for strings).
+  let n = df.height
+  var valid = newSeq[bool](n)
+  when T is int:
+    var buf = newSeq[int64](n)
+    if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    var vals = newSeq[int](n)
+    for i, x in buf: vals[i] = x.int
+    (vals, valid)
+  elif T is float:
+    var vals = newSeq[float](n)
+    if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    (vals, valid)
+  elif T is bool:
+    var vals = newSeq[bool](n)
+    if not nq_df_column_bool(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    (vals, valid)
+  else:
+    let size = nq_df_column_str_size(df.raw, column.cstring)
+    if size < 0: raiseLast()
+    var data = newSeq[uint8](size)
+    var offsets = newSeq[uint64](n + 1)
+    if not nq_df_column_str(df.raw, column.cstring, data.firstOrNil, size.csize_t,
+                            offsets.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    var vals = newSeq[string](n)
+    for i in 0 ..< n:
+      let (a, b) = (offsets[i].int, offsets[i + 1].int)
+      vals[i] = newString(b - a)
+      if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
+    (vals, valid)
+
+proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
+  ## Copies a whole column into a Nim seq. Raises `NanuqError` if the column has
+  ## nulls: read it as `Option[T]`, or `fillNull` first.
+  ##
+  ## `float` reads integer columns too, `string` reads any column; `int` and
+  ## `bool` only read their own types.
+  let (vals, valid) = readColumn(df, column, T)
+  var nulls = 0
+  for ok in valid:
+    if not ok: inc nulls
+  if nulls > 0:
+    raise newException(NanuqError, "column '" & column & "' has " & $nulls &
+      " null(s); read it as Option[" & $T & "] or fill them first")
+  vals
+
+proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string,
+                                            _: typedesc[Option[T]]): seq[Option[T]] =
+  ## Copies a whole column into a Nim seq, with `none` for nulls.
+  let (vals, valid) = readColumn(df, column, T)
+  result = newSeq[Option[T]](vals.len)
+  for i, v in vals:
+    if valid[i]: result[i] = some(v)
 
 # ---------------------------------------------------------------------------
 # Expressions
@@ -215,6 +332,14 @@ proc nUnique*(e: Expr): Expr = unary(e, nqNUnique)
 proc std*(e: Expr): Expr = unary(e, nqStd)
   ## Sample standard deviation (ddof = 1).
 
+proc isNull*(e: Expr): Expr = unary(e, nqIsNull)
+proc isNotNull*(e: Expr): Expr = unary(e, nqIsNotNull)
+
+proc fillNull*(e: Expr, value: Expr): Expr =
+  ## Replaces nulls with `value` (an expression, or a literal below).
+  wrap nq_expr_fill_null(e.raw, value.raw)
+proc fillNull*[T: SomeNumber | string | bool](e: Expr, value: T): Expr = e.fillNull(lit(value))
+
 proc alias*(e: Expr, name: string): Expr = wrap nq_expr_alias(e.raw, name.cstring)
 
 # ---------------------------------------------------------------------------
@@ -248,6 +373,12 @@ proc agg*(g: LazyGroupBy, aggs: varargs[Expr]): LazyFrame =
 proc sort*(lf: LazyFrame, by: string, descending = false): LazyFrame =
   wrap nq_lf_sort(lf.raw, by.cstring, descending)
 
+proc dropNulls*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
+  ## Drops rows with a null in any column, or only in the `subset` columns.
+  var names = newSeq[cstring](subset.len)
+  for i, s in subset: names[i] = s.cstring
+  wrap nq_lf_drop_nulls(lf.raw, names.firstOrNil, names.len.csize_t)
+
 proc limit*(lf: LazyFrame, n: int): LazyFrame = wrap nq_lf_limit(lf.raw, n.uint32)
 
 proc explain*(lf: LazyFrame): string =
@@ -260,3 +391,4 @@ proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.with
 proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collect
 proc sort*(df: DataFrame, by: string, descending = false): DataFrame = df.lazy.sort(by, descending).collect
 proc groupBy*(df: DataFrame, by: varargs[Expr]): LazyGroupBy = df.lazy.groupBy(by)
+proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect

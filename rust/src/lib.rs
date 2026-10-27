@@ -176,6 +176,64 @@ pub unsafe extern "C" fn nq_series_new_str(
     }))
 }
 
+/// Builds `Option`s from values and a validity mask (`valid[i] == false` is null).
+unsafe fn with_validity<'a, T: Copy>(
+    data: *const T,
+    valid: *const bool,
+    len: usize,
+) -> Result<Vec<Option<T>>, String> {
+    let (data, valid) = (slice(data, len)?, slice(valid, len)?);
+    Ok(data.iter().zip(valid).map(|(v, ok)| ok.then_some(*v)).collect())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_i64_opt(
+    name: *const c_char,
+    data: *const i64,
+    valid: *const bool,
+    len: usize,
+) -> *mut Series {
+    boxed(guard(|| Ok(Series::new(cstr(name)?.into(), with_validity(data, valid, len)?))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_f64_opt(
+    name: *const c_char,
+    data: *const f64,
+    valid: *const bool,
+    len: usize,
+) -> *mut Series {
+    boxed(guard(|| Ok(Series::new(cstr(name)?.into(), with_validity(data, valid, len)?))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_bool_opt(
+    name: *const c_char,
+    data: *const bool,
+    valid: *const bool,
+    len: usize,
+) -> *mut Series {
+    boxed(guard(|| Ok(Series::new(cstr(name)?.into(), with_validity(data, valid, len)?))))
+}
+
+/// `data[i]` may be NULL where `valid[i]` is false.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_str_opt(
+    name: *const c_char,
+    data: *const *const c_char,
+    valid: *const bool,
+    len: usize,
+) -> *mut Series {
+    boxed(guard(|| {
+        let values = slice(data, len)?
+            .iter()
+            .zip(slice(valid, len)?)
+            .map(|(s, ok)| if *ok { cstr(*s).map(Some) } else { Ok(None) })
+            .collect::<Result<Vec<Option<&str>>, _>>()?;
+        Ok(Series::new(cstr(name)?.into(), values))
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // DataFrame
 // ---------------------------------------------------------------------------
@@ -199,12 +257,24 @@ pub unsafe extern "C" fn nq_df_new(series: *const *const Series, n: usize) -> *m
     }))
 }
 
+/// Reads a CSV with a header row. The `n` strings in `null_values` are read as
+/// null in every column; with `n == 0` only empty fields are.
 #[no_mangle]
-pub unsafe extern "C" fn nq_df_read_csv(path: *const c_char) -> *mut DataFrame {
+pub unsafe extern "C" fn nq_df_read_csv(
+    path: *const c_char,
+    null_values: *const *const c_char,
+    n: usize,
+) -> *mut DataFrame {
     boxed(guard(|| {
         let path = PathBuf::from(cstr(path)?);
+        let nulls = slice(null_values, n)?
+            .iter()
+            .map(|s| cstr(*s).map(PlSmallStr::from))
+            .collect::<Result<Vec<_>, _>>()?;
+        let nulls = (!nulls.is_empty()).then(|| NullValues::AllColumns(nulls));
         CsvReadOptions::default()
             .with_has_header(true)
+            .map_parse_options(|o| o.with_null_values(nulls.clone()))
             .try_into_reader_with_file_path(Some(path))
             .map_err(pe)?
             .finish()
@@ -278,10 +348,11 @@ pub unsafe extern "C" fn nq_df_get_i64(
     out: *mut i64,
 ) -> bool {
     guard(|| {
-        let v = cell(borrow(df, "DataFrame")?, cstr(name)?, row)?;
+        let name = cstr(name)?;
+        let v = cell(borrow(df, "DataFrame")?, name, row)?;
         let x = v
             .extract::<i64>()
-            .ok_or_else(|| format!("cannot read {v} as int64"))?;
+            .ok_or_else(|| format!("cannot read {v} in column '{name}' row {row} as int64"))?;
         *out = x;
         Ok(())
     })
@@ -297,10 +368,11 @@ pub unsafe extern "C" fn nq_df_get_f64(
     out: *mut f64,
 ) -> bool {
     guard(|| {
-        let v = cell(borrow(df, "DataFrame")?, cstr(name)?, row)?;
+        let name = cstr(name)?;
+        let v = cell(borrow(df, "DataFrame")?, name, row)?;
         let x = v
             .extract::<f64>()
-            .ok_or_else(|| format!("cannot read {v} as float64"))?;
+            .ok_or_else(|| format!("cannot read {v} in column '{name}' row {row} as float64"))?;
         *out = x;
         Ok(())
     })
@@ -309,6 +381,27 @@ pub unsafe extern "C" fn nq_df_get_f64(
 
 /// Reads one cell as a string (any dtype, via its display form; strings are
 /// returned without quotes). Free with `nq_string_free`.
+/// Reads one boolean cell. Returns false on error or null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_get_bool(
+    df: *const DataFrame,
+    name: *const c_char,
+    row: usize,
+    out: *mut bool,
+) -> bool {
+    guard(|| {
+        let name = cstr(name)?;
+        match cell(borrow(df, "DataFrame")?, name, row)? {
+            AnyValue::Boolean(b) => {
+                *out = b;
+                Ok(())
+            }
+            v => Err(format!("cannot read {v} in column '{name}' row {row} as bool")),
+        }
+    })
+    .is_some()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nq_df_get_str(
     df: *const DataFrame,
@@ -316,8 +409,10 @@ pub unsafe extern "C" fn nq_df_get_str(
     row: usize,
 ) -> *mut c_char {
     guard(|| {
-        let v = cell(borrow(df, "DataFrame")?, cstr(name)?, row)?;
+        let name = cstr(name)?;
+        let v = cell(borrow(df, "DataFrame")?, name, row)?;
         let s = match v {
+            AnyValue::Null => return Err(format!("cannot read null in column '{name}' row {row} as string")),
             AnyValue::String(s) => s.to_string(),
             AnyValue::StringOwned(s) => s.to_string(),
             other => other.to_string(),
@@ -325,6 +420,164 @@ pub unsafe extern "C" fn nq_df_get_str(
         Ok(to_c_string(s))
     })
     .unwrap_or(ptr::null_mut())
+}
+
+// ---------------------------------------------------------------------------
+// Whole columns and nulls
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_null_count(df: *const DataFrame, name: *const c_char) -> i64 {
+    guard(|| {
+        let col = borrow(df, "DataFrame")?.column(cstr(name)?).map_err(pe)?;
+        Ok(col.null_count() as i64)
+    })
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_cell_is_null(
+    df: *const DataFrame,
+    name: *const c_char,
+    row: usize,
+    out: *mut bool,
+) -> bool {
+    guard(|| {
+        *out = cell(borrow(df, "DataFrame")?, cstr(name)?, row)?.is_null();
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Reads column `name` cast to `to`, after checking that its dtype is allowed.
+/// Errors name the column and its dtype.
+unsafe fn column_as(
+    df: *const DataFrame,
+    name: *const c_char,
+    len: usize,
+    to: DataType,
+    allowed: fn(&DataType) -> bool,
+) -> Result<Series, String> {
+    let name = cstr(name)?;
+    let col = borrow(df, "DataFrame")?.column(name).map_err(pe)?;
+    if !allowed(col.dtype()) {
+        return Err(format!("cannot read column '{name}' of type {} as {to}", col.dtype()));
+    }
+    if col.len() != len {
+        return Err(format!("column '{name}' has {} rows, buffer has {len}", col.len()));
+    }
+    Ok(col.cast(&to).map_err(pe)?.as_materialized_series().clone())
+}
+
+/// Fills caller-allocated `values` and `valid` (both `len` long) in one pass.
+/// Null slots get a default value and `valid[i] = false`.
+unsafe fn fill<T: Copy + Default>(
+    it: impl Iterator<Item = Option<T>>,
+    values: *mut T,
+    valid: *mut bool,
+    len: usize,
+) -> Result<(), String> {
+    if len > 0 && (values.is_null() || valid.is_null()) {
+        return Err("unexpected NULL buffer".into());
+    }
+    for (i, v) in it.take(len).enumerate() {
+        *values.add(i) = v.unwrap_or_default();
+        *valid.add(i) = v.is_some();
+    }
+    Ok(())
+}
+
+/// Integer columns only (no silent truncation of floats).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_i64(
+    df: *const DataFrame,
+    name: *const c_char,
+    values: *mut i64,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::Int64, |d| d.is_integer())?;
+        fill(s.i64().map_err(pe)?.iter(), values, valid, len)
+    })
+    .is_some()
+}
+
+/// Integer and float columns.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_f64(
+    df: *const DataFrame,
+    name: *const c_char,
+    values: *mut f64,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::Float64, |d| d.is_primitive_numeric())?;
+        fill(s.f64().map_err(pe)?.iter(), values, valid, len)
+    })
+    .is_some()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_bool(
+    df: *const DataFrame,
+    name: *const c_char,
+    values: *mut bool,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::Boolean, |d| d.is_bool())?;
+        fill(s.bool().map_err(pe)?.iter(), values, valid, len)
+    })
+    .is_some()
+}
+
+/// Total UTF-8 bytes of column `name` read as strings (any dtype), or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_str_size(df: *const DataFrame, name: *const c_char) -> i64 {
+    guard(|| {
+        let len = borrow(df, "DataFrame")?.height();
+        let s = column_as(df, name, len, DataType::String, |_| true)?;
+        Ok(s.str().map_err(pe)?.iter().map(|v| v.map_or(0, str::len)).sum::<usize>() as i64)
+    })
+    .unwrap_or(-1)
+}
+
+/// Writes the column as strings in Arrow's layout: the concatenated bytes in
+/// `data` (`data_len` long, from `nq_df_column_str_size`), `len + 1` offsets, and
+/// the validity mask. Row i is `data[offsets[i] .. offsets[i + 1]]`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_str(
+    df: *const DataFrame,
+    name: *const c_char,
+    data: *mut u8,
+    data_len: usize,
+    offsets: *mut u64,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::String, |_| true)?;
+        if offsets.is_null() || (len > 0 && valid.is_null()) || (data_len > 0 && data.is_null()) {
+            return Err("unexpected NULL buffer".into());
+        }
+        let mut pos = 0usize;
+        *offsets = 0;
+        for (i, v) in s.str().map_err(pe)?.iter().take(len).enumerate() {
+            let bytes = v.unwrap_or("").as_bytes();
+            if pos + bytes.len() > data_len {
+                return Err("string buffer too small".into());
+            }
+            ptr::copy_nonoverlapping(bytes.as_ptr(), data.add(pos), bytes.len());
+            pos += bytes.len();
+            *offsets.add(i + 1) = pos as u64;
+            *valid.add(i) = v.is_some();
+        }
+        Ok(())
+    })
+    .is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +671,8 @@ pub enum NqUnary {
     Last,
     NUnique,
     Std,
+    IsNull,
+    IsNotNull,
 }
 
 #[no_mangle]
@@ -435,7 +690,17 @@ pub unsafe extern "C" fn nq_expr_unary(e: *const Expr, op: NqUnary) -> *mut Expr
             NqUnary::Last => e.last(),
             NqUnary::NUnique => e.n_unique(),
             NqUnary::Std => e.std(1),
+            NqUnary::IsNull => e.is_null(),
+            NqUnary::IsNotNull => e.is_not_null(),
         })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_fill_null(e: *const Expr, value: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let value = borrow(value, "expression")?.clone();
+        Ok(borrow(e, "expression")?.clone().fill_null(value))
     }))
 }
 
@@ -523,6 +788,24 @@ pub unsafe extern "C" fn nq_lf_sort(
     boxed(guard(|| {
         let opts = SortMultipleOptions::default().with_order_descending(descending);
         Ok(lf(lf_)?.sort([cstr(by)?], opts))
+    }))
+}
+
+/// Drops rows with a null in any of the `n` named columns, or in any column
+/// when `n == 0`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_drop_nulls(
+    lf_: *const LazyFrame,
+    names: *const *const c_char,
+    n: usize,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let names = slice(names, n)?
+            .iter()
+            .map(|s| cstr(*s))
+            .collect::<Result<Vec<_>, _>>()?;
+        let subset = (!names.is_empty()).then(|| cols(names));
+        Ok(lf(lf_)?.drop_nulls(subset))
     }))
 }
 

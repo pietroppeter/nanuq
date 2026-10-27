@@ -17,7 +17,8 @@ task buildRust, "Build the Rust wrapper library (rust/target/release/libnanuq_ff
 
 task test, "Build the Rust wrapper and run the tests":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
-  exec "nim r --hints:off tests/test_basic.nim"
+  for t in ["tests/test_basic.nim", "tests/test_nulls.nim"]:
+    exec "nim r --hints:off " & t
 
 task example, "Run the basic example":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
