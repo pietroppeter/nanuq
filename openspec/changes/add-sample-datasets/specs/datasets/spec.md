@@ -21,8 +21,9 @@ body_mass_g, sex and year, with "NA" fields as nulls.
 - **WHEN** `penguins()` is called
 - **THEN** `nullCount` is 2 for body_mass_g and 11 for sex, and body_mass_g is an integer column
 
-### Requirement: Loading without files or network
-Bundled datasets SHALL load without reading files at run time or using the network.
+### Requirement: Loading from any working directory
+Bundled datasets SHALL load with no path from the caller and without using the network,
+whatever the program's working directory.
 
 #### Scenario: Different working directory
 - **WHEN** a compiled program calls `penguins()` from any working directory

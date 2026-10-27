@@ -84,13 +84,14 @@ two), L (more).
     `fetch_*` for larger sets. vega_datasets mixes both.
   - *Plain files in the repo, read by path*: ggplotnim (`data/mpg.csv`). Polars and pandas
     ship none, and their docs read CSVs from URLs.
-  For Nanuq, the simplest is CSVs in the repo plus a small module. In Nim, `staticRead`
-  can embed the CSV in the binary, so loading needs no path and no network. That needs
-  a read-CSV-from-string function in the bridge. Keep the bundled sets small and
-  download anything large.
+  For Nanuq, the simplest is CSVs in the repo plus a small module that finds them via
+  `currentSourcePath`. Keep the bundled sets small and download anything large.
   - **Unbundle the datasets later.** Bundling them is a convenience for early
     development. Once Nanuq matures, drop them from the library and vendor them from
     elsewhere (a separate package, or download and cache).
+  - **CSV from a string or bytes.** Like Python's `pl.read_csv(io.StringIO(...))`. Would
+    also let datasets be embedded with `staticRead` for self-contained binaries. Needs a
+    new bridge function (Cursor over the bytes).
   - **Replace iris with penguins** ([palmerpenguins](https://allisonhorst.github.io/palmerpenguins/),
     CC0, 344 rows) in the examples, tests and dev log. Penguins has missing values, so it
     loads with `readCsv(path, nullValues = ["NA"])` now that nulls are supported.
