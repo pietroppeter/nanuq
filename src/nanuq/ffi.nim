@@ -181,7 +181,7 @@ const libFile = found.lib
 when defined(linux):
   {.passL: "-lpthread -ldl -lm".}
 elif defined(macosx):
-  {.passL: "-framework CoreFoundation -framework Security -lc++".}
+  {.passL: "-framework CoreFoundation -framework IOKit -framework Security -lc++".}
 elif defined(windows):
   {.passL: "-lws2_32 -luserenv -lbcrypt -lntdll -lole32 -loleaut32 -lkernel32 -ladvapi32".}
 
