@@ -4,7 +4,8 @@
 ## git, and writes one self-contained HTML page:
 ## - where each change is in the process (proposal → specs → design → tasks →
 ##   implementation → archive),
-## - its proposal, design and tasks,
+## - its proposal, design and tasks, and its revisions (each commit that touched it,
+##   shown as word diffs of the changed paragraphs),
 ## - its spec deltas as requirement cards, with MODIFIED requirements shown as a word
 ##   diff against the current spec,
 ## - with `--base`, a line diff of every OpenSpec, backlog and changelog file changed
@@ -409,6 +410,11 @@ tr.eq td.tx::before{content:"  "}
 tr.gap td{color:var(--mute);text-align:center}
 .diffwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:6px;margin:.5rem 0}
 .count .a{color:var(--add-ink)}.count .r{color:var(--del-ink)}
+.rev{margin:.8rem 0 1.2rem}
+.revhead{margin-bottom:.4rem}
+.revfile{margin:.6rem 0 .2rem;font-size:.9rem}
+.hunk{border:1px solid var(--rule);border-radius:6px;padding:.5rem .8rem;margin:.4rem 0;background:var(--ice)}
+.where{font:600 .7rem/1.2 var(--mono);color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.2rem}
 footer{max-width:62rem;margin:3rem auto;color:var(--mute);font:.8rem var(--mono)}
 """
 
@@ -487,7 +493,76 @@ proc renderSteps(c: Change): string =
   for s in steps: result.add "<li class=\"" & s.cls & "\">" & esc(s.label) & "</li>"
   result.add "</ol>"
 
-proc renderChange(c: Change): string =
+proc git(root: string, args: varargs[string]): (string, int) =
+  execCmdEx("git -C " & quoteShell(root) & " " & args.mapIt(quoteShell(it)).join(" "))
+
+proc paragraphs(text: string): seq[string] =
+  for p in text.replace("\r\n", "\n").split("\n\n"):
+    if p.strip.len > 0: result.add p.strip(chars = {'\n'})
+
+proc paraDiff(a, b: string): string =
+  ## Changed paragraphs only, each as a word diff, labelled with the nearest heading.
+  let pa = paragraphs(a)
+  let pb = paragraphs(b)
+  var ids: Table[string, int]
+  proc idsOf(ps: seq[string]): seq[int] =
+    for p in ps: result.add ids.mgetOrPut(p, ids.len)
+  for it in diffInt(idsOf(pa), idsOf(pb)):
+    var where = ""
+    let first = if it.startB < pb.len and pb[it.startB].startsWith("#"): it.startB else: it.startB - 1
+    for k in countdown(min(first, pb.high), 0):
+      if pb[k].startsWith("#"):
+        where = pb[k].strip(chars = {'#', ' '}).splitLines[0]; break
+    let before = pa[it.startA ..< it.startA + it.deletedA].join("\n\n")
+    let after = pb[it.startB ..< it.startB + it.insertedB].join("\n\n")
+    result.add "<div class=\"hunk\">" &
+      (if where.len > 0: "<div class=\"where\">§ " & esc(where) & "</div>" else: "") &
+      "<div class=\"wdiff\">" & wordDiff(before, after) & "</div></div>"
+
+type Revision = object
+  label, sha, date, subject: string
+
+proc revisions(root, dir: string): seq[Revision] =
+  let (log, code) = git(root, "log", "--reverse", "--format=%h%x09%ad%x09%s", "--date=short", "--", dir)
+  if code != 0: return
+  for line in log.splitLines:
+    let f = line.split('\t', 2)
+    if f.len == 3: result.add Revision(sha: f[0], date: f[1], subject: f[2])
+  let (dirty, _) = git(root, "status", "--porcelain", "--", dir)
+  if dirty.strip.len > 0:
+    result.add Revision(sha: "", date: "", subject: "uncommitted changes in the working tree")
+  for i, r in result.mpairs: r.label = "r" & $(i + 1)
+
+proc fileAt(root, sha, path: string): string =
+  if sha.len == 0: return readOr(root / path)
+  let (s, code) = git(root, "show", sha & ":" & path)
+  if code == 0: s else: ""
+
+proc renderRevisions(root: string, c: Change): string =
+  let revs = revisions(root, c.dir)
+  if revs.len == 0: return
+  result.add "<details" & (if revs.len > 1: " open" else: "") & "><summary>Revisions<span class=\"meta\">" &
+    $revs.len & (if revs.len == 1: " revision" else: " revisions") & "</span></summary>"
+  for i, r in revs:
+    result.add "<div class=\"rev\"><div class=\"revhead\"><span class=\"pill stage\">" & r.label &
+      "</span> <code>" & esc(if r.sha.len > 0: r.sha else: "working tree") & "</code> <span class=\"meta\">" &
+      esc(r.date) & "</span> " & inline(r.subject) & "</div>"
+    if i == 0:
+      let (files, _) = git(root, "ls-tree", "-r", "--name-only", (if r.sha.len > 0: r.sha else: "HEAD"), "--", c.dir)
+      let names = files.splitLines.filterIt(it.len > 0).mapIt(it.relativePath(c.dir))
+      result.add "<p class=\"unchanged\">First version: " & names.mapIt("<code>" & esc(it) & "</code>").join(", ") & "</p>"
+    else:
+      let prev = revs[i - 1].sha
+      let (files, _) = if r.sha.len > 0: git(root, "diff", "--name-only", prev, r.sha, "--", c.dir)
+                       else: git(root, "diff", "--name-only", prev, "--", c.dir)
+      for f in files.splitLines:
+        if f.strip.len == 0: continue
+        result.add "<div class=\"revfile\"><code>" & esc(f.relativePath(c.dir)) & "</code></div>" &
+          paraDiff(fileAt(root, prev, f), fileAt(root, r.sha, f))
+    result.add "</div>"
+  result.add "</details>"
+
+proc renderChange(c: Change, root: string): string =
   let (done, total) = c.taskCounts
   result.add "<section class=\"change\" id=\"" & esc(c.name) & "\"><h2>" & esc(c.name) &
     " <span class=\"pill stage\">" & c.stage & "</span>" &
@@ -526,10 +601,9 @@ proc renderChange(c: Change): string =
           "</span>" & inline(t.text) & "</li>"
       result.add "</ul>"
     result.add "</details>"
+  result.add renderRevisions(root, c)
   result.add "</section>\n"
 
-proc git(root: string, args: varargs[string]): (string, int) =
-  execCmdEx("git -C " & quoteShell(root) & " " & args.mapIt(quoteShell(it)).join(" "))
 
 proc changedFiles(root, base: string): seq[string] =
   let scope = ["openspec", "BACKLOG.md", "CHANGELOG.md"]
@@ -632,7 +706,7 @@ proc main() =
       c.caps.mapIt("<code>" & esc(it.name) & "</code> " & it.countsLabel).join("<br>") & "</td></tr>"
   html.add "</table>"
   if active.len == 0: html.add "<p class=\"unchanged\">No active changes.</p>"
-  for c in changes: html.add renderChange(c)
+  for c in changes: html.add renderChange(c, root)
   if base.len > 0: html.add renderRawDiff(root, base, files)
   html.add "</main><footer>Generated by tools/specview.nim</footer></body></html>\n"
   writeFile(outPath, html)
