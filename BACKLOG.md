@@ -73,7 +73,8 @@ two), L (more).
 
 ## Datasets
 
-- **Sample datasets** (S-M). Small, well-known datasets for examples, tests and the docs,
+- **Sample datasets** (S-M). *In progress in OpenSpec change `add-sample-datasets`.*
+  Small, well-known datasets for examples, tests and the docs,
   loadable with one call (e.g. `import nanuq/datasets; let df = penguins()`).
   How others do it:
   - *Bundled in the package*: R's `datasets`, ggplot2 (`mpg`, `diamonds`), Plotly
