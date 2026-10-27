@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Small, well-known datasets bundled with Nanuq, loadable with one call and no file path,
-for examples, tests and documentation.
+Small, well-known datasets loadable with one call and no file path, for examples, tests
+and documentation. They are bundled for convenience during early development and are
+expected to move out of the library later.
 
 ## ADDED Requirements
 

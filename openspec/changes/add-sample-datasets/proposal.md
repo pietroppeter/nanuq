@@ -15,8 +15,9 @@ This takes up the BACKLOG.md entry "Sample datasets" (Datasets), including its s
 ## What Changes
 
 - New module `nanuq/datasets` with `penguins(): DataFrame`, the full palmerpenguins
-  table (344 rows, 8 columns, "NA" read as null). The CSV (15 KB) is embedded in the
-  binary at compile time, so loading needs no file path and no network.
+  table (344 rows, 8 columns, "NA" read as null). For now the CSV (15 KB) is embedded in
+  the binary at compile time, so loading needs no file path and no network. This is a
+  convenience while Nanuq is young; the datasets are expected to move out later.
 - New `readCsvString(text, nullValues = [])`: reads CSV from a string, with the same
   options as `readCsv`. `penguins()` is built on it, and users get it too.
 - The README example, `examples/basic.nim` and the CSV tests use penguins instead of
@@ -36,8 +37,9 @@ This takes up the BACKLOG.md entry "Sample datasets" (Datasets), including its s
 - **Bundled datasets.** Neither Polars (Rust or Python) nor pandas ship datasets. This
   follows the plotting libraries instead: seaborn's `load_dataset("penguins")`
   downloads and caches, Plotly Express bundles its data (`px.data.iris()`), and R
-  bundles it in packages (`palmerpenguins::penguins`). Nanuq bundles its datasets
-  because Nim can embed the file at compile time.
+  bundles it in packages (`palmerpenguins::penguins`). Bundling in Nanuq is a
+  convenience for early development, not a design choice. Once the library matures,
+  the datasets will probably be dropped and vendored from elsewhere (see the backlog).
 - **Same table as seaborn and R.** Columns and values match palmerpenguins'
   `penguins.csv` (the R package's data). Seaborn's copy has the same 344 rows but no
   `year` column and sex spelled `MALE` / `FEMALE`; Nanuq keeps the R version.
