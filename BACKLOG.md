@@ -36,11 +36,13 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
 - **Joins** (M): inner, left, outer, cross.
 - **Nulls and more dtypes** (M): null handling (`Option`), dates and datetimes,
-  categoricals.
+  categoricals. *Nulls in progress in OpenSpec change `add-column-access-and-nulls`;
+  dates and categoricals stay here.*
 - **More expressions** (M): `when/then/otherwise`, string functions, casting, window
   functions (`over`).
 - **Column access as Nim seqs without per-cell calls** (S). Bulk copy instead of
-  `toSeq` reading cell by cell.
+  `toSeq` reading cell by cell. *In progress in OpenSpec change
+  `add-column-access-and-nulls`.*
 
 ## Ecosystem
 
