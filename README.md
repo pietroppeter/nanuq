@@ -41,6 +41,11 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
   `NanuqError`.
 
+## Documentation
+
+A walkthrough of how Nanuq works, written with [nimib](https://github.com/pietroppeter/nimib)
+(`docs/walkthrough.nim`), is published at <https://pietroppeter.github.io/nanuq/>.
+
 ## Requirements
 
 - Nim >= 2.0
