@@ -1,9 +1,19 @@
 name: CI
 
+# Commits that only touch prose (README, LICENSE, ...) don't run CI.
+# Changes under docs/ still do, since they rebuild the dev log.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
 
 # The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.
