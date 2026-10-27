@@ -35,14 +35,9 @@ two), L (more).
 
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
 - **Joins** (M): inner, left, outer, cross.
-- **Nulls and more dtypes** (M): null handling (`Option`), dates and datetimes,
-  categoricals. *Nulls in progress in OpenSpec change `add-column-access-and-nulls`;
-  dates and categoricals stay here.*
+- **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): `when/then/otherwise`, string functions, casting, window
   functions (`over`).
-- **Column access as Nim seqs without per-cell calls** (S). Bulk copy instead of
-  `toSeq` reading cell by cell. *In progress in OpenSpec change
-  `add-column-access-and-nulls`.*
 
 ## Ecosystem
 
@@ -52,14 +47,13 @@ two), L (more).
   Datamancer does build a DataFrame straight from seqs (`toDf({"x": xs, "y": ys})`),
   so options, from simplest to leanest:
   1. *Seqs into `toDf`, no glue code.* `toDf({"x": df.toSeq("x", float), ...})`. This
-     works today but copies through seqs and reads cells one by one (see "Column access
-     as Nim seqs" under API).
+     works today and copies each column once (one FFI call per column).
   2. *A small optional module* (`nanuq/ggplot`, so the core doesn't depend on Datamancer).
      A `ggplot(df: nanuq.DataFrame, aes(...))` overload converts only the columns named
      in `aes`. Users can also aggregate in Polars first and convert the small result.
   3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
      Polars buffers as tensors without copying. Only worth it for very large plots.
-  Start with 2, after bulk column access. Option 1 is shown, with open questions, in
+  Start with 2 (bulk column access is done). Option 1 is shown, with open questions, in
   the dev log post "Plotting with ggplotnim" (`docs/blog/plotting_with_ggplotnim.nim`).
 - **A Narwhals-style dataframe API for Nim** (L, exploratory). Like Python's
   [Narwhals](https://narwhals-dev.github.io/narwhals/): a backend-agnostic layer (a Nim
@@ -95,8 +89,7 @@ two), L (more).
   download anything large.
   - **Replace iris with penguins** ([palmerpenguins](https://allisonhorst.github.io/palmerpenguins/),
     CC0, 344 rows) in the examples, tests and dev log. Penguins has missing values, so it
-    needs null handling first (see "Nulls and more dtypes" under API). Until then, a
-    cleaned subset without NAs could stand in.
+    loads with `readCsv(path, nullValues = ["NA"])` now that nulls are supported.
 
 ## Docs
 

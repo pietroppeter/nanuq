@@ -18,11 +18,16 @@ its OpenSpec change is archived. Format based on
   `BACKLOG.md` for ideas, and this changelog. (#4)
 - Dev log post "Plotting with ggplotnim": plot a Nanuq DataFrame by converting columns
   to a Datamancer DataFrame, and the options for a smoother bridge. (#4)
-
 - `tools/specview.nim`: an HTML review page for OpenSpec changes (stage, proposal,
   spec deltas with word diffs, tasks, file diffs), run in CI on planning PRs. (#5)
+- Missing values: read columns and cells as `Option[T]`, `nullCount`, `hasNulls`,
+  `series` from `Option`, `readCsv(nullValues = ...)`, and `isNull`, `isNotNull`,
+  `fillNull` and `dropNulls` in queries. (#5)
 
 ### Changed
+- `toSeq` reads a whole column in one FFI call (two for strings) instead of one per
+  cell. It now raises up front, naming the column, when the column has nulls; read it as
+  `Option[T]` instead. `float` reads integer columns and `string` reads any column. (#5)
 - CI builds the Rust library only when `rust/` changes, and shares it with the test and
   docs jobs. Dropped the unused Polars `dtype-full` feature, which cuts the static
   library from 400 to 300 MB. (#2)

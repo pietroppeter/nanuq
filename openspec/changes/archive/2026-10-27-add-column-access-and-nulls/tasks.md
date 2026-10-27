@@ -22,7 +22,7 @@
 ## 4. Docs and integration
 
 - [x] 4.1 Update README "What is there" and the `toSeq` doc comments for Option reads, `nullCount`, `hasNulls`, `fillNull`, `dropNulls` and `nullValues`; verify `nimble test` and `nimble example` pass
-- [ ] 4.2 Check that CI is green on the PR, including the one-off Rust rebuild
+- [x] 4.2 Check that CI is green on the PR, including the one-off Rust rebuild
 
 ## Workflow follow-up
 
