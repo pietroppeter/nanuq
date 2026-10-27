@@ -51,6 +51,7 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 ```sh
 nimble test       # builds the Rust library, then runs the tests
 nimble example    # runs examples/basic.nim
+nimble docs       # renders docs/walkthrough.nim with nimib
 ```
 
 The first build compiles Polars and takes a few minutes. If the static library

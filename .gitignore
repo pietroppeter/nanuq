@@ -3,3 +3,4 @@ nimcache/
 /examples/basic
 /tests/test_basic
 *.out
+/docs/*.html
