@@ -87,7 +87,7 @@ jobs:
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2
+      - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2 liblapack3 libblas3
       # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror
       - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim
       - name: Render dev log posts
