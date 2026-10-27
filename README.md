@@ -67,8 +67,6 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
   `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
   `openspec` CLI (`npm i -g @fission-ai/openspec`).
-  A proposal gets its own PR. Merge it before implementing, so the implementation PR
-  shows only the code.
 - **Reviewing changes**: `nimble specview` writes `specview.html`, a page showing where
   each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
   requirements as word diffs against the current spec) and the changed files. On PRs

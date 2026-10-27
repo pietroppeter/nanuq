@@ -19,11 +19,6 @@ rules:
       names), or saying there are none
 
 operations:
-  apply:
-    guidance:
-      - Proposal and implementation go in separate PRs. Before applying, check that the
-        proposal's PR is merged into main; if not, ask for it to be merged first. Then
-        implement on a fresh branch from main and open a new PR
   archive:
     guidance:
       - Remove the change's entry from BACKLOG.md, if it has one
