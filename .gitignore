@@ -4,3 +4,4 @@ nimcache/
 /tests/test_basic
 *.out
 /docs/**/*.html
+/docs/**/*.png

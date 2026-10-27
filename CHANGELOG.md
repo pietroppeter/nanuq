@@ -16,6 +16,8 @@ its OpenSpec change is archived. Format based on
   post: "How Nanuq works", 2026-10-27. (#1)
 - OpenSpec workflow with baseline specs (native-bridge, dataframe-api, ci),
   `BACKLOG.md` for ideas, and this changelog. (#4)
+- Dev log post "Plotting with ggplotnim": plot a Nanuq DataFrame by converting columns
+  to a Datamancer DataFrame, and the options for a smoother bridge. (#4)
 
 ### Changed
 - CI builds the Rust library only when `rust/` changes, and shares it with the test and

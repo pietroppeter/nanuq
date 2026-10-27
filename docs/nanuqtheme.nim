@@ -98,6 +98,9 @@ pre.nb-output::before {
 .hljs-comment { color: var(--com); font-style: italic; }
 .hljs-title, .hljs-function, .hljs-type { color: var(--fn); }
 .hljs-attribute, .hljs-symbol, .hljs-variable { color: var(--ink); }
+figure { margin: 1.2rem 0; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 6px; }
+figcaption { font: .8rem/1.4 var(--mono); color: var(--mute); margin-top: .4rem; }
 blockquote { border-left: 3px solid var(--fjord); margin: 1rem 0; padding-left: 1rem; color: var(--mute); }
 ul { padding-left: 1.2rem; }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }

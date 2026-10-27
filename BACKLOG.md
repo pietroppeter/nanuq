@@ -57,7 +57,8 @@ two), L (more).
      in `aes`. Users can also aggregate in Polars first and convert the small result.
   3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
      Polars buffers as tensors without copying. Only worth it for very large plots.
-  Start with 2, after bulk column access.
+  Start with 2, after bulk column access. Option 1 is shown, with open questions, in
+  the dev log post "Plotting with ggplotnim" (`docs/blog/plotting_with_ggplotnim.nim`).
 - **A Narwhals-style dataframe API for Nim** (L, exploratory). Like Python's
   [Narwhals](https://narwhals-dev.github.io/narwhals/): a backend-agnostic layer (a Nim
   `concept` or a thin wrapper) with a Polars-like subset of operations, implemented by

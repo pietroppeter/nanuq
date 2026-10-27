@@ -23,7 +23,7 @@ task example, "Run the basic example":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
   exec "nim r --hints:off examples/basic.nim"
 
-task docs, "Render the nimib dev log posts in docs/blog (needs nimib)":
+task docs, "Render the nimib dev log posts in docs/blog (needs nimib and ggplotnim)":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
   for f in listFiles("docs/blog"):
     if f.endsWith(".nim"):
