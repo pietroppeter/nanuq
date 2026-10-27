@@ -44,24 +44,27 @@ two), L (more).
 
 ## Ecosystem
 
-- **Plotting with ggplotnim** (S-M). ggplotnim plots Datamancer DataFrames
-  (Arraymancer tensors per column), so a Nanuq DataFrame has to reach that shape. Options,
-  from simplest to leanest:
-  1. *Convert to Datamancer.* `toDatamancer(df)` copies each column into a tensor. It
-     lives in an optional module (`nanuq/datamancer`) so the core doesn't depend on
-     Datamancer. Simple, but it copies every column.
-  2. *Convert only what the plot uses.* A `ggplot(df: nanuq.DataFrame, aes(...))`
-     overload reads the column names in `aes` and converts only those. The user can also
-     aggregate in Polars first (`groupBy/agg`) and convert the small result. This is the
-     lightweight path, and it covers most plots.
+- **Plotting with ggplotnim** (S-M). Checked in ggplotnim's source (2026-10-27): its
+  only entry point is `ggplot(data: DataFrame, aes)` with a Datamancer DataFrame, and
+  ggplotnim depends on Datamancer and Arraymancer anyway. There is no seq-based input.
+  Datamancer does build a DataFrame straight from seqs (`toDf({"x": xs, "y": ys})`),
+  so options, from simplest to leanest:
+  1. *Seqs into `toDf`, no glue code.* `toDf({"x": df.toSeq("x", float), ...})`. This
+     works today but copies through seqs and reads cells one by one (see "Column access
+     as Nim seqs" under API).
+  2. *A small optional module* (`nanuq/ggplot`, so the core doesn't depend on Datamancer).
+     A `ggplot(df: nanuq.DataFrame, aes(...))` overload converts only the columns named
+     in `aes`. Users can also aggregate in Polars first and convert the small result.
   3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
      Polars buffers as tensors without copying. Only worth it for very large plots.
-  Start with 2, built on 1.
+  Start with 2, after bulk column access.
 - **A Narwhals-style dataframe API for Nim** (L, exploratory). Like Python's
   [Narwhals](https://narwhals-dev.github.io/narwhals/): a backend-agnostic layer (a Nim
   `concept` or a thin wrapper) with a Polars-like subset of operations, implemented by
   Nanuq and Datamancer. Libraries such as ggplotnim could then accept either DataFrame
-  without converting, which would replace the conversion options above. Open questions:
+  without converting, which would replace the conversion options above. One hook to look
+  at: Datamancer's `DataTable[C]` is already generic over a `ColumnLike` concept.
+  Open questions:
   is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
   operations goes in, and how expressions are represented.
 - **Datamancer interop both ways** (S). `toDatamancer` / `fromDatamancer`, so existing
