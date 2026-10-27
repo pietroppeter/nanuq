@@ -67,7 +67,12 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
   `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
   `openspec` CLI (`npm i -g @fission-ai/openspec`).
-- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger CI.
+- **Reviewing changes**: `nimble specview` writes `specview.html`, a page showing where
+  each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
+  requirements as word diffs against the current spec) and the changed files. On PRs
+  that touch `openspec/` or `BACKLOG.md`, CI posts a summary on the run page and
+  attaches the full page as the `specview` artifact.
+- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger the main CI.
 
 ## Requirements
 
@@ -90,7 +95,13 @@ is missing, importing `nanuq` also runs `cargo build` at compile time
 ## What is there
 
 - Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
-- Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`, `toSeq`
+- Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
+  `toSeq(df, "col", float)` (one FFI call per column)
+- Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,
+  `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
+  `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
+  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toSeq(df, "col", int)`
+  raises on a column with nulls.
 - Expressions: `col`, `lit`, `+ - * /`, comparisons, `and or not`, `sum mean min max count first last nUnique std`, `alias`
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)

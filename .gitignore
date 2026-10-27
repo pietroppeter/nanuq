@@ -2,6 +2,9 @@ rust/target/
 nimcache/
 /examples/basic
 /tests/test_basic
+/tests/test_nulls
 *.out
 /docs/**/*.html
 /docs/**/*.png
+/specview.html
+/tools/specview

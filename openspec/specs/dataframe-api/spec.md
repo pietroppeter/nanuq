@@ -31,6 +31,23 @@ The API SHALL build a DataFrame from Nim arrays of int, float, bool and string
 - **WHEN** `newDataFrame` gets series of different lengths
 - **THEN** `NanuqError` is raised
 
+### Requirement: Reading columns by type
+Reading as `float` SHALL accept any integer or float column; as `string`, any column,
+formatted as Polars does; as `int`, only integer columns; as `bool`, only boolean
+columns. A dtype that does not match SHALL raise `NanuqError`.
+
+#### Scenario: Integers read as floats
+- **WHEN** an i64 column holding 1, 2 is read with `toSeq(df, "a", float)`
+- **THEN** the result is `@[1.0, 2.0]`
+
+#### Scenario: Floats are not truncated to int
+- **WHEN** an f64 column is read with `toSeq(df, "a", int)`
+- **THEN** `NanuqError` is raised
+
+#### Scenario: Bool column
+- **WHEN** a bool column is read with `toSeq(df, "d", bool)`
+- **THEN** the result holds the column's values
+
 ### Requirement: Expressions and lazy queries
 The API SHALL provide `col`, `lit`, arithmetic, comparison and boolean operators on `Expr`
 (lifting Nim literals automatically), the aggregations sum, mean, min, max, count, first,

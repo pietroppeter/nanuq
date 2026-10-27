@@ -46,7 +46,8 @@ type
 
   NqUnary* {.size: sizeof(cint).} = enum
     nqNot, nqSum, nqMean, nqMin, nqMax, nqCount,
-    nqFirst, nqLast, nqNUnique, nqStd
+    nqFirst, nqLast, nqNUnique, nqStd,
+    nqIsNull, nqIsNotNull
 
 {.push importc, cdecl.}
 
@@ -61,11 +62,15 @@ proc nq_series_new_i64*(name: cstring, data: ptr int64, len: csize_t): ptr NqSer
 proc nq_series_new_f64*(name: cstring, data: ptr float64, len: csize_t): ptr NqSeries
 proc nq_series_new_bool*(name: cstring, data: ptr bool, len: csize_t): ptr NqSeries
 proc nq_series_new_str*(name: cstring, data: ptr cstring, len: csize_t): ptr NqSeries
+proc nq_series_new_i64_opt*(name: cstring, data: ptr int64, valid: ptr bool, len: csize_t): ptr NqSeries
+proc nq_series_new_f64_opt*(name: cstring, data: ptr float64, valid: ptr bool, len: csize_t): ptr NqSeries
+proc nq_series_new_bool_opt*(name: cstring, data: ptr bool, valid: ptr bool, len: csize_t): ptr NqSeries
+proc nq_series_new_str_opt*(name: cstring, data: ptr cstring, valid: ptr bool, len: csize_t): ptr NqSeries
 
 # dataframe
 proc nq_df_free*(df: ptr NqDataFrame)
 proc nq_df_new*(series: ptr ptr NqSeries, n: csize_t): ptr NqDataFrame
-proc nq_df_read_csv*(path: cstring): ptr NqDataFrame
+proc nq_df_read_csv*(path: cstring, nullValues: ptr cstring, n: csize_t): ptr NqDataFrame
 proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring): bool
 proc nq_df_height*(df: ptr NqDataFrame): int64
 proc nq_df_width*(df: ptr NqDataFrame): int64
@@ -75,7 +80,21 @@ proc nq_df_column_name*(df: ptr NqDataFrame, idx: csize_t): cstring
 proc nq_df_column_dtype*(df: ptr NqDataFrame, name: cstring): cstring
 proc nq_df_get_i64*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr int64): bool
 proc nq_df_get_f64*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr float64): bool
+proc nq_df_get_bool*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr bool): bool
 proc nq_df_get_str*(df: ptr NqDataFrame, name: cstring, row: csize_t): cstring
+
+# whole columns and nulls
+proc nq_df_null_count*(df: ptr NqDataFrame, name: cstring): int64
+proc nq_df_cell_is_null*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr bool): bool
+proc nq_df_column_i64*(df: ptr NqDataFrame, name: cstring, values: ptr int64, valid: ptr bool,
+                       len: csize_t): bool
+proc nq_df_column_f64*(df: ptr NqDataFrame, name: cstring, values: ptr float64, valid: ptr bool,
+                       len: csize_t): bool
+proc nq_df_column_bool*(df: ptr NqDataFrame, name: cstring, values: ptr bool, valid: ptr bool,
+                        len: csize_t): bool
+proc nq_df_column_str_size*(df: ptr NqDataFrame, name: cstring): int64
+proc nq_df_column_str*(df: ptr NqDataFrame, name: cstring, data: ptr uint8, dataLen: csize_t,
+                       offsets: ptr uint64, valid: ptr bool, len: csize_t): bool
 
 # expressions
 proc nq_expr_free*(e: ptr NqExpr)
@@ -86,6 +105,7 @@ proc nq_expr_lit_bool*(v: bool): ptr NqExpr
 proc nq_expr_lit_str*(v: cstring): ptr NqExpr
 proc nq_expr_binary*(a: ptr NqExpr, op: NqBinOp, b: ptr NqExpr): ptr NqExpr
 proc nq_expr_unary*(e: ptr NqExpr, op: NqUnary): ptr NqExpr
+proc nq_expr_fill_null*(e: ptr NqExpr, value: ptr NqExpr): ptr NqExpr
 proc nq_expr_alias*(e: ptr NqExpr, name: cstring): ptr NqExpr
 proc nq_expr_to_string*(e: ptr NqExpr): cstring
 
@@ -99,6 +119,7 @@ proc nq_lf_filter*(lf: ptr NqLazyFrame, predicate: ptr NqExpr): ptr NqLazyFrame
 proc nq_lf_group_by_agg*(lf: ptr NqLazyFrame, by: ptr ptr NqExpr, nby: csize_t,
                          aggs: ptr ptr NqExpr, naggs: csize_t): ptr NqLazyFrame
 proc nq_lf_sort*(lf: ptr NqLazyFrame, by: cstring, descending: bool): ptr NqLazyFrame
+proc nq_lf_drop_nulls*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t): ptr NqLazyFrame
 proc nq_lf_limit*(lf: ptr NqLazyFrame, n: uint32): ptr NqLazyFrame
 proc nq_lf_explain*(lf: ptr NqLazyFrame): cstring
 

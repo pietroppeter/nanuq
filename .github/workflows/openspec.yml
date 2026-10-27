@@ -1,0 +1,32 @@
+name: OpenSpec review
+
+# Renders tools/specview.nim's review page for PRs that touch planning files.
+# Needs only Nim (no Rust build), so it takes well under a minute.
+on:
+  pull_request:
+    paths:
+      - "openspec/**"
+      - "BACKLOG.md"
+      - "tools/specview.nim"
+      - ".github/workflows/openspec.yml"
+
+jobs:
+  specview:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # specview diffs against the base branch
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.4"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Render review page
+        run: |
+          mkdir -p _specview
+          nim r --hints:off tools/specview.nim --base:origin/${{ github.base_ref }} \
+            --out:_specview/index.html --md:"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: specview
+          path: _specview/

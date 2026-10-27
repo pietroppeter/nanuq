@@ -17,7 +17,8 @@ task buildRust, "Build the Rust wrapper library (rust/target/release/libnanuq_ff
 
 task test, "Build the Rust wrapper and run the tests":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
-  exec "nim r --hints:off tests/test_basic.nim"
+  for t in ["tests/test_basic.nim", "tests/test_nulls.nim"]:
+    exec "nim r --hints:off " & t
 
 task example, "Run the basic example":
   exec "cargo build --release --manifest-path rust/Cargo.toml"
@@ -28,3 +29,6 @@ task docs, "Render the nimib dev log posts in docs/blog (needs nimib and ggplotn
   for f in listFiles("docs/blog"):
     if f.endsWith(".nim"):
       exec "nim r --hints:off " & f
+
+task specview, "Render the OpenSpec review page to specview.html, with file diffs against origin/main":
+  exec "nim r --hints:off tools/specview.nim --base:origin/main"

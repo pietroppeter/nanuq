@@ -35,12 +35,9 @@ two), L (more).
 
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
 - **Joins** (M): inner, left, outer, cross.
-- **Nulls and more dtypes** (M): null handling (`Option`), dates and datetimes,
-  categoricals.
+- **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): `when/then/otherwise`, string functions, casting, window
   functions (`over`).
-- **Column access as Nim seqs without per-cell calls** (S). Bulk copy instead of
-  `toSeq` reading cell by cell.
 
 ## Ecosystem
 
@@ -50,14 +47,13 @@ two), L (more).
   Datamancer does build a DataFrame straight from seqs (`toDf({"x": xs, "y": ys})`),
   so options, from simplest to leanest:
   1. *Seqs into `toDf`, no glue code.* `toDf({"x": df.toSeq("x", float), ...})`. This
-     works today but copies through seqs and reads cells one by one (see "Column access
-     as Nim seqs" under API).
+     works today and copies each column once (one FFI call per column).
   2. *A small optional module* (`nanuq/ggplot`, so the core doesn't depend on Datamancer).
      A `ggplot(df: nanuq.DataFrame, aes(...))` overload converts only the columns named
      in `aes`. Users can also aggregate in Polars first and convert the small result.
   3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
      Polars buffers as tensors without copying. Only worth it for very large plots.
-  Start with 2, after bulk column access. Option 1 is shown, with open questions, in
+  Start with 2 (bulk column access is done). Option 1 is shown, with open questions, in
   the dev log post "Plotting with ggplotnim" (`docs/blog/plotting_with_ggplotnim.nim`).
 - **A Narwhals-style dataframe API for Nim** (L, exploratory). Like Python's
   [Narwhals](https://narwhals-dev.github.io/narwhals/): a backend-agnostic layer (a Nim
@@ -74,6 +70,26 @@ two), L (more).
   (`nbDataFrame` or a `toHtml` proc) instead of the text table.
 - **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
   work.
+
+## Datasets
+
+- **Sample datasets** (S-M). Small, well-known datasets for examples, tests and the docs,
+  loadable with one call (e.g. `import nanuq/datasets; let df = penguins()`).
+  How others do it:
+  - *Bundled in the package*: R's `datasets`, ggplot2 (`mpg`, `diamonds`), Plotly
+    Express (`px.data.iris()`, gzipped CSVs) and scikit-learn's `load_iris`.
+  - *Downloaded and cached on first use*: seaborn's `load_dataset("penguins")` (from the
+    `seaborn-data` GitHub repo, cached under `~/seaborn-data`) and scikit-learn's
+    `fetch_*` for larger sets. vega_datasets mixes both.
+  - *Plain files in the repo, read by path*: ggplotnim (`data/mpg.csv`). Polars and pandas
+    ship none, and their docs read CSVs from URLs.
+  For Nanuq, the simplest is CSVs in the repo plus a small module. In Nim, `staticRead`
+  can embed the CSV in the binary, so loading needs no path and no network. That needs
+  a read-CSV-from-string function in the bridge. Keep the bundled sets small and
+  download anything large.
+  - **Replace iris with penguins** ([palmerpenguins](https://allisonhorst.github.io/palmerpenguins/),
+    CC0, 344 rows) in the examples, tests and dev log. Penguins has missing values, so it
+    loads with `readCsv(path, nullValues = ["NA"])` now that nulls are supported.
 
 ## Docs
 

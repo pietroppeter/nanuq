@@ -12,6 +12,8 @@ on:
       - ".gitignore"
       - "openspec/**"
       - ".claude/**"
+      - "tools/specview.nim"
+      - ".github/workflows/openspec.yml"
   pull_request:
     paths-ignore:
       - "**.md"
@@ -19,6 +21,8 @@ on:
       - ".gitignore"
       - "openspec/**"
       - ".claude/**"
+      - "tools/specview.nim"
+      - ".github/workflows/openspec.yml"
   workflow_dispatch:
 
 # The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.
@@ -71,7 +75,7 @@ jobs:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
-      - run: nim r -d:nanuqNoCargo --hints:off tests/test_basic.nim
+      - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
 
   docs:
