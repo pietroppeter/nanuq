@@ -1,17 +1,23 @@
 import nimib
 import std/[os, strutils]
 import nanuq
+import ../nanuqtheme
 
 nbInit
 nb.title = "How Nanuq works"
+# dated slug for the dev log (module names can't start with a digit)
+nb.doc.filename = nb.doc.filename.parentDir / "2026-10-27-how-nanuq-works.html"
+nb.useNanuqTheme(
+  titleHtml = "How <em>Nanuq</em> works",
+  eyebrow = "Nanuq dev log · 27 October 2026",
+  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.",
+  meta = "Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
+)
 
 nbText: """
-# How Nanuq works
-
-> *Watch out where the huskies go, and don't you eat that rusty data.*
-
 **Nanuq** (Inuit for *polar bear*) brings [Polars](https://pola.rs) DataFrames to Nim.
-This page is a [nimib](https://github.com/pietroppeter/nimib) document. Every Nim
+This is the first post of the Nanuq development log, written the day the first
+proof of concept landed. The official documentation will come later. The post is a [nimib](https://github.com/pietroppeter/nimib) document. Every Nim
 block below was run when the page was built, and its output is shown underneath.
 
 The idea comes from the Nim forum thread
@@ -153,7 +159,7 @@ first. Below, the example uses a 12-row sample of the classic iris dataset.
 """
 
 nbCode:
-  let iris = readCsv(currentSourcePath.parentDir.parentDir / "examples" / "iris_sample.csv")
+  let iris = readCsv(currentSourcePath.parentDir.parentDir.parentDir / "examples" / "iris_sample.csv")
   echo iris.head(3)
 
   let query = iris.lazy

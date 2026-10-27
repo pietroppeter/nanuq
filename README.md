@@ -43,8 +43,9 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 
 ## Documentation
 
-A walkthrough of how Nanuq works, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/walkthrough.nim`), is published at <https://pietroppeter.github.io/nanuq/>.
+The development log, written with [nimib](https://github.com/pietroppeter/nimib)
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>.
+The first post explains how Nanuq works. Official documentation will come later.
 
 ## Requirements
 
@@ -56,7 +57,7 @@ A walkthrough of how Nanuq works, written with [nimib](https://github.com/pietro
 ```sh
 nimble test       # builds the Rust library, then runs the tests
 nimble example    # runs examples/basic.nim
-nimble docs       # renders docs/walkthrough.nim with nimib
+nimble docs       # renders the dev log posts in docs/blog with nimib
 ```
 
 The first build compiles Polars and takes a few minutes. If the static library
