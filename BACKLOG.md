@@ -16,7 +16,8 @@ two), L (more).
 
 - **Prebuilt binaries for users** (M). Removes the ~10 minute first build for users.
   Researched 2026-10-27 (Explorer/rustler_precompiled, r-polars, nwaku's `librln`,
-  Julia JLLs, Zig, Go, Node, Ruby, Deno). The plan that came out of it:
+  Julia JLLs, Zig, Go, Node, Ruby, Deno), written up in the dev log post "Shipping the
+  Rust half" (`docs/blog/shipping_rust_binaries.nim`). The plan that came out of it:
   - *Release.* A workflow on `lib-v*` tags builds the static lib for
     `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.28 floor),
     `aarch64-apple-darwin` and `x86_64-pc-windows-gnu` (gnu, so it links with Nim's
@@ -105,4 +106,10 @@ two), L (more).
 
 - **Blog index page** (S). A list of dev-log posts instead of redirecting to the
   latest one.
+- **Cache rendered dev-log posts in CI** (S). Today the docs job reinstalls nimib and
+  ggplotnim and re-renders every post on each run, which grows with each post. Cache
+  each post's HTML (and images) keyed by a hash of the post, `docs/nanuqtheme.nim`,
+  `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
+  as a compile check when the API changes. (Freezing old posts as committed HTML is
+  simpler but loses that check.)
 - **Official documentation** (L). A reference and guides, separate from the dev log.

@@ -103,6 +103,13 @@ figure img { display: block; max-width: 100%; height: auto; border: 1px solid va
 figcaption { font: .8rem/1.4 var(--mono); color: var(--mute); margin-top: .4rem; }
 blockquote { border-left: 3px solid var(--fjord); margin: 1rem 0; padding-left: 1rem; color: var(--mute); }
 ul { padding-left: 1.2rem; }
+/* wide tables scroll inside themselves, never the page */
+table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1.2rem 0; font-size: .85rem; line-height: 1.45;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
+th, td { text-align: left; vertical-align: top; padding: .55rem .7rem; border-bottom: 1px solid var(--rule); min-width: 9rem; }
+th { font: 600 .68rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); background: var(--out-bg); }
+tr:last-child td { border-bottom: none; }
+td code { background: var(--out-bg); padding: .1em .3em; border-radius: 3px; }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }
 </style>
 """
