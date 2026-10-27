@@ -57,6 +57,13 @@ two), L (more).
   3. *Zero-copy.* Once columns cross through the Arrow C Data Interface (see Bridge), wrap
      Polars buffers as tensors without copying. Only worth it for very large plots.
   Start with 2, built on 1.
+- **A Narwhals-style dataframe API for Nim** (L, exploratory). Like Python's
+  [Narwhals](https://narwhals-dev.github.io/narwhals/): a backend-agnostic layer (a Nim
+  `concept` or a thin wrapper) with a Polars-like subset of operations, implemented by
+  Nanuq and Datamancer. Libraries such as ggplotnim could then accept either DataFrame
+  without converting, which would replace the conversion options above. Open questions:
+  is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
+  operations goes in, and how expressions are represented.
 - **Datamancer interop both ways** (S). `toDatamancer` / `fromDatamancer`, so existing
   Datamancer code can use Polars for the heavy queries.
 - **nimib integration** (S). Render a DataFrame as an HTML table in nimib documents
