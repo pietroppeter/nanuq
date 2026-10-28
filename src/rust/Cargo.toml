@@ -14,3 +14,11 @@ polars = { version = "0.55", default-features = false, features = ["lazy", "csv"
 
 [profile.release]
 opt-level = 3
+
+# Release archives (release-lib.yml): halves the archive (44 → 22 MB gzipped on
+# x86_64 Linux) for a slower build (12 instead of 7 minutes), so local builds keep
+# the plain release profile.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

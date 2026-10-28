@@ -1,7 +1,7 @@
 ## Nanuq: Polars DataFrames for Nim.
 ##
 ## Nanuq wraps the Rust `Polars <https://pola.rs>`_ library through a small C
-## ABI (the `nanuq_ffi` crate in `rust/`). Polars objects are owned by Rust and
+## ABI (the `nanuq_ffi` crate in `src/rust/`). Polars objects are owned by Rust and
 ## released automatically when the Nim value goes out of scope.
 ##
 ## .. code-block:: nim
@@ -27,6 +27,7 @@ import std/options
 import nanuq/ffi
 
 export options  # some/none/Option, for null-aware reads and series
+export nanuqLibVersion  # version of the Rust wrapper crate these bindings expect
 
 type
   NanuqError* = object of CatchableError

@@ -35,7 +35,7 @@ src/nanuq.nim        DataFrame, LazyFrame, Expr: Nim refs with destructors
 src/nanuq/ffi.nim    raw `importc` declarations, one per Rust function
    │   C ABI (extern "C", opaque pointers)
    ▼
-rust/src/lib.rs      nanuq_ffi crate: thin functions over Polars,
+src/rust/src/lib.rs  nanuq_ffi crate: thin functions over Polars,
                      compiled by cargo into libnanuq_ffi.a and linked in
 ```
 

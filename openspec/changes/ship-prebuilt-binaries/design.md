@@ -58,9 +58,14 @@ against the release's sums file.
 Everything runs through `gorgeEx` during compilation:
 `curl -fsSL --retry 2 -o <tmp> <url>`, then the platform hash tool (`sha256sum`,
 `shasum -a 256` or `certutil -hashfile <f> SHA256`), then `tar -xzf` into the cache
-directory, finally renaming a temporary directory into place so that two compiles
-running at once never see half a file. Hashing a 100 MB archive in the Nim VM would take
+directory, finally writing a `.complete` marker that later compiles look for, so that
+none of them links a half-unpacked file. (The plan was to rename a temporary directory
+into place, but `moveDir` isn't available in the compile-time VM.) Each compile
+downloads to its own temporary name. Hashing a 100 MB archive in the Nim VM would take
 too long.
+
+`-d:nanuqReleaseUrl` replaces the GitHub releases URL with a mirror, for networks that
+block GitHub. The committed sums still apply.
 
 Cache root: `$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on macOS,
 `%LOCALAPPDATA%` on Windows, each plus `nanuq/<libver>/<target>/`. `-d:nanuqCacheDir`

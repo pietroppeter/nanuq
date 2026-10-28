@@ -54,7 +54,7 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
              src/nanuq/ffi.nim  raw importc bindings, nbindgen style
                   │  C ABI
                   ▼
-             rust/              nanuq_ffi crate: extern "C" functions over Polars,
+             src/rust/          nanuq_ffi crate: extern "C" functions over Polars,
                                 built by cargo as a static library and linked in
 ```
 
@@ -81,12 +81,48 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   attaches the full page as the `specview` artifact.
 - Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger the main CI.
 
-## Requirements
+## Install
 
-- Nim >= 2.0
-- A Rust toolchain (`cargo`), stable
+```sh
+nimble install nanuq                                # or: atlas use nanuq
+nimble install https://github.com/pietroppeter/nanuq  # before it is in the package list
+```
 
-## Try it
+Requirements: Nim >= 2.0, plus `curl` and `tar` (included in Windows 10+, macOS and
+most Linux distributions).
+
+Nanuq links a static library, `libnanuq_ffi.a`, that wraps Polars. The first time you
+compile a program that imports `nanuq`, the library for your platform is downloaded from
+the project's GitHub releases, checked against the SHA-256 in
+`src/nanuq/lib-sums.txt`, and cached for later compiles:
+
+| Platform | Prebuilt library |
+|---|---|
+| Linux x86_64 and arm64 (glibc 2.28+) | yes |
+| macOS arm64 (11+) | yes |
+| Windows x86_64 (Nim's default MinGW compiler) | yes |
+| anything else | built from source with cargo, about 10 minutes |
+
+On x86_64 there is a build for CPUs with AVX2 and FMA (most from 2013 on) and a
+`legacy-cpu` build for older ones. Linux picks automatically; elsewhere pass
+`-d:nanuqLegacyCpu` for an older CPU, or when the program will run on older machines
+than the one compiling it.
+
+Compile-time options:
+
+- `-d:nanuqLib=source` never downloads and builds with cargo (needs
+  [Rust](https://rustup.rs)). `-d:nanuqLib=prebuilt` (or `-d:nanuqNoCargo`) never
+  runs cargo. The default, `auto`, downloads and falls back to cargo.
+- `-d:nanuqLibDir=<dir>` links `<dir>/libnanuq_ffi.a`, for example an archive you
+  downloaded by hand from the releases page.
+- `-d:nanuqCacheDir=<dir>` moves the cache (default: `~/.cache/nanuq`,
+  `~/Library/Caches/nanuq` on macOS, `%LOCALAPPDATA%\nanuq` on Windows).
+- `-d:nanuqReleaseUrl=<url>` downloads from a mirror of the GitHub releases, for
+  example behind a corporate proxy. The checksums still apply.
+
+## Try it from a clone
+
+Working on Nanuq itself needs a Rust toolchain (`cargo`, stable).
 
 ```sh
 nimble test       # builds the Rust library, then runs the tests
@@ -94,10 +130,8 @@ nimble example    # runs examples/basic.nim
 nimble docs       # renders the dev log posts in docs/blog with nimib
 ```
 
-The first build compiles Polars and takes a few minutes. If the static library
-is missing, importing `nanuq` also runs `cargo build` at compile time
-(disable with `-d:nanuqNoCargo`, or point to a prebuilt library with
-`-d:nanuqLibDir=...`).
+The first build compiles Polars and takes about 10 minutes. In a clone, the library
+built in `src/rust/target/release` is used before any download.
 
 ## What is there
 

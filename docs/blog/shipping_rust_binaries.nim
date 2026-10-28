@@ -97,7 +97,7 @@ Ecosystems with a platform-aware registry still have ideas worth taking:
 Before the cargo step, `ffi.nim` tries these sources in order:
 
 1. `-d:nanuqLibDir=…` if given (exists today).
-2. The local cargo output in `rust/target/release`, so contributors are unaffected.
+2. The local cargo output in `src/rust/target/release`, so contributors are unaffected.
 3. The user cache: `~/.cache/nanuq/<libver>/<triple>/` (`%LOCALAPPDATA%` on Windows,
    `~/Library/Caches` on macOS). It is shared across projects and survives reinstalls.
 4. A download of `libnanuq_ffi-<libver>-<triple>.tar.gz` with `curl` and `tar`, which
@@ -145,11 +145,11 @@ archive, and gzip keeps it readable by every `tar`.
 
 ### Versions
 
-- The lib is versioned by `rust/Cargo.toml`, apart from the Nim package, and its
+- The lib is versioned by the crate's `Cargo.toml`, apart from the Nim package, and its
   binaries live under a `lib-v<libver>` tag. Most Nim releases reuse the last lib.
   Lib releases are tagged by hand.
-- The sums are committed (for example `rust/lib-sums.txt`, read with `staticRead`).
-- A `-dev` lib version never downloads. CI fails if `rust/` changed while the version
+- The sums are committed in `src/nanuq/lib-sums.txt` and read with `staticRead`.
+- A `-dev` lib version never downloads. CI fails if the crate changed while the version
   still matches a published lib, so new Rust code is never paired with an old binary.
 - Rust exports `nq_version()`, and Nanuq checks it at startup.
 
@@ -173,7 +173,7 @@ jobs:
   release:
     - sha256sum *.tar.gz > lib-sums.txt
     - create the GitHub Release with the archives and lib-sums.txt
-    - open a PR that commits rust/lib-sums.txt
+    - open a PR that commits src/nanuq/lib-sums.txt
 ```
 
 ## Set aside
@@ -186,7 +186,9 @@ jobs:
 - **Runtime download**: only works for dynamic libs, and a data library that goes
   online on first run would surprise people.
 
-Next, this becomes an OpenSpec change, and then a release workflow.
+One more thing turned up while writing the OpenSpec change: `nimble install` copies only
+`srcDir`, so a top-level `rust/` never reaches users. The crate therefore moves to
+`src/rust/`, which also keeps the cargo fallback working in installed packages.
 """
 
 nbSave

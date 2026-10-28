@@ -25,20 +25,40 @@ on:
       - ".github/workflows/openspec.yml"
   workflow_dispatch:
 
-# The Polars wrapper (rust/) is the slow part: a cold build takes ~9 minutes.
-# It is built once per change of rust/, cached by a hash of its sources, and
+# The Polars wrapper (src/rust/) is the slow part: a cold build takes ~9 minutes.
+# It is built once per change of src/rust/, cached by a hash of its sources, and
 # shared with the other jobs as a prebuilt static library.
 env:
-  LIB_DIR: rust/target/release
+  LIB_DIR: src/rust/target/release
 
 jobs:
+  # A released lib version must keep matching its sources: after lib-v<version>,
+  # any change to src/rust/ needs the next -dev version in Cargo.toml, or users
+  # would download a library that doesn't match the code.
+  lib-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          version=$(grep -m1 '^version' src/rust/Cargo.toml | cut -d'"' -f2)
+          case "$version" in *-dev) echo "development version $version"; exit 0;; esac
+          if git rev-parse -q --verify "refs/tags/lib-v$version" > /dev/null &&
+             ! git diff --quiet "lib-v$version" -- src/rust; then
+            echo "::error::src/rust changed since lib-v$version. Bump the version in src/rust/Cargo.toml to a -dev version (for example the next patch, with a -dev suffix) until the next lib release."
+            git diff --stat "lib-v$version" -- src/rust
+            exit 1
+          fi
+          echo "lib version $version is consistent"
+
   rust-lib:
     name: build libnanuq_ffi
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - id: key
-        run: echo "key=nanuq-ffi-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/Cargo.toml', 'rust/Cargo.lock', 'rust/src/**') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=nanuq-ffi-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/rust/Cargo.toml', 'src/rust/Cargo.lock', 'src/rust/src/**') }}" >> "$GITHUB_OUTPUT"
       # exact-key cache of the finished library: a hit skips Rust entirely
       - id: lib-cache
         uses: actions/cache@v4
@@ -51,9 +71,9 @@ jobs:
       - if: steps.lib-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: src/rust
       - if: steps.lib-cache.outputs.cache-hit != 'true'
-        run: cargo build --release --manifest-path rust/Cargo.toml
+        run: cargo build --release --manifest-path src/rust/Cargo.toml
       - run: ls -lh "$LIB_DIR/libnanuq_ffi.a"
       - uses: actions/upload-artifact@v4
         with:
