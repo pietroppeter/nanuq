@@ -163,7 +163,7 @@ proc findLib(): tuple[lib, error: string] =
       "). Install Rust (https://rustup.rs) and compile with -d:nanuqLib=auto, or " &
       "download a release archive and pass -d:nanuqLibDir=<dir>.")
   echo "nanuq: building the Polars wrapper with cargo (" & why &
-    "), the first build takes about 10 minutes..."
+    "), the first build takes several minutes..."
   let cargo = gorgeEx("cargo build --release --manifest-path " &
                       quoteShell(rustDir / "Cargo.toml"))
   if cargo.exitCode != 0 or not fileExists(local):

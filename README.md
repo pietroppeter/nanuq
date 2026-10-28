@@ -101,7 +101,7 @@ the project's GitHub releases, checked against the SHA-256 in
 | Linux x86_64 and arm64 (glibc 2.28+) | yes |
 | macOS arm64 (11+) | yes |
 | Windows x86_64 (Nim's default MinGW compiler) | yes |
-| anything else | built from source with cargo, about 10 minutes |
+| anything else | built from source with cargo, 3 to 10 minutes the first time |
 
 On x86_64 there is a build for CPUs with AVX2 and FMA (most from 2013 on) and a
 `legacy-cpu` build for older ones. Linux picks automatically; elsewhere pass
@@ -133,7 +133,7 @@ nimble docs       # renders the dev log posts in docs/blog with nimib
 Changing the Rust wrapper in `src/rust/` needs a Rust toolchain (`cargo`, stable):
 
 ```sh
-nimble buildRust  # builds src/rust/target/release/libnanuq_ffi.a (about 10 minutes the first time)
+nimble buildRust  # builds src/rust/target/release/libnanuq_ffi.a (3 to 10 minutes the first time)
 ```
 
 Once that file exists it is linked instead of the download, so run `nimble buildRust`
