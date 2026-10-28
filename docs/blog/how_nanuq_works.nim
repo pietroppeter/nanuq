@@ -207,14 +207,12 @@ nbText: """
 Every output in this post is Polars' own text table, which doubles as a check that
 Nanuq prints exactly what Polars prints. For web pages there is also `toHtml`, a port of
 the HTML table Python Polars shows in Jupyter, with the same information: shape, column
-names and types, and cells formatted by Polars. In nimib it is one line:
-
-```nim
-nbRawHtml: summary.toHtml
-```
+names and types, and cells formatted by Polars. nimib's `nbShow` renders anything that has
+a `toHtml`, so in a nimib document it is one line:
 """
 
-nbRawHtml: summary.toHtml
+nimibCode:
+  nbShow(summary)
 
 nbText: """
 ## Errors
