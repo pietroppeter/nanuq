@@ -449,6 +449,37 @@ pub unsafe extern "C" fn nq_df_cell_is_null(
     .is_some()
 }
 
+/// One cell as Python Polars' `get_fmt` shows it in HTML tables: the value's
+/// Display form, with strings in quotes and cut after
+/// `str_len` characters with an ellipsis.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_cell_fmt(
+    df: *const DataFrame,
+    name: *const c_char,
+    row: usize,
+    str_len: usize,
+) -> *mut c_char {
+    guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let name = cstr(name)?;
+        let col = df.column(name).map_err(pe)?;
+        let v = format!("{}", cell(df, name, row)?);
+        let quoted = matches!(col.dtype(), DataType::String);
+        if !quoted || v.len() < 2 {
+            return Ok(to_c_string(v));
+        }
+        let inner = &v[1..v.len() - 1];
+        let end = inner
+            .char_indices()
+            .take(str_len)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        Ok(to_c_string(if end == inner.len() { v.clone() } else { format!("\"{}…", &inner[..end]) }))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
 /// Reads column `name` cast to `to`, after checking that its dtype is allowed.
 /// Errors name the column and its dtype.
 unsafe fn column_as(

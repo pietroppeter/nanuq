@@ -34,10 +34,16 @@ shape: (3, 3)
 `nanuq/datasets` bundles the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
 data (CC0) for examples and tests.
 
+For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter (in
+nimib: `nbRawHtml: df.toHtml`). The optional module `nanuq/datamancer` converts to and
+from [Datamancer](https://github.com/SciNim/Datamancer) DataFrames (`toDatamancer`,
+`fromDatamancer`), for example to plot with ggplotnim; it needs `nimble install datamancer`.
+
 ## Documentation
 
 The development log, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>:
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>, which lists
+the posts newest first:
 
 - [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
 - [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)

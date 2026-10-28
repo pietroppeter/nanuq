@@ -12,6 +12,7 @@ nb.useNanuqTheme(
   eyebrow = "Nanuq dev log · 27 October 2026",
   epigraph = "Watch out where the huskies go, and don't you eat that rusty data.",
   meta = "Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
+  summary = "How Nanuq wraps Polars for Nim through a small Rust C ABI, with a first tour of the API.",
 )
 
 nbText: """
@@ -199,6 +200,21 @@ nbCode:
   let topMean = summary["mean_body_mass_g", 0, float]
   echo "heaviest species: ", top, " (mean body mass ", topMean.round(0), " g)"
   echo "counts: ", summary.toSeq("n", int)
+
+nbText: """
+## As an HTML table
+
+Every output in this post is Polars' own text table, which doubles as a check that
+Nanuq prints exactly what Polars prints. For web pages there is also `toHtml`, a port of
+the HTML table Python Polars shows in Jupyter, with the same information: shape, column
+names and types, and cells formatted by Polars. In nimib it is one line:
+
+```nim
+nbRawHtml: summary.toHtml
+```
+"""
+
+nbRawHtml: summary.toHtml
 
 nbText: """
 ## Errors

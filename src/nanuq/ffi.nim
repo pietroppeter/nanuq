@@ -238,6 +238,7 @@ proc nq_df_get_str*(df: ptr NqDataFrame, name: cstring, row: csize_t): cstring
 # whole columns and nulls
 proc nq_df_null_count*(df: ptr NqDataFrame, name: cstring): int64
 proc nq_df_cell_is_null*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr bool): bool
+proc nq_df_cell_fmt*(df: ptr NqDataFrame, name: cstring, row: csize_t, str_len: csize_t): cstring
 proc nq_df_column_i64*(df: ptr NqDataFrame, name: cstring, values: ptr int64, valid: ptr bool,
                        len: csize_t): bool
 proc nq_df_column_f64*(df: ptr NqDataFrame, name: cstring, values: ptr float64, valid: ptr bool,

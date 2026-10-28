@@ -94,6 +94,8 @@ jobs:
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # tests/test_datamancer.nim needs Datamancer (an optional dependency)
+      - run: nimble install -y datamancer
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
@@ -116,13 +118,14 @@ jobs:
       - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim
       - name: Render dev log posts
         run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done
+      # the index lists the rendered posts, so it comes after them
+      - name: Render the index
+        run: nim r --hints:off docs/index.nim
       - name: Assemble site
         run: |
           mkdir -p _site/blog
           cp docs/blog/*.html docs/blog/*.png _site/blog/
-          # until there is a blog index, the site root opens the latest post
-          latest=$(ls docs/blog/*.html | sort | tail -1 | xargs basename)
-          echo "<!doctype html><meta http-equiv=\"refresh\" content=\"0; url=blog/$latest\"><a href=\"blog/$latest\">Nanuq dev log</a>" > _site/index.html
+          cp docs/index.html _site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -226,6 +226,86 @@ proc nullCount*(df: DataFrame, column: string): int =
 
 proc hasNulls*(df: DataFrame, column: string): bool = df.nullCount(column) > 0
 
+# ---------------------------------------------------------------------------
+# HTML tables, ported from Python Polars' `DataFrame._repr_html_`
+# (py-polars/src/polars/dataframe/_html.py)
+
+proc htmlEscape(s: string): string =
+  ## Like Python's `html.escape(s, quote=True)`.
+  for c in s:
+    case c
+    of '&': result.add "&amp;"
+    of '<': result.add "&lt;"
+    of '>': result.add "&gt;"
+    of '"': result.add "&quot;"
+    of '\'': result.add "&#x27;"
+    else: result.add c
+
+proc nbspRuns(s: string): string =
+  ## Replaces runs of two or more spaces with as many `&nbsp;`.
+  var i = 0
+  while i < s.len:
+    var j = i
+    while j < s.len and s[j] == ' ': inc j
+    if j - i >= 2:
+      for _ in i ..< j: result.add "&nbsp;"
+      i = j
+    elif j > i:
+      result.add ' '
+      i = j
+    else:
+      result.add s[i]
+      inc i
+
+proc thousands(n: int): string =
+  ## `n` with `_` thousand separators, like Python's `f"{n:_}"`.
+  let digits = $n
+  for i, c in digits:
+    if i > 0 and (digits.len - i) mod 3 == 0: result.add '_'
+    result.add c
+
+proc indices(n, limit: int, isRows: bool): seq[int] =
+  ## Indices to show, with -1 for the elided middle.
+  if limit >= n:
+    for i in 0 ..< n: result.add i
+  else:
+    let half = limit div 2
+    let first = if isRows: half + limit mod 2 else: half
+    for i in 0 ..< first: result.add i
+    result.add -1
+    for i in n - half ..< n: result.add i
+
+proc cellFmt(df: DataFrame, column: string, row: int, strLen = 30): string =
+  takeString nq_df_cell_fmt(df.raw, column.cstring, row.csize_t, strLen.csize_t)
+
+proc toHtml*(df: DataFrame, maxRows = 10, maxCols = 75): string =
+  ## The HTML table Python Polars shows in notebooks (`_repr_html_`): shape,
+  ## column names and dtypes, and cells formatted by Polars. Beyond `maxRows`
+  ## rows or `maxCols` columns, the first and last ones are shown around `…`.
+  ## In nimib: `nbRawHtml: df.toHtml`.
+  let names = df.columns
+  let rows = indices(df.height, maxRows, isRows = true)
+  let cols = indices(df.width, maxCols, isRows = false)
+  result = "<div><style>\n.dataframe > thead > tr,\n.dataframe > tbody > tr {\n" &
+    "  text-align: right;\n  white-space: pre-wrap;\n}\n</style>\n"
+  result.add "<small>shape: (" & thousands(df.height) & ", " & thousands(df.width) & ")</small>"
+  result.add "<table border=\"1\" class=\"dataframe\"><thead><tr>"
+  for c in cols:
+    result.add "<th>" & (if c == -1: "&hellip;" else: htmlEscape(names[c])) & "</th>"
+  result.add "</tr><tr>"
+  for c in cols:
+    result.add "<td>" & (if c == -1: "&hellip;" else: df.dtype(names[c])) & "</td>"
+  result.add "</tr></thead><tbody>"
+  for r in rows:
+    result.add "<tr>"
+    for c in cols:
+      result.add "<td>"
+      if r == -1 or c == -1: result.add "&hellip;"
+      else: result.add nbspRuns(htmlEscape(df.cellFmt(names[c], r)))
+      result.add "</td>"
+    result.add "</tr>"
+  result.add "</tbody></table></div>"
+
 proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[bool]) =
   ## Values and validity mask of a whole column, in one FFI call (two for strings).
   let n = df.height

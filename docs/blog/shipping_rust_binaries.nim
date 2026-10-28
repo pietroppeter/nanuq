@@ -11,6 +11,7 @@ nb.useNanuqTheme(
   eyebrow = "Nanuq dev log · 27 October 2026",
   epigraph = "How do Nim users get libnanuq_ffi without a 10 minute Polars build, when there is no PyPI to upload wheels to?",
   meta = "Research · no code yet · rendered with nimib",
+  summary = "How other Polars bindings ship their Rust half, and the plan for Nanuq's prebuilt libraries.",
 )
 
 nbText: """

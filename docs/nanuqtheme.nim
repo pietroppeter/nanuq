@@ -110,6 +110,20 @@ th, td { text-align: left; vertical-align: top; padding: .55rem .7rem; border-bo
 th { font: 600 .68rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); background: var(--out-bg); }
 tr:last-child td { border-bottom: none; }
 td code { background: var(--out-bg); padding: .1em .3em; border-radius: 3px; }
+/* toHtml tables (Polars' notebook HTML): compact, monospace, right-aligned like the text table */
+table.dataframe { font: .78rem/1.4 var(--mono); width: max-content; max-width: 100%; margin-top: .3rem; }
+small:has(+ table.dataframe) { font: .72rem/1.4 var(--mono); color: var(--mute); }
+table.dataframe th, table.dataframe td { min-width: 0; padding: .3rem .6rem; text-align: right; white-space: pre; }
+table.dataframe th { font: 600 .78rem/1.4 var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); }
+table.dataframe thead tr:nth-child(2) td { color: var(--mute); background: var(--out-bg); border-bottom: 2px solid var(--rule); }
+/* the dev-log index */
+ol.posts { list-style: none; padding: 0; margin: 2rem 0; }
+ol.posts li { padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+ol.posts li:last-child { border-bottom: none; }
+ol.posts time { display: block; font: .72rem/1.4 var(--mono); letter-spacing: .06em; color: var(--mute); text-transform: uppercase; }
+ol.posts a { font: 700 1.25rem/1.3 var(--display); color: var(--ink); text-decoration: none; }
+ol.posts a:hover { color: var(--fjord); }
+ol.posts p { margin: .3rem 0 0; color: var(--mute); }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }
 </style>
 """
@@ -143,9 +157,22 @@ Source: <a href="https://github.com/pietroppeter/nanuq">pietroppeter/nanuq</a>.<
 
 func emptyPartial(blk: JsonNode, nb: Nb): string = ""
 
-proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string) =
-  ## `titleHtml` may contain `<em>` for the accented word.
-  nb.doc.context["stylesheet"] = %nanuqHead
+proc escapeAttr(s: string): string =
+  for c in s:
+    case c
+    of '&': result.add "&amp;"
+    of '"': result.add "&quot;"
+    of '<': result.add "&lt;"
+    of '>': result.add "&gt;"
+    else: result.add c
+
+proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "") =
+  ## `titleHtml` may contain `<em>` for the accented word. `summary` is the
+  ## one-line description the dev-log index shows for the page.
+  let description =
+    if summary.len > 0: "<meta name=\"description\" content=\"" & escapeAttr(summary) & "\">\n"
+    else: ""
+  nb.doc.context["stylesheet"] = %(description & nanuqHead)
   nb.doc.context["highlight"] = %""
   nb.doc.context["nb_style"] = %""
   nb.doc.context["disableHighlightJs"] = %true
