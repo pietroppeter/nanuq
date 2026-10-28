@@ -50,7 +50,8 @@ None.
 ## Impact
 
 - `src/rust/src/lib.rs` and `src/nanuq/ffi.nim`: one new function. This changes the Rust
-  library, so it needs a library build; if it lands after the first `lib-v` release, the
-  next library release must include it.
+  library, so it needs a library build. `lib-v0.1.0` is already released without it, so
+  `toHtml` ships with the next library release (e.g. `lib-v0.1.1`); until then it works
+  only with a local cargo build.
 - `src/nanuq.nim`: `toHtml`. `docs/nanuqtheme.nim`: table CSS. `docs/blog/how_nanuq_works.nim`.
 - New tests in `tests/`.
