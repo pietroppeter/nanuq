@@ -66,6 +66,8 @@ two), L (more).
     order, enum order, which today only a comment keeps in sync). A cheaper guard
     without nbindgen: a test that every `importc` name in `ffi.nim` is exported by
     `libnanuq_ffi.a` (`nm`), plus a Rust test of the enum values.
+  - *Decided (Pietro, 2026-10-28).* Not now: `ffi.nim` stays hand-written. If taken up
+    later, nbindgen would be used from our own fork, so fixes don't wait on upstream.
 - **Zero-copy columns through the Arrow C Data Interface** (L). Move whole columns
   between Nim and Polars without copying.
 
