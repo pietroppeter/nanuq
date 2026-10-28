@@ -38,7 +38,7 @@ its OpenSpec change is archived. Format based on
   startup. (#12)
 - `release-lib.yml` builds, smoke-tests and publishes the six archives, from a
   `lib-v*` tag or from the Actions tab with "publish", and opens a PR with their sums.
-  First release: `lib-v0.1.0`. (#12, #13, #16)
+  Releases so far: `lib-v0.1.0`, and `lib-v0.1.1` with `toHtml`. (#12, #13, #16)
 - Dev-log index: the GitHub Pages root lists the posts, newest first, with date, title
   and summary, built from the rendered posts (`docs/index.nim`). (#20)
 - `toHtml`: the HTML table Python Polars shows in notebooks (`_repr_html_`), with cells
