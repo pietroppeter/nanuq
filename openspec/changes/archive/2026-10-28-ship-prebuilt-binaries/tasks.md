@@ -19,7 +19,7 @@
 - [x] 4.1 In `ffi.nim`, add the `nanuqLib` policy (`auto` / `prebuilt` / `source`, with `nanuqNoCargo` as `prebuilt`), the target triple, the lib version from `Cargo.toml`, and reading `lib-sums.txt`. Verify that with `-d:nanuqLib=source` and no local build, cargo runs as before.
 - [x] 4.2 Implement the cache lookup, the download (curl), checksum check (sha256sum / shasum / certutil), unpacking with a `.complete` marker (see design.md), and a hint for each source used. Verify against the `workflow_dispatch` archives from 3.1 (served from a local directory, or uploaded to a test pre-release): a clean cache downloads and links, a second compile uses the cache, a corrupted archive stops with the checksum error, and an unknown target falls back to cargo.
 - [x] 4.3 Add CPU detection for x86_64 Linux and `-d:nanuqLegacyCpu`. Verify both choices, using a stubbed flags string for the old-CPU case.
-- [ ] 4.4 Document installing (nimble, Atlas, git), the defines and the cache location in the README, and update the `ffi.nim` module doc. Verify the README commands work in a clean container without Rust once a release exists (task 6.1).
+- [x] 4.4 Document installing (nimble, Atlas, git), the defines and the cache location in the README, and update the `ffi.nim` module doc. Verify the README commands work in a clean container without Rust once a release exists (task 6.1).
 
 ## 5. CI check
 
@@ -27,7 +27,7 @@
 
 ## 6. End to end
 
-- [ ] 6.1 After Pietro pushes `lib-v0.1.0` and the sums PR is merged: in a fresh container without Rust, `nimble install` the package from this branch and compile and run the README example. Verify that it finishes in under a minute with a download hint and no cargo hint.
+- [x] 6.1 After Pietro pushes `lib-v0.1.0` and the sums PR is merged: in a fresh container without Rust, `nimble install` the package from this branch and compile and run the README example. Verify that it finishes in under a minute with a download hint and no cargo hint.
 
 ## Workflow follow-up
 
