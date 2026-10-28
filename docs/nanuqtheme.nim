@@ -81,6 +81,7 @@ pre:has(> code.nohighlight.nim)::before { content: "nim · ran"; }
 pre:has(> code.language-nim)::before { content: "nim"; }
 pre:has(> code.language-rust)::before { content: "rust"; }
 pre:has(> code:not([class]))::before { content: "layout"; }
+pre:has(> code.nim-source)::before { content: "nim · source of this page"; }
 pre:has(> code:not([class])) { background: transparent; border-style: dashed; }
 pre:has(> code.nohighlight.nim):has(+ pre.nb-output) { border-radius: 6px 6px 0 0; }
 pre.nb-output {
@@ -124,6 +125,14 @@ ol.posts time { display: block; font: .72rem/1.4 var(--mono); letter-spacing: .0
 ol.posts a { font: 700 1.25rem/1.3 var(--display); color: var(--ink); text-decoration: none; }
 ol.posts a:hover { color: var(--fjord); }
 ol.posts p { margin: .3rem 0 0; color: var(--mute); }
+/* "Show source": the page's own nimib source, folded at the end */
+details.source { margin-top: 3rem; }
+details.source summary { cursor: pointer; width: max-content; font: 600 .75rem/1 var(--mono); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fjord); padding: .5rem .8rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
+details.source summary::marker { content: ""; }
+details.source summary::before { content: "Show source"; }
+details.source[open] summary::before { content: "Hide source"; }
+details.source pre { margin-top: 1rem; }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }
 </style>
 """
@@ -151,7 +160,12 @@ func nanuqHeader(blk: JsonNode, nb: Nb): string =
 </header>"""
 
 func nanuqFooter(blk: JsonNode, nb: Nb): string =
-  """<footer><div class="foot">Made with <a href="https://github.com/pietroppeter/nimib">nimib</a>.
+  ## Ends with a folded "Show source" section, like nimib's default theme.
+  let source = nb.doc.context{"source_highlighted"}.getStr
+  "<footer>" & (if source.len == 0: "" else:
+    """<details class="source"><summary></summary><pre><code class="nim-source">""" & source &
+    "</code></pre></details>\n") &
+  """<div class="foot">Made with <a href="https://github.com/pietroppeter/nimib">nimib</a>.
 Blocks marked "nim · ran" were executed when this page was built.
 Source: <a href="https://github.com/pietroppeter/nanuq">pietroppeter/nanuq</a>.</div></footer>""" & nanuqScripts
 
