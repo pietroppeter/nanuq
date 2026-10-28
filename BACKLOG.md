@@ -87,9 +87,9 @@ two), L (more).
   Open questions:
   is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
   operations goes in, and how expressions are represented.
-- **Datamancer interop both ways** (S). `toDatamancer` / `fromDatamancer`, so existing
+- **Datamancer interop both ways** (S). *In progress in OpenSpec change `add-datamancer-interop`.* `toDatamancer` / `fromDatamancer`, so existing
   Datamancer code can use Polars for the heavy queries.
-- **nimib integration** (S). Render a DataFrame as an HTML table in nimib documents
+- **nimib integration** (S). *In progress in OpenSpec change `add-html-tables`.* Render a DataFrame as an HTML table in nimib documents
   (`nbDataFrame` or a `toHtml` proc) instead of the text table.
 - **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
   work.
@@ -106,7 +106,7 @@ two), L (more).
 
 ## Docs
 
-- **Blog index page** (S). A list of dev-log posts instead of redirecting to the
+- **Blog index page** (S). *In progress in OpenSpec change `add-devlog-index`.* A list of dev-log posts instead of redirecting to the
   latest one.
 - **Cache rendered dev-log posts in CI** (S). Today the docs job reinstalls nimib and
   ggplotnim and re-renders every post on each run, which grows with each post. Cache
