@@ -3,14 +3,21 @@ name: Release lib
 # Builds the prebuilt Polars wrapper (libnanuq_ffi.a) for every supported target,
 # smoke-tests each archive on its own platform, and, for a pushed lib-v<version>
 # tag, publishes them as a GitHub Release and opens a PR with their SHA-256 sums
-# (src/nanuq/lib-sums.txt). Run it by hand (workflow_dispatch) to build and test
-# without publishing; PRs that change this workflow do the same.
+# (src/nanuq/lib-sums.txt). Running it by hand (workflow_dispatch) builds and tests
+# without publishing, unless "publish" is ticked on main: then the release step
+# also creates the lib-v<version> tag on the commit it built. PRs that change this
+# workflow build and test without publishing.
 on:
   push:
     tags: ["lib-v*"]
   pull_request:
     paths: [".github/workflows/release-lib.yml"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish lib-v<Cargo.toml version> from main (creates the tag)"
+        type: boolean
+        default: false
 
 jobs:
   version:
@@ -26,6 +33,15 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "lib-v$version" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} does not match the crate version $version"
             exit 1
+          fi
+          if [ "${{ inputs.publish }}" = true ]; then
+            if [ "${GITHUB_REF}" != refs/heads/main ]; then
+              echo "::error::publish only from main, not ${GITHUB_REF}"; exit 1
+            fi
+            case "$version" in *-dev) echo "::error::$version is a development version"; exit 1;; esac
+            if git ls-remote --exit-code --tags origin "refs/tags/lib-v$version" > /dev/null; then
+              echo "::error::lib-v$version already exists. Bump the version in src/rust/Cargo.toml."; exit 1
+            fi
           fi
 
   build:
@@ -106,7 +122,7 @@ jobs:
       - run: nim r -d:nanuqLibDir=prebuilt --hints:off tests/test_basic.nim
 
   release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || inputs.publish
     needs: [version, smoke-test]
     runs-on: ubuntu-24.04
     permissions:
@@ -126,7 +142,8 @@ jobs:
           cd dist && sha256sum libnanuq_ffi-*.tar.gz > lib-sums.txt && cat lib-sums.txt
       - name: Publish the release
         run: |
-          gh release create "lib-v$VERSION" dist/*.tar.gz dist/lib-sums.txt \
+          # --target creates the tag when the run was started by hand
+          gh release create "lib-v$VERSION" dist/*.tar.gz dist/lib-sums.txt --target "$GITHUB_SHA" \
             --title "Polars wrapper library $VERSION" \
             --notes "Prebuilt libnanuq_ffi $VERSION. Nanuq downloads these at compile time; see the README."
       - name: Commit the sums in a PR
