@@ -36,7 +36,7 @@ proc readPost(path: string): Post =
     result.summary = m[0].unescape
 
 var posts: seq[Post]
-for path in walkFiles("docs/blog/*.html"):  # nimib runs from the repo root
+for path in walkFiles("blog/*.html"):  # nimib runs from docs/ (see nimib.toml)
   if path.extractFilename.match(re"\d{4}-\d{2}-\d{2}-.*\.html"):
     posts.add readPost(path)
 posts.sort(proc (a, b: Post): int = cmp(b.file, a.file))

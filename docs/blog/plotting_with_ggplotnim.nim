@@ -15,7 +15,7 @@ nb.useNanuqTheme(
   meta = "Polars 0.55 · ggplotnim · Nim " & NimVersion & " · rendered with nimib",
   summary = "Plotting a Nanuq DataFrame with ggplotnim, and where a smoother bridge could go.",
 )
-# nimib runs the code from the repository root
+# nimib runs the code from docs/ (see nimib.toml), so paths below are site paths
 
 nbText: """
 How do we plot a Nanuq DataFrame? The obvious candidate in Nim is
@@ -74,9 +74,11 @@ nbCode:
   ggplot(points, aes("flipper_length_mm", "body_mass_g", color = "species")) +
     geom_point(size = 2.0) +
     ggtitle("Palmer penguins: body mass vs flipper length") +
-    ggsave("docs/blog/2026-10-27-penguins-scatter.png", width = 640, height = 420)
+    ggsave("blog/2026-10-27-penguins-scatter.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-penguins-scatter.png" alt="Scatter plot of body mass against flipper length, coloured by species"></figure>"""
+nbImage("blog/2026-10-27-penguins-scatter.png",
+  caption = "Body mass against flipper length, coloured by species.",
+  alt = "Scatter plot of body mass against flipper length, coloured by species")
 
 nbText: """
 ## Aggregate in Polars, plot the result
@@ -97,9 +99,11 @@ nbCode:
   ggplot(means.toDatamancer, aes("species", "mean_body_mass_g", fill = "species")) +
     geom_bar(stat = "identity", position = "identity") +
     ggtitle("Mean body mass per species (computed by Polars)") +
-    ggsave("docs/blog/2026-10-27-penguins-means.png", width = 640, height = 420)
+    ggsave("blog/2026-10-27-penguins-means.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-penguins-means.png" alt="Bar chart of mean body mass for Adelie, Chinstrap and Gentoo"></figure>"""
+nbImage("blog/2026-10-27-penguins-means.png",
+  caption = "Mean body mass per species, aggregated by Polars before plotting.",
+  alt = "Bar chart of mean body mass for Adelie, Chinstrap and Gentoo")
 
 nbText: """
 ## What this costs
