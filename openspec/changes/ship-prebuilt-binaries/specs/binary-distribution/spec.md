@@ -20,6 +20,12 @@ sums for all archives. The supported targets SHALL be `x86_64-unknown-linux-gnu`
 - **THEN** a release `lib-v0.1.0` appears with six archives and a sums file
 - **AND** a pull request is opened that commits those sums to the repository
 
+#### Scenario: Released from the Actions tab
+- **WHEN** a maintainer runs the release workflow by hand on `main` with "publish"
+  ticked, and no `lib-v<version>` tag exists for the `Cargo.toml` version
+- **THEN** the same release and pull request are made, and the tag is created on the
+  commit that was built
+
 #### Scenario: Tag does not match the crate
 - **WHEN** the tag's version differs from `Cargo.toml`
 - **THEN** the workflow fails without publishing anything
