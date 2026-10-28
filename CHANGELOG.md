@@ -6,6 +6,8 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-28
+
 ### Added
 - First proof of concept: Polars wrapped for Nim through a Rust C ABI (`rust/` crate
   `nanuq_ffi`, raw bindings in `src/nanuq/ffi.nim`, Nim API in `src/nanuq.nim`).
@@ -26,8 +28,22 @@ its OpenSpec change is archived. Format based on
 - `nanuq/datasets` with `penguins()`, the Palmer penguins data (CC0) bundled for
   examples and tests. The README, the basic example, the tests and both dev-log posts
   use it instead of iris, and the iris sample is gone. The README links the posts. (#8)
+- Prebuilt Polars wrapper libraries: `nimble install nanuq` (or Atlas, or a git clone)
+  no longer needs Rust. At compile time `ffi.nim` downloads the static library for the
+  platform from the `lib-v<version>` GitHub release (Linux x86_64 and arm64, macOS
+  arm64, Windows x86_64 MinGW, plus `legacy-cpu` builds for x86_64 CPUs without
+  AVX2), checks its SHA-256 against `src/nanuq/lib-sums.txt`, caches it, and falls
+  back to cargo. Options `-d:nanuqLib=auto|prebuilt|source`, `-d:nanuqLegacyCpu`,
+  `-d:nanuqCacheDir`, `-d:nanuqReleaseUrl`. The linked library's version is checked at
+  startup. (#12)
+- `release-lib.yml` builds, smoke-tests and publishes the six archives, from a
+  `lib-v*` tag or from the Actions tab with "publish", and opens a PR with their sums.
+  First release: `lib-v0.1.0`. (#12, #13, #16)
 
 ### Changed
+- The Rust crate moved from `rust/` to `src/rust/`, so `nimble install` ships it. Release
+  archives are built with fat LTO (22 MB instead of 44 MB gzipped). CI fails when
+  `src/rust/` changes without a `-dev` version bump after a lib release. (#12)
 - `toSeq` reads a whole column in one FFI call (two for strings) instead of one per
   cell. It now raises up front, naming the column, when the column has nulls; read it as
   `Option[T]` instead. `float` reads integer columns and `string` reads any column. (#5)

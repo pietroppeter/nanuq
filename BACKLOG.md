@@ -14,35 +14,6 @@ two), L (more).
 
 ## Distribution
 
-- **Prebuilt binaries for users** (M). *In progress in OpenSpec change
-  `ship-prebuilt-binaries`.* Removes the ~10 minute first build for users.
-  Researched 2026-10-27 (Explorer/rustler_precompiled, r-polars, nwaku's `librln`,
-  Julia JLLs, Zig, Go, Node, Ruby, Deno), written up in the dev log post "Shipping the
-  Rust half" (`docs/blog/shipping_rust_binaries.nim`). The plan that came out of it:
-  - *Release.* A workflow on `lib-v*` tags builds the static lib for
-    `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.28 floor),
-    `aarch64-apple-darwin` and `x86_64-pc-windows-gnu` (gnu, so it links with Nim's
-    default MinGW), and attaches `libnanuq_ffi-<libver>-<triple>.tar.gz` plus SHA-256 sums.
-  - *Versioning.* The lib version is `rust/Cargo.toml`'s, separate from the Nim package
-    version, so Nim-only releases reuse the last lib. Sums are committed (e.g.
-    `rust/lib-sums.txt`). A `-dev` lib version never downloads, and CI fails if `rust/`
-    changed without a version bump. Rust exports `nq_version()` for a runtime check.
-  - *Download.* At compile time in `ffi.nim`, not in a nimble hook (Atlas, nimby and git
-    clones don't run hooks): `nanuqLibDir`, then local cargo output, then a user cache
-    (`~/.cache/nanuq/<libver>/<triple>/`), then `curl` + `tar` + checksum, then cargo.
-    `-d:nanuqLib=auto|prebuilt|source` picks the policy. A checksum mismatch is an
-    error, every other miss falls back to cargo with a hint.
-  - *Decided (Pietro, 2026-10-27).* Download by default (`auto`). Windows is MinGW
-    (`-gnu`) only for now. Lib releases are tagged by hand. CPU variants as Explorer
-    does: x86_64 targets ship a modern build (x86-64-v3, AVX2/FMA) and a `legacy-cpu`
-    baseline build. On Linux `ffi.nim` reads `/proc/cpuinfo` at compile time and picks
-    legacy when a flag is missing; elsewhere legacy is only chosen with
-    `-d:nanuqLegacyCpu`, which also forces it everywhere (e.g. when building for older
-    machines than the build host). arm64 targets have one build.
-  - *Before implementing.* Measure the archive size with `lto = "fat"`.
-- **`nimble install` support** (S-M). *In progress in OpenSpec change
-  `ship-prebuilt-binaries`* (the crate moves to `src/rust/`, since nimble installs only
-  `srcDir`).
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
   lib (about 300 MB unstripped), with runtime loading.
 
