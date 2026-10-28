@@ -50,7 +50,22 @@ two), L (more).
 
 - **Generate `ffi.nim` with nbindgen** (S-M). Generate the Nim declarations from the
   Rust code instead of writing them by hand, and add a CI check that the generated file
-  is up to date. Pietro said yes, but not yet (2026-10-27).
+  is up to date. Pietro said yes, but not yet (2026-10-27). Weighed on 2026-10-28, from
+  nbindgen's source and test expectations (master, last commit 2023-10-20, rebased on
+  cbindgen 0.26; crates.io only has 0.0.1 from 2020, so it would be built from git):
+  - *Not a blocker for 0.1.* The generated file would only replace the declarations at
+    the end of `ffi.nim`; the linking logic stays hand-written, and neither users nor
+    the prebuilt archives would see a difference. nbindgen would run in CI only, never
+    on a user's machine.
+  - *Its output needs fixing first.* Enum discriminants are dropped (the code writing
+    them is commented out), `*const c_char` becomes `ptr char` instead of `cstring`, and
+    procs get `importc` without `cdecl`. Our enums start at 0 with no holes, so today
+    only the `cstring` mapping matters, but it touches most of the API. Options: a small
+    post-processing step, or patching nbindgen (a fork, or upstream).
+  - *What it buys.* The ~70 declarations can't drift from `lib.rs` (types, argument
+    order, enum order, which today only a comment keeps in sync). A cheaper guard
+    without nbindgen: a test that every `importc` name in `ffi.nim` is exported by
+    `libnanuq_ffi.a` (`nm`), plus a Rust test of the enum values.
 - **Zero-copy columns through the Arrow C Data Interface** (L). Move whole columns
   between Nim and Polars without copying.
 
