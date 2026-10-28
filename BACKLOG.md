@@ -97,3 +97,11 @@ two), L (more).
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
 - **Official documentation** (L). A reference and guides, separate from the dev log.
+
+## CI
+
+- **Bump GitHub Actions to Node 24 majors** (S, low priority). Runs warn that
+  `actions/checkout@v4` targets the deprecated Node 20 and is forced onto Node 24. It
+  still works, so nothing is broken yet. Bump checkout (v5+) and the artifact, cache and
+  pages actions to their Node 24 majors, check `jiro4989/setup-nim-action`,
+  `dtolnay/rust-toolchain` and `Swatinem/rust-cache`, and confirm CI stays green.
