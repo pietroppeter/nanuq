@@ -122,16 +122,23 @@ Compile-time options:
 
 ## Try it from a clone
 
-Working on Nanuq itself needs a Rust toolchain (`cargo`, stable).
+A clone uses the same prebuilt library as an installed package, so it needs no Rust:
 
 ```sh
-nimble test       # builds the Rust library, then runs the tests
+nimble test       # runs the tests
 nimble example    # runs examples/basic.nim
 nimble docs       # renders the dev log posts in docs/blog with nimib
 ```
 
-The first build compiles Polars and takes about 10 minutes. In a clone, the library
-built in `src/rust/target/release` is used before any download.
+Changing the Rust wrapper in `src/rust/` needs a Rust toolchain (`cargo`, stable):
+
+```sh
+nimble buildRust  # builds src/rust/target/release/libnanuq_ffi.a (about 10 minutes the first time)
+```
+
+Once that file exists it is linked instead of the download, so run `nimble buildRust`
+again after each change to `src/rust/`, and delete the file to go back to the prebuilt
+library. Bump the crate version to a `-dev` version when you change it (CI checks this).
 
 ## What is there
 
