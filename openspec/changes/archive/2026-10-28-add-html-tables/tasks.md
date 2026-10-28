@@ -13,7 +13,7 @@
 
 - [x] 3.1 Add `table.dataframe` CSS to `docs/nanuqtheme.nim` (light and dark)
 - [x] 3.2 Add one short section to "How Nanuq works" showing a result as text and as `nbRawHtml: summary.toHtml`; leave every other output as text; verify the post renders and republish its artifact
-- [ ] 3.3 Check CI is green on the PR
+- [x] 3.3 Check CI is green on the PR
 
 ## Workflow follow-up
 

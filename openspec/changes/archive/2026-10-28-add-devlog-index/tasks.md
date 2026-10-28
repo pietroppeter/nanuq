@@ -14,7 +14,7 @@
 
 - [x] 3.1 In the docs job, render the index after the posts and publish it as `_site/index.html`, with relative links into `blog/`; drop the redirect; verify the uploaded Pages artifact on the PR
 - [x] 3.2 Point the README's Documentation section to the index; verify the links
-- [ ] 3.3 Check CI is green on the PR
+- [x] 3.3 Check CI is green on the PR
 
 ## Workflow follow-up
 

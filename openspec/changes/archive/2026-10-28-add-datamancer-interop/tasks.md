@@ -10,7 +10,7 @@
 
 - [x] 2.1 Rewrite the conversion in "Plotting with ggplotnim" with `toDatamancer` (keeping the explanation of the copy and of nulls); verify the post renders and republish its artifact
 - [x] 2.2 Mention `nanuq/datamancer` in the README
-- [ ] 2.3 Check CI is green on the PR
+- [x] 2.3 Check CI is green on the PR
 
 ## Workflow follow-up
 

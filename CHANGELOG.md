@@ -39,6 +39,12 @@ its OpenSpec change is archived. Format based on
 - `release-lib.yml` builds, smoke-tests and publishes the six archives, from a
   `lib-v*` tag or from the Actions tab with "publish", and opens a PR with their sums.
   First release: `lib-v0.1.0`. (#12, #13, #16)
+- Dev-log index: the GitHub Pages root lists the posts, newest first, with date, title
+  and summary, built from the rendered posts (`docs/index.nim`). (#20)
+- `toHtml`: the HTML table Python Polars shows in notebooks (`_repr_html_`), with cells
+  formatted by Polars; use it in nimib with `nbRawHtml: df.toHtml`. Needs lib 0.1.1. (#20)
+- `nanuq/datamancer`: `toDatamancer` / `fromDatamancer` convert to and from Datamancer
+  DataFrames, for example to plot with ggplotnim. Datamancer stays optional. (#20)
 
 ### Changed
 - The Rust crate moved from `rust/` to `src/rust/`, so `nimble install` ships it. Release
