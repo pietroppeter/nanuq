@@ -19,17 +19,19 @@ requires "nim >= 2.0.0"
 task buildRust, "Build the Rust wrapper library (src/rust/target/release/libnanuq_ffi.a)":
   exec "cargo build --release --manifest-path src/rust/Cargo.toml"
 
-task test, "Run the tests":
-  for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datasets.nim"]:
+task test, "Run the tests (tests/test_datamancer.nim needs Datamancer installed)":
+  for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datasets.nim",
+            "tests/test_html.nim", "tests/test_datamancer.nim"]:
     exec "nim r --hints:off " & t
 
 task example, "Run the basic example":
   exec "nim r --hints:off examples/basic.nim"
 
-task docs, "Render the nimib dev log posts in docs/blog (needs nimib and ggplotnim)":
+task docs, "Render the nimib dev log posts in docs/blog, then the index (needs nimib, ggplotnim and Datamancer)":
   for f in listFiles("docs/blog"):
     if f.endsWith(".nim"):
       exec "nim r --hints:off " & f
+  exec "nim r --hints:off docs/index.nim"
 
 task specview, "Render the OpenSpec review page to specview.html, with file diffs against origin/main":
   exec "nim r --hints:off tools/specview.nim --base:origin/main"

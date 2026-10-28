@@ -32,12 +32,12 @@ CI SHALL NOT run for pushes or pull requests that only change Markdown files, `L
 
 ### Requirement: Tests, example and dev log
 CI SHALL run the test suite and the example, and render the nimib dev-log posts in
-`docs/blog`. On `main`, after these succeed, it SHALL deploy the posts to GitHub Pages,
-with the site root opening the latest post.
+`docs/blog` and then the index page `docs/index.nim`. On `main`, after these succeed, it
+SHALL deploy the posts and the index to GitHub Pages, with the index as the site root.
 
 #### Scenario: Merge to main
 - **WHEN** a commit lands on `main` and the test and docs jobs pass
-- **THEN** the dev log is deployed to GitHub Pages
+- **THEN** the dev log is deployed to GitHub Pages, and the site root lists the posts
 
 ### Requirement: Lib version follows the crate sources
 CI SHALL fail when the crate sources differ from those at the tag `lib-v<version>` for

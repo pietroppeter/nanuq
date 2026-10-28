@@ -1,6 +1,6 @@
 import nimib
 import std/os
-import nanuq, nanuq/datasets
+import nanuq, nanuq/[datasets, datamancer]
 import ggplotnim
 import ../nanuqtheme
 
@@ -13,23 +13,25 @@ nb.useNanuqTheme(
   eyebrow = "Nanuq dev log · 27 October 2026",
   epigraph = "Query in Polars, plot in Nim.",
   meta = "Polars 0.55 · ggplotnim · Nim " & NimVersion & " · rendered with nimib",
+  summary = "Plotting a Nanuq DataFrame with ggplotnim, and where a smoother bridge could go.",
 )
-# nimib runs the code from the repository root
+# nimib runs the code from docs/ (see nimib.toml), so paths below are site paths
 
 nbText: """
 How do we plot a Nanuq DataFrame? The obvious candidate in Nim is
 [ggplotnim](https://github.com/Vindaar/ggplotnim), a grammar of graphics library
-modelled on R's ggplot2. This post shows what works today, with no new code in Nanuq,
-and then looks at what a smoother bridge could be. It follows
+modelled on R's ggplot2. This post shows how to hand a Nanuq DataFrame to it, and
+then looks at where a smoother bridge could go. It follows
 [How Nanuq works](2026-10-27-how-nanuq-works.html).
 
 ## What ggplotnim takes as input
 
 ggplotnim has a single entry point, `ggplot(data: DataFrame, aes)`, and the
 `DataFrame` there is the one from [Datamancer](https://github.com/SciNim/Datamancer),
-a pure Nim dataframe library that ggplotnim depends on. There is no input from plain
-seqs. Datamancer, however, builds a DataFrame straight from seqs, and Nanuq gives
-us seqs with `toSeq(df, column, T)`. That is the whole bridge for now.
+a pure Nim dataframe library that ggplotnim depends on. So the bridge is a conversion:
+the optional module `nanuq/datamancer` has `toDatamancer` and `fromDatamancer`, in the
+spirit of Python Polars' `to_pandas` and `from_pandas`. Nanuq itself doesn't depend on
+Datamancer; only that module does.
 
 ## Importing both
 
@@ -39,7 +41,7 @@ else (`col`, `filter`, `ggplot`, `aes`) resolves by type. Here we don't even nee
 `readCsv`, since we use the Palmer penguins data bundled in `nanuq/datasets`.
 
 ```nim
-import nanuq, nanuq/datasets
+import nanuq, nanuq/[datasets, datamancer]
 import ggplotnim
 ```
 """
@@ -51,19 +53,17 @@ nbCode:
 nbText: """
 ## From Nanuq to Datamancer
 
-`toDf` takes a table constructor of column names and seqs. Each `toSeq` copies one
-Polars column into a Nim seq. Two penguins have no measurements, and `toSeq` refuses a
-column with nulls (it would otherwise have to invent values), so we drop those rows in
-Polars first.
+`toDatamancer` copies every column, keeping names, order and types: integers become
+`int` columns, floats `float`, strings `string`. Underneath it is one `toSeq` per
+column, each a single call across the C ABI.
+
+Two penguins have no measurements. A column with nulls would arrive as a Datamancer
+object column with `null` entries, which ggplotnim plots less happily than a typed
+column, so we drop those rows in Polars first.
 """
 
 nbCode:
-  let measured = penguins.dropNulls("flipper_length_mm", "body_mass_g")
-  let points = toDf({
-    "flipper_length_mm": measured.toSeq("flipper_length_mm", float),
-    "body_mass_g": measured.toSeq("body_mass_g", float),
-    "species": measured.toSeq("species", string),
-  })
+  let points = penguins.dropNulls("flipper_length_mm", "body_mass_g").toDatamancer
   echo points.head(3)
 
 nbText: """
@@ -74,9 +74,11 @@ nbCode:
   ggplot(points, aes("flipper_length_mm", "body_mass_g", color = "species")) +
     geom_point(size = 2.0) +
     ggtitle("Palmer penguins: body mass vs flipper length") +
-    ggsave("docs/blog/2026-10-27-penguins-scatter.png", width = 640, height = 420)
+    ggsave("blog/2026-10-27-penguins-scatter.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-penguins-scatter.png" alt="Scatter plot of body mass against flipper length, coloured by species"></figure>"""
+nbImage("blog/2026-10-27-penguins-scatter.png",
+  caption = "Body mass against flipper length, coloured by species.",
+  alt = "Scatter plot of body mass against flipper length, coloured by species")
 
 nbText: """
 ## Aggregate in Polars, plot the result
@@ -94,28 +96,22 @@ nbCode:
     .collect
   echo means
 
-  let bars = toDf({
-    "species": means.toSeq("species", string),
-    "mean_body_mass_g": means.toSeq("mean_body_mass_g", float),
-  })
-  ggplot(bars, aes("species", "mean_body_mass_g", fill = "species")) +
+  ggplot(means.toDatamancer, aes("species", "mean_body_mass_g", fill = "species")) +
     geom_bar(stat = "identity", position = "identity") +
     ggtitle("Mean body mass per species (computed by Polars)") +
-    ggsave("docs/blog/2026-10-27-penguins-means.png", width = 640, height = 420)
+    ggsave("blog/2026-10-27-penguins-means.png", width = 640, height = 420)
 
-nbRawHtml: """<figure><img src="2026-10-27-penguins-means.png" alt="Bar chart of mean body mass for Adelie, Chinstrap and Gentoo"></figure>"""
+nbImage("blog/2026-10-27-penguins-means.png",
+  caption = "Mean body mass per species, aggregated by Polars before plotting.",
+  alt = "Bar chart of mean body mass for Adelie, Chinstrap and Gentoo")
 
 nbText: """
 ## What this costs
 
-The recipe works with no glue code, but it has a cost:
-
-- **Copies.** Every column goes from Polars' Arrow buffers to a Nim seq, then into a
-  Datamancer column. `toSeq` copies a whole column in one FFI call, so for a plot of a
-  few thousand points this doesn't matter.
-
-And one inconvenience: we have to spell out the columns twice, once in `toDf` and once
-in `aes`.
+The conversion copies: every column goes from Polars' Arrow buffers to a Nim seq, then
+into a Datamancer column. For a plot of a few thousand points this doesn't matter, and
+for bigger data the second example is the pattern to follow: aggregate in Polars,
+convert the small result.
 
 ## Exploring: where this could go
 
@@ -123,10 +119,9 @@ This is the start of an exploration, not a plan. It is tracked in the
 [backlog](https://github.com/pietroppeter/nanuq/blob/main/BACKLOG.md) under Ecosystem.
 Three directions, from the smallest to the most ambitious:
 
-1. **A small optional module, `nanuq/ggplot`.** An overload
-   `ggplot(df: nanuq.DataFrame, aes(...))` that looks at the columns named in `aes`
-   and converts only those. The core of Nanuq would not depend on Datamancer. This
-   removes the double spelling and nothing else.
+1. **A `ggplot` overload for Nanuq DataFrames.** `ggplot(df: nanuq.DataFrame, aes(...))`
+   could convert only the columns named in `aes`, saving the explicit `toDatamancer`
+   and the copies of unused columns.
 2. **Zero-copy columns.** Once columns cross through the Arrow C Data Interface,
    numeric Polars buffers could be wrapped without copying. Only worth it for very
    large plots.
