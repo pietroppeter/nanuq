@@ -105,3 +105,10 @@ two), L (more).
   still works, so nothing is broken yet. Bump checkout (v5+) and the artifact, cache and
   pages actions to their Node 24 majors, check `jiro4989/setup-nim-action`,
   `dtolnay/rust-toolchain` and `Swatinem/rust-cache`, and confirm CI stays green.
+
+## Nim tooling
+
+- **Decide whether to use Atlas** (S, discussion first). Atlas is the dependency manager
+  that ships with Nim 2.x, next to Nimble. Talk through whether Nanuq should use it, for
+  development, docs and CI, or keep Nimble only. Weigh how it would change install for
+  users and the `nanuq.nimble` tasks. Raised by Pietro on 2026-10-30.
