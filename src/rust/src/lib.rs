@@ -11,7 +11,7 @@
 //!   `nq_string_free`.
 //! - Panics are caught and turned into errors, they never unwind into Nim.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, CStr, CString};
 use std::fs::File;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -25,6 +25,47 @@ use polars::prelude::*;
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
+    static LAST_KIND: Cell<NqErrorKind> = const { Cell::new(NqErrorKind::Generic) };
+}
+
+/// Kind of the last error. Keep in sync with `NqErrorKind` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqErrorKind {
+    Generic = 0,
+    ColumnNotFound,
+    Compute,
+    Duplicate,
+    InvalidOperation,
+    Io,
+    NoData,
+    OutOfBounds,
+    Schema,
+    SchemaFieldNotFound,
+    Shape,
+    StructFieldNotFound,
+    Sql,
+}
+
+fn error_kind(e: &PolarsError) -> NqErrorKind {
+    match e {
+        PolarsError::ColumnNotFound(_) => NqErrorKind::ColumnNotFound,
+        PolarsError::ComputeError(_) => NqErrorKind::Compute,
+        PolarsError::Duplicate(_) => NqErrorKind::Duplicate,
+        PolarsError::InvalidOperation(_) => NqErrorKind::InvalidOperation,
+        PolarsError::IO { .. } => NqErrorKind::Io,
+        PolarsError::NoData(_) => NqErrorKind::NoData,
+        PolarsError::OutOfBounds(_) => NqErrorKind::OutOfBounds,
+        PolarsError::SchemaMismatch(_) => NqErrorKind::Schema,
+        PolarsError::SchemaFieldNotFound(_) => NqErrorKind::SchemaFieldNotFound,
+        PolarsError::ShapeMismatch(_) => NqErrorKind::Shape,
+        PolarsError::StructFieldNotFound(_) => NqErrorKind::StructFieldNotFound,
+        PolarsError::SQLInterface(_) | PolarsError::SQLSyntax(_) => NqErrorKind::Sql,
+        PolarsError::Context { error, .. } | PolarsError::ExprContext { error, .. } => {
+            error_kind(error)
+        }
+        _ => NqErrorKind::Generic,
+    }
 }
 
 fn set_error(msg: impl Into<String>) {
@@ -34,6 +75,7 @@ fn set_error(msg: impl Into<String>) {
 
 fn clear_error() {
     LAST_ERROR.with(|e| *e.borrow_mut() = None);
+    LAST_KIND.with(|k| k.set(NqErrorKind::Generic));
 }
 
 /// Runs `f`, catching both `Err` results and panics. Returns `None` on failure
@@ -52,6 +94,7 @@ fn guard<T>(f: impl FnOnce() -> Result<T, String>) -> Option<T> {
                 .map(|s| s.to_string())
                 .or_else(|| panic.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "unknown panic".to_string());
+            LAST_KIND.with(|k| k.set(NqErrorKind::Generic));
             set_error(format!("panic in polars: {msg}"));
             None
         }
@@ -62,7 +105,17 @@ fn boxed<T>(v: Option<T>) -> *mut T {
     v.map_or(ptr::null_mut(), |v| Box::into_raw(Box::new(v)))
 }
 
+/// Converts a Polars error to its message, recording its kind for
+/// `nq_last_error_kind`.
 fn pe(e: PolarsError) -> String {
+    let kind = error_kind(&e);
+    LAST_KIND.with(|k| k.set(kind));
+    e.to_string()
+}
+
+/// Converts an IO error to its message, recording the `Io` kind.
+fn ioe(e: std::io::Error) -> String {
+    LAST_KIND.with(|k| k.set(NqErrorKind::Io));
     e.to_string()
 }
 
@@ -107,6 +160,13 @@ fn to_c_string(s: String) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn nq_last_error() -> *const c_char {
     LAST_ERROR.with(|e| e.borrow().as_ref().map_or(ptr::null(), |s| s.as_ptr()))
+}
+
+/// Kind of the last error on this thread (`Generic` for panics and Nanuq's own
+/// errors). Only meaningful right after a call failed.
+#[no_mangle]
+pub extern "C" fn nq_last_error_kind() -> NqErrorKind {
+    LAST_KIND.with(|k| k.get())
 }
 
 #[no_mangle]
@@ -342,7 +402,7 @@ pub unsafe extern "C" fn nq_df_write_csv(
             NqQuoteStyle::NonNumeric => QuoteStyle::NonNumeric,
             NqQuoteStyle::Never => QuoteStyle::Never,
         };
-        let mut file = File::create(cstr(path)?).map_err(|e| e.to_string())?;
+        let mut file = File::create(cstr(path)?).map_err(ioe)?;
         CsvWriter::new(&mut file)
             .with_separator(separator)
             .include_header(include_header)

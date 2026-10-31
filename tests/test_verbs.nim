@@ -17,9 +17,9 @@ suite "columns":
     check nums().rename({"a": "b", "b": "a"}).toList("b", int) == @[1, 2, 3, 4, 5]
 
   test "strict":
-    expect NanuqError: discard nums().drop("zzz")
+    expect PolarsError: discard nums().drop("zzz")
     check nums().drop("zzz", strict = false).columns == @["a", "b"]
-    expect NanuqError: discard nums().rename({"zzz": "y"})
+    expect PolarsError: discard nums().rename({"zzz": "y"})
     check nums().rename({"zzz": "y"}, strict = false).columns == @["a", "b"]
 
 suite "row windows":
@@ -97,8 +97,8 @@ suite "sorting":
 
   test "length mismatch and no keys":
     let df = newDataFrame(series("a", [1]), series("b", [1]), series("c", [1]))
-    expect NanuqError: discard df.sort(["a", "b", "c"], descending = [true, false])
-    expect NanuqError: discard df.sort(newSeq[string]())
+    expect PolarsError: discard df.sort(["a", "b", "c"], descending = [true, false])
+    expect PolarsError: discard df.sort(newSeq[string]())
 
   test "lazy":
     check groups().lazy.sort(["g", "v"]).collect.toList("v", int) == @[2, 4, 1, 3]
@@ -129,7 +129,7 @@ suite "sample":
     check ten().sample(fraction = 2.0, withReplacement = true).height == 20
 
   test "too many rows and bad arguments":
-    expect NanuqError: discard ten().sample(11)
+    expect PolarsError: discard ten().sample(11)
     check ten().sample(11, withReplacement = true).height == 11
     expect ValueError: discard ten().sample(-1)
     expect ValueError: discard ten().sample(1, seed = some(-1))

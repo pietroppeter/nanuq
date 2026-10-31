@@ -26,25 +26,6 @@ echo b.shape       # freed when b goes out of scope
 - **WHEN** two Nim variables refer to the same DataFrame
 - **THEN** the Rust object is freed once, after both go out of scope
 
-### Requirement: Errors as NanuqError
-Any failing FFI call SHALL raise `NanuqError` carrying the message from Rust.
-
-```nim
-let df = newDataFrame(series("a", [1]))
-try:
-  discard df.select(col("nope"))
-except NanuqError as e:
-  echo e.msg.splitLines[0]
-```
-
-```text
-not found: unable to find column "nope"; valid columns: ["a"]
-```
-
-#### Scenario: Bad column
-- **WHEN** a query selects a column that does not exist
-- **THEN** `NanuqError` is raised with the Polars error message
-
 ### Requirement: Building and reading data
 The API SHALL build a DataFrame from Nim arrays of int, float, bool and string
 (`series`, `newDataFrame`), read and write CSV with a header row, and expose `shape`,
@@ -72,7 +53,7 @@ shape: (2, 2)
 
 #### Scenario: Columns of different lengths
 - **WHEN** `newDataFrame` gets series of different lengths
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
 
 #### Scenario: No clash with sequtils
 - **WHEN** a module imports `nanuq` and `std/[os, sequtils]` and calls `toSeq(walkFiles("*.csv"))`
@@ -81,7 +62,7 @@ shape: (2, 2)
 ### Requirement: Reading columns by type
 Reading as `float` SHALL accept any integer or float column; as `string`, any column,
 formatted as Polars does; as `int`, only integer columns; as `bool`, only boolean
-columns. A dtype that does not match SHALL raise `NanuqError`.
+columns. A dtype that does not match SHALL raise `PolarsError`.
 
 ```nim
 let df = newDataFrame(series("a", [1, 2]))
@@ -100,7 +81,7 @@ echo df.toList("a", string)    # any column formats as text
 
 #### Scenario: Floats are not truncated to int
 - **WHEN** an f64 column is read with `toList(df, "a", int)`
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
 
 #### Scenario: Bool column
 - **WHEN** a bool column is read with `toList(df, "d", bool)`
@@ -265,3 +246,44 @@ shape: (3, 4)
 #### Scenario: Floor division unchanged
 - **WHEN** `lit(7) div 2` is evaluated
 - **THEN** the result is 3 with dtype i64
+
+### Requirement: Errors as PolarsError
+Any failing FFI call SHALL raise a `PolarsError`, or Nim's `IOError` for IO failures,
+carrying the message from Rust. The type SHALL follow the Rust `PolarsError` variant:
+`ColumnNotFoundError`, `ComputeError`, `DuplicateError`, `InvalidOperationError`,
+`NoDataError`, `OutOfBoundsError`, `SchemaError`, `SchemaFieldNotFoundError`,
+`ShapeError`, `StructFieldNotFoundError` and `SqlError`, all subtypes of `PolarsError`.
+
+```nim
+let df = newDataFrame(series("a", [1]), series("s", ["x"]))
+try:
+  discard df.select(col("nope"))
+except ColumnNotFoundError as e:
+  echo e.msg.splitLines[0]
+try:
+  discard df.select(col("s").cast(int))
+except PolarsError as e:
+  echo e.name
+try:
+  discard readCsv("no/such/file.csv")
+except IOError:
+  echo "IOError"
+```
+
+```text
+not found: unable to find column "nope"; valid columns: ["a", "s"]
+InvalidOperationError
+IOError
+```
+
+#### Scenario: Bad column
+- **WHEN** a query selects a column that does not exist
+- **THEN** `ColumnNotFoundError` is raised with the Polars error message
+
+#### Scenario: Subtypes are PolarsErrors
+- **WHEN** a strict cast fails and the code catches `PolarsError`
+- **THEN** the handler runs, with an `InvalidOperationError`
+
+#### Scenario: Missing file
+- **WHEN** `readCsv` gets a path that does not exist
+- **THEN** `IOError` is raised, and it is not a `PolarsError`

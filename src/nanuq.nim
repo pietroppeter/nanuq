@@ -21,7 +21,7 @@
 ##   let df = newDataFrame(series("a", [some(1), none(int), some(3)]))
 ##   echo df.toList("a", Option[int])  # @[some(1), none(int), some(3)]
 ##   echo df.nullCount("a")            # 1
-##   df.toList("a", int)               # raises NanuqError: column has nulls
+##   df.toList("a", int)               # raises InvalidOperationError: column has nulls
 
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
@@ -35,7 +35,20 @@ export tables   # Schema is an OrderedTable
 export nanuqLibVersion  # version of the Rust wrapper crate these bindings expect
 
 type
-  NanuqError* = object of CatchableError
+  PolarsError* = object of CatchableError
+    ## Base of every error Polars raises (Python Polars' `PolarsError`). IO
+    ## failures raise Nim's `IOError` instead.
+  ColumnNotFoundError* = object of PolarsError
+  ComputeError* = object of PolarsError
+  DuplicateError* = object of PolarsError
+  InvalidOperationError* = object of PolarsError
+  NoDataError* = object of PolarsError
+  OutOfBoundsError* = object of PolarsError
+  SchemaError* = object of PolarsError
+  SchemaFieldNotFoundError* = object of PolarsError
+  ShapeError* = object of PolarsError
+  StructFieldNotFoundError* = object of PolarsError
+  SqlError* = object of PolarsError
 
   DataFrameObj = object
     raw: ptr NqDataFrame
@@ -76,8 +89,23 @@ proc `=copy`(a: var ExprObj, b: ExprObj) {.error.}
 proc `=copy`(a: var SeriesObj, b: SeriesObj) {.error.}
 
 proc raiseLast() {.noreturn.} =
-  let msg = nq_last_error()
-  raise newException(NanuqError, if msg == nil: "unknown nanuq error" else: $msg)
+  ## Raises the last error of the bridge with the type of its Polars variant.
+  let m = nq_last_error()
+  let msg = if m == nil: "unknown nanuq error" else: $m
+  case nq_last_error_kind()
+  of nqeGeneric: raise newException(PolarsError, msg)
+  of nqeColumnNotFound: raise newException(ColumnNotFoundError, msg)
+  of nqeCompute: raise newException(ComputeError, msg)
+  of nqeDuplicate: raise newException(DuplicateError, msg)
+  of nqeInvalidOperation: raise newException(InvalidOperationError, msg)
+  of nqeIo: raise newException(IOError, msg)
+  of nqeNoData: raise newException(NoDataError, msg)
+  of nqeOutOfBounds: raise newException(OutOfBoundsError, msg)
+  of nqeSchema: raise newException(SchemaError, msg)
+  of nqeSchemaFieldNotFound: raise newException(SchemaFieldNotFoundError, msg)
+  of nqeShape: raise newException(ShapeError, msg)
+  of nqeStructFieldNotFound: raise newException(StructFieldNotFoundError, msg)
+  of nqeSql: raise newException(SqlError, msg)
 
 template check[T](p: ptr T): ptr T =
   let r = p
@@ -193,7 +221,7 @@ proc dataType*(T: typedesc): DataType =
 
 proc code(t: DataType): NqDtype =
   if t.kind == DataTypeKind.Other:
-    raise newException(NanuqError, "cannot cast to " & t.name & ": Nanuq does not model this dtype yet")
+    raise newException(InvalidOperationError, "cannot cast to " & t.name & ": Nanuq does not model this dtype yet")
   NqDtype(ord(t.kind))
 
 # ---------------------------------------------------------------------------
@@ -337,7 +365,7 @@ proc schema*(df: DataFrame): Schema =
   for name in df.columns: result[name] = df.dtype(name)
 
 proc getInt*(df: DataFrame, column: string, row: int): int =
-  ## Raises `NanuqError` if the cell is null; see `df[column, row, Option[int]]`.
+  ## Raises `PolarsError` if the cell is null; see `df[column, row, Option[int]]`.
   var v: int64
   if not nq_df_get_i64(df.raw, column.cstring, row.csize_t, v.addr): raiseLast()
   v.int
@@ -487,7 +515,7 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
     (vals, valid)
 
 proc toList*[T: int | float | bool | string](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
-  ## Copies a whole column into a Nim seq. Raises `NanuqError` if the column has
+  ## Copies a whole column into a Nim seq. Raises `InvalidOperationError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
   ##
   ## `float` reads integer columns too, `string` reads any column; `int` and
@@ -497,7 +525,7 @@ proc toList*[T: int | float | bool | string](df: DataFrame, column: string, _: t
   for ok in valid:
     if not ok: inc nulls
   if nulls > 0:
-    raise newException(NanuqError, "column '" & column & "' has " & $nulls &
+    raise newException(InvalidOperationError, "column '" & column & "' has " & $nulls &
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
@@ -1001,7 +1029,7 @@ type
 
 proc drop*(lf: LazyFrame, columns: openArray[string], strict = true): LazyFrame =
   ## Removes columns: `drop(["a", "b"])`. With `strict`, a missing column raises
-  ## `NanuqError`.
+  ## `PolarsError`.
   let c = cstrings(columns)
   wrap nq_lf_drop(lf.raw, c.firstOrNil, c.len.csize_t, strict)
 
@@ -1011,7 +1039,7 @@ proc drop*(lf: LazyFrame, column: string, strict = true): LazyFrame =
 
 proc rename*(lf: LazyFrame, mapping: openArray[(string, string)], strict = true): LazyFrame =
   ## Renames columns: `rename({"old": "new"})`. With `strict`, a missing column
-  ## raises `NanuqError`.
+  ## raises `PolarsError`.
   var olds, news: seq[cstring]
   for (o, n) in mapping:
     olds.add o.cstring
@@ -1280,7 +1308,7 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
   ## column per input column (f64 for numeric and boolean columns, str otherwise).
   let schema = lf.collectSchema
   if schema.len == 0:
-    raise newException(NanuqError, "cannot describe a frame that has no columns")
+    raise newException(InvalidOperationError, "cannot describe a frame that has no columns")
   var metrics = @["count", "null_count", "mean", "std", "min"]
   for q in percentiles: metrics.add percentLabel(q)
   metrics.add "max"

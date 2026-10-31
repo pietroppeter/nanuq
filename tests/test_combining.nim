@@ -46,9 +46,9 @@ suite "joins":
     check j.columns == @["id", "name", "size"]
 
   test "missing or misplaced keys raise":
-    expect NanuqError: discard bears().join(sightings(), how = Inner)
-    expect NanuqError: discard bears().join(sightings(), leftOn = ["id"], rightOn = newSeq[string]())
-    expect NanuqError: discard bears().join(sightings(), on = ["id"], how = Cross)
+    expect PolarsError: discard bears().join(sightings(), how = Inner)
+    expect PolarsError: discard bears().join(sightings(), leftOn = ["id"], rightOn = newSeq[string]())
+    expect PolarsError: discard bears().join(sightings(), on = ["id"], how = Cross)
 
   test "suffix for clashing names":
     let other = newDataFrame(series("id", [1]), series("name", ["Big"]))
@@ -56,7 +56,7 @@ suite "joins":
     check bears().join(other, on = ["id"], suffix = "_b").columns == @["id", "name", "name_b"]
 
   test "validate":
-    expect NanuqError: discard bears().join(sightings(), on = ["id"], validate = OneToOne)
+    expect PolarsError: discard bears().join(sightings(), on = ["id"], validate = OneToOne)
     check bears().join(sightings(), on = ["id"], validate = OneToMany).height == 3
 
   test "nullsEqual":
@@ -92,7 +92,7 @@ suite "concatenation":
   test "vertical needs equal dtypes, relaxed finds a supertype":
     let i = newDataFrame(series("x", [1]))
     let f = newDataFrame(series("x", [2.5]))
-    expect NanuqError: discard concat([i, f])
+    expect PolarsError: discard concat([i, f])
     let r = concat([i, f], how = VerticalRelaxed)
     check r.dtype("x") == Float64
     check r.toList("x", float) == @[1.0, 2.5]
@@ -109,12 +109,12 @@ suite "concatenation":
     check c.toList("name", Option[string]) == @[some("Nanuq"), none(string)]
     check c.toList("weight", Option[float]) == @[none(float), some(450.0)]
     let d = newDataFrame(series("id", [3.5]))
-    expect NanuqError: discard concat([a, d], how = Diagonal)
+    expect PolarsError: discard concat([a, d], how = Diagonal)
     check concat([a, d], how = DiagonalRelaxed).dtype("id") == Float64
 
   test "empty list raises":
-    expect NanuqError: discard concat(newSeq[DataFrame]())
-    expect NanuqError: discard concat(newSeq[LazyFrame]()).collect
+    expect PolarsError: discard concat(newSeq[DataFrame]())
+    expect PolarsError: discard concat(newSeq[LazyFrame]()).collect
 
   test "lazy concat":
     check concat([bears().lazy, bears().lazy]).collect.height == 6

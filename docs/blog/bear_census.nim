@@ -103,7 +103,7 @@ scene("s02_scan_glob"):
   try:
     discard scanCsv("data/logs/*.csv", nullValues = ["?"],
                     schemaOverrides = {"bears": String, "weight_kg": Float64}).collect
-  except NanuqError as e:
+  except PolarsError as e:
     echo e.msg.splitLines[0]
 
 nbText: """
@@ -139,7 +139,7 @@ query fails, and the error names the culprit. The target can be a plain Nim type
 castErrorScene("s04_strict"):
   try:
     discard season.select(col("bears").cast(int)).collect
-  except NanuqError as e:
+  except PolarsError as e:
     echo e.msg.splitLines[0]
 
 nbText: """
@@ -226,7 +226,7 @@ scene("s09_join_validate"):
   let stations = readCsv("data/stations.csv")
   try:
     discard checked.join(stations, on = ["station"], how = Left, validate = ManyToOne)
-  except NanuqError as e:
+  except PolarsError as e:
     echo e.msg.splitLines[0]
 
 nbText: """

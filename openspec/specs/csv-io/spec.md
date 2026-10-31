@@ -8,7 +8,7 @@ Reading and writing CSV files: lazy scans of a file or a glob, eager reads, and 
 ### Requirement: Scanning CSV
 The API SHALL provide `scanCsv(path, ...)`, which returns a `LazyFrame` without reading the
 file until the query runs. `path` SHALL accept a glob that matches several files with the
-same columns. A glob whose files have different columns SHALL raise `NanuqError` when the
+same columns. A glob whose files have different columns SHALL raise `PolarsError` when the
 query runs.
 
 ```nim

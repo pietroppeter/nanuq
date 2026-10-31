@@ -48,7 +48,7 @@ suite "describe":
       @["count", "null_count", "mean", "std", "min", "10%", "33.3%", "90%", "max"]
 
   test "no columns":
-    expect NanuqError:
+    expect PolarsError:
       discard newDataFrame().describe
 
 suite "display config":

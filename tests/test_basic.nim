@@ -19,7 +19,7 @@ suite "dataframe construction":
     check "shape: (3, 4)" in $df
 
   test "length mismatch raises":
-    expect NanuqError:
+    expect PolarsError:
       discard newDataFrame(series("a", [1, 2, 3]), series("b", [1, 2]))
 
   test "empty series":
@@ -34,7 +34,7 @@ suite "csv":
     check df.getFloat("bill_length_mm", 0) == 39.1
 
   test "missing file raises":
-    expect NanuqError:
+    expect IOError:
       discard readCsv("does/not/exist.csv")
 
   test "roundtrip":
@@ -89,9 +89,9 @@ suite "expressions and queries":
     check "FILTER" in plan.toUpperAscii or "SELECTION" in plan.toUpperAscii
 
   test "bad column raises":
-    expect NanuqError:
+    expect PolarsError:
       discard df.select(col("nope"))
-    expect NanuqError:
+    expect PolarsError:
       discard df.getInt("nope", 0)
 
 suite "library":
@@ -142,3 +142,43 @@ suite "0.3 conveniences":
     check df.select(col("a", "b")).width == 2
     check df.select(col(SomeFloat)).columns == @["b"]
     check df.select(col(float, int)).width == 2
+
+suite "typed errors":
+  let df = newDataFrame(series("a", [1, 2]), series("s", ["x", "1"]))
+
+  test "missing column":
+    expect ColumnNotFoundError:
+      discard df.select(col("nope"))
+
+  test "strict cast":
+    expect InvalidOperationError:
+      discard df.select(col("s").cast(int))
+
+  test "subtypes are PolarsErrors":
+    var caught = ""
+    try:
+      discard df.select(col("nope"))
+    except PolarsError as e:
+      caught = $e.name
+    check caught == "ColumnNotFoundError"
+
+  test "duplicate column":
+    expect DuplicateError:
+      discard df.select(col("a"), col("a"))
+
+  test "plain read of a column with nulls":
+    let n = newDataFrame(series("a", [some(1), none(int)]))
+    expect InvalidOperationError:
+      discard n.toList("a", int)
+
+  test "missing file is an IOError":
+    var isPolars = true
+    try:
+      discard readCsv("no/such/file.csv")
+    except IOError as e:
+      isPolars = e of PolarsError
+    check not isPolars
+
+  test "writing to a missing directory is an IOError":
+    expect IOError:
+      df.writeCsv("no/such/dir/out.csv")

@@ -84,7 +84,7 @@ shape: (9, 4)
 
 #### Scenario: No columns
 - **WHEN** `newDataFrame().describe` runs
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
 
 ### Requirement: Display config
 The API SHALL set how tables print with `setTblRows(n)`, `setTblCols(n)`,

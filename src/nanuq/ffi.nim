@@ -231,6 +231,10 @@ type
     nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
   NqQuoteStyle* {.size: sizeof(cint).} = enum
     nqsNecessary, nqsAlways, nqsNonNumeric, nqsNever
+  NqErrorKind* {.size: sizeof(cint).} = enum
+    nqeGeneric, nqeColumnNotFound, nqeCompute, nqeDuplicate, nqeInvalidOperation, nqeIo,
+    nqeNoData, nqeOutOfBounds, nqeSchema, nqeSchemaFieldNotFound, nqeShape,
+    nqeStructFieldNotFound, nqeSql
   NqRankMethod* {.size: sizeof(cint).} = enum
     nqkAverage, nqkMin, nqkMax, nqkDense, nqkOrdinal, nqkRandom
 
@@ -238,6 +242,7 @@ type
 
 # errors and strings
 proc nq_last_error*(): cstring
+proc nq_last_error_kind*(): NqErrorKind
 proc nq_string_free*(s: cstring)
 proc nq_version*(): cstring
 

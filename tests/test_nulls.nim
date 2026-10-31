@@ -23,9 +23,9 @@ suite "bulk column reads":
     check df.toList("i", float) == @[1.0, 2.0]     # integers read as floats
     check df.toList("i", string) == @["1", "2"]     # anything reads as string
     check df.toList("f", string) == @["1.5", "2.5"]
-    expect NanuqError: discard df.toList("f", int)  # no silent truncation
-    expect NanuqError: discard df.toList("s", float)
-    expect NanuqError: discard df.toList("i", bool)
+    expect PolarsError: discard df.toList("f", int)  # no silent truncation
+    expect PolarsError: discard df.toList("s", float)
+    expect PolarsError: discard df.toList("i", bool)
 
   test "empty and unicode strings":
     let df = newDataFrame(series("s", ["", "ünïcödé", "🐻‍❄️"]))
@@ -40,7 +40,7 @@ suite "bulk column reads":
     check df.toList("x", float) == xs
 
   test "missing column raises":
-    expect NanuqError: discard gaps().toList("nope", int)
+    expect PolarsError: discard gaps().toList("nope", int)
 
 suite "nulls":
   test "read as Option":
@@ -60,10 +60,10 @@ suite "nulls":
         of "c": discard df.toList(col, bool)
         else: discard df.toList(col, string)
         check false
-      except NanuqError as e:
+      except PolarsError as e:
         check ("'" & col & "'") in e.msg
-    expect NanuqError: discard df["a", 1, int]
-    expect NanuqError: discard df["d", 1, string]
+    expect PolarsError: discard df["a", 1, int]
+    expect PolarsError: discard df["d", 1, string]
 
   test "cells":
     let df = gaps()

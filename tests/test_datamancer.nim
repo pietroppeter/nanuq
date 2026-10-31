@@ -59,5 +59,5 @@ suite "datamancer interop":
   test "mixed object column raises":
     let dm = toDf({"m": @[%~ 1, %~ "a"]})
     check dm["m"].kind == colObject
-    expect NanuqError:
+    expect PolarsError:
       discard dm.fromDatamancer

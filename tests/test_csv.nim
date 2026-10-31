@@ -21,7 +21,7 @@ suite "scanCsv":
     createDir(dir / "mixed")
     writeFile(dir / "mixed" / "a.csv", "x,y\n1,a\n")
     writeFile(dir / "mixed" / "b.csv", "x,y,z\n2,b,true\n")
-    expect NanuqError:
+    expect PolarsError:
       discard scanCsv(dir / "mixed" / "*.csv").collect
 
 suite "readCsv options":
@@ -40,7 +40,7 @@ suite "readCsv options":
 
   test "schemaOverrides with a dtype Nanuq does not model raises":
     let p = put("ints2.csv", "n\n1\n")
-    expect NanuqError:
+    expect PolarsError:
       discard readCsv(p, schemaOverrides = {"n": DataType(kind: DataTypeKind.Other, name: "date")})
 
   test "skipRows and nRows":
@@ -70,7 +70,7 @@ suite "readCsv options":
     for i in 1..5: content.add $i & "\n"
     content.add "2.5\n"
     let p = put("late_float.csv", content)
-    expect NanuqError:
+    expect PolarsError:
       discard readCsv(p, inferSchemaLength = 2)
     check readCsv(p, inferSchemaLength = none(int)).dtype("v") == Float64
     let lenient = readCsv(p, inferSchemaLength = 2, ignoreErrors = true)

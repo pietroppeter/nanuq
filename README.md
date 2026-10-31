@@ -77,7 +77,7 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - FFI functions borrow their arguments and return new objects (cloning is cheap
   in Polars), so Nim values can be shared freely.
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
-  `NanuqError`.
+  `PolarsError` (typed as in Python: `ColumnNotFoundError`, `InvalidOperationError`, ...), or Nim's `IOError` for IO.
 
 ## How we work
 

@@ -37,7 +37,7 @@ A column with nulls SHALL become an object column whose missing entries are Data
 `fromDatamancer` SHALL copy every column back in order: `int` to i64, `float` to f64,
 `bool` to bool, `string` to str, constant columns repeated, and object columns of one
 value kind plus nulls to that dtype with nulls. Other object columns SHALL raise
-`NanuqError`.
+`PolarsError`.
 
 ```nim
 import nanuq/datamancer
@@ -55,7 +55,7 @@ echo back.shape, " ", back.nullCount("body_mass_g")
 
 #### Scenario: Mixed object column
 - **WHEN** a Datamancer object column holds both an int and a string
-- **THEN** `fromDatamancer` raises `NanuqError` naming the column
+- **THEN** `fromDatamancer` raises `PolarsError` naming the column
 
 ### Requirement: Optional dependency
 Importing `nanuq` SHALL NOT require Datamancer; only importing `nanuq/datamancer` does.

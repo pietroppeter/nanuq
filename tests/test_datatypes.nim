@@ -38,7 +38,7 @@ suite "data types":
     for k in s.keys: keys.add k
     check keys == @["a", "b"]
     check s["b"] == String
-    expect NanuqError: discard df.dtype("nope")
+    expect PolarsError: discard df.dtype("nope")
 
   test "lazy schema does not run the query":
     let df = newDataFrame(series("a", [1, 2]), series("s", ["1", "x"]))
@@ -47,7 +47,7 @@ suite "data types":
     let s = lf.collectSchema
     check s["c"] == Float64
     check s["bad"] == Int64
-    expect NanuqError: discard lf.collect
+    expect PolarsError: discard lf.collect
 
   test "cast named columns":
     let df = newDataFrame(series("a", [1, 2]), series("b", [1, 0]))
@@ -65,11 +65,11 @@ suite "data types":
 
   test "strict and non-strict casts":
     let df = newDataFrame(series("s", ["1", "x"]))
-    expect NanuqError: discard df.select(col("s").cast(int))
+    expect PolarsError: discard df.select(col("s").cast(int))
     let r = df.select(col("s").cast(int, strict = false))
     check r.toList("s", Option[int]) == @[some(1), none(int)]
     let r2 = df.cast({"s": Int64}, strict = false)
     check r2.nullCount("s") == 1
 
   test "unmodelled dtypes cannot be cast to":
-    expect NanuqError: discard col("a").cast(DataType(kind: DataTypeKind.Other, name: "date"))
+    expect PolarsError: discard col("a").cast(DataType(kind: DataTypeKind.Other, name: "date"))

@@ -30,24 +30,24 @@ none(int)
 - **THEN** the result is `none(int)`
 
 ### Requirement: Plain reads refuse nulls
-Reading a column or a cell with a plain type T SHALL raise `NanuqError` if the values
+Reading a column or a cell with a plain type T SHALL raise `InvalidOperationError` if the values
 read include a null, and the message SHALL name the column.
 
 ```nim
 let df = newDataFrame(series("a", [some(1), none(int)]))
 try:
   discard df.toList("a", int)
-except NanuqError as e:
-  echo "NanuqError"
+except PolarsError as e:
+  echo e.name
 ```
 
 ```text
-NanuqError
+InvalidOperationError
 ```
 
 #### Scenario: Column with a null read as int
 - **WHEN** a column with one null is read with `toList(df, "a", int)`
-- **THEN** `NanuqError` is raised before any value is returned, naming column "a"
+- **THEN** `InvalidOperationError` is raised before any value is returned, naming column "a"
 
 ### Requirement: Inspecting nulls
 The API SHALL report the number of nulls in a column and whether it has any, and SHALL

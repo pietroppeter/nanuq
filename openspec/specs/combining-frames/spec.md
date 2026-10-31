@@ -58,7 +58,7 @@ shape: (1, 2)
 
 #### Scenario: Keys missing
 - **WHEN** `join` is called without keys and a join type other than `Cross`
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
 
 ### Requirement: Join options
 `join` SHALL accept, with Polars' defaults: `suffix` (`"_right"`) for clashing column
@@ -91,7 +91,7 @@ shape: (2, 3)
 
 #### Scenario: Validation failure
 - **WHEN** the right frame has a duplicate key and `validate = ManyToOne`
-- **THEN** `NanuqError` is raised when the query runs
+- **THEN** `PolarsError` is raised when the query runs
 
 #### Scenario: Null keys
 - **WHEN** both frames have a null key, joined with `nullsEqual = true`
@@ -105,7 +105,7 @@ shape: (2, 3)
 The API SHALL concatenate a list of LazyFrames or DataFrames with `concat`, with `how`
 a `ConcatMethod`: `Vertical` (default, same schema), `VerticalRelaxed` (cast to
 common supertypes), `Horizontal` (side by side), `Diagonal` (union of columns, missing
-ones null) or `DiagonalRelaxed`. An empty list SHALL raise `NanuqError`.
+ones null) or `DiagonalRelaxed`. An empty list SHALL raise `PolarsError`.
 
 ```nim
 let ab = newDataFrame(series("a", [1]), series("b", [2]))
@@ -131,7 +131,7 @@ shape: (2, 3)
 
 #### Scenario: Vertical with different types
 - **WHEN** frames whose column `a` is i64 in one and f64 in the other are concatenated
-- **THEN** `Vertical` raises `NanuqError` and `VerticalRelaxed` returns `a` as f64
+- **THEN** `Vertical` raises `PolarsError` and `VerticalRelaxed` returns `a` as f64
 
 #### Scenario: Diagonal
 - **WHEN** a frame with columns `a, b` and one with `b, c` are concatenated diagonally

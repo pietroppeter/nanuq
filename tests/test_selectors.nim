@@ -34,7 +34,7 @@ suite "by name":
     check col("a", "b") is Selector
 
   test "missing name raises":
-    expect NanuqError: discard log().select(col("bears", "nope"))
+    expect PolarsError: discard log().select(col("bears", "nope"))
 
 suite "exclude":
   test "all but some":
@@ -62,7 +62,7 @@ suite "selectors as expressions":
 
   test "duplicate names without a suffix raise":
     let df = newDataFrame(series("a", [1.0]))
-    expect NanuqError: discard df.select(col(SomeFloat).mean, col(SomeFloat).max)
+    expect PolarsError: discard df.select(col(SomeFloat).mean, col(SomeFloat).max)
 
   test "$ shows the selector":
     check ($col(SomeNumber)).len > 0

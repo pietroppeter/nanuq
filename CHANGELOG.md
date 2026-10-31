@@ -23,6 +23,12 @@ its OpenSpec change is archived. Format based on
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
   divide to f64, and a division by zero gives `inf` or `NaN`. `div` stays floor
   division. (add-api-polish, #47)
+- **Breaking:** `NanuqError` is renamed `PolarsError`, with Python's subtypes
+  (`ColumnNotFoundError`, `ComputeError`, `DuplicateError`, `InvalidOperationError`,
+  `NoDataError`, `OutOfBoundsError`, `SchemaError`, `SchemaFieldNotFoundError`,
+  `ShapeError`, `StructFieldNotFoundError`, `SqlError`) raised by Polars error kind
+  (new `nq_last_error_kind` in the ABI). IO failures raise Nim's `IOError`.
+  (add-typed-errors, #47)
 - **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so
   `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #47)
 
