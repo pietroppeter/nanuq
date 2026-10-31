@@ -1,0 +1,4 @@
+uke;stasjon;ranger;isbjorner;vekt_kg;storrelse;sel_ekv
+4;Hornsund;Kari;2;641,9;chonk;18
+2;Hornsund;Kari;;622,0;chonk;27
+3;Hornsund;Kari;2;588,3;chonk;16

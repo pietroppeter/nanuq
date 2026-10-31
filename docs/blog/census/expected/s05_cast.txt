@@ -1,0 +1,2 @@
+@[i64, str, str, i64, u8, f64, bool, i64, i64, i64]
+bear counts we couldn't read: 2

@@ -6,6 +6,16 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
+Nanuq 0.2 covers what a first real analysis needs: data types and casts, joins and
+concatenation, frame verbs, conditional and window expressions, column selectors, and
+CSV options with lazy `scanCsv`. The dev log post "The great polar bear census" walks
+through all of it. The prebuilt library is `lib-v0.2.0` (Polars 0.55).
+
+Known limitations compared with Polars: no dates, datetimes or categoricals yet, no
+string functions, and CSV is the only file format.
+
 ### Added
 - Data types: `DataType` with Polars-named constants (`Int64`, `String`, ...), `dtypes`,
   `schema`, `collectSchema`, `dataType(T)`, and `cast` on expressions and frames, taking
@@ -35,6 +45,15 @@ its OpenSpec change is archived. Format based on
 - Column selectors: `col(SomeNumber)` and the other Nim typeclasses, `col(int)`,
   `col(float, string)`, `col("a", "b")`, `all()`, `exclude`, and `name.suffix` /
   `name.prefix` for the output names. (#35)
+- CSV: `scanCsv` for lazy reads of a file or a glob; read options on `scanCsv` and
+  `readCsv` (`separator`, `hasHeader`, `nullValues`, `schemaOverrides`, `skipRows`,
+  `nRows`, `columns`, `inferSchemaLength`, `ignoreErrors`, `decimalComma`); write
+  options on `writeCsv` (`separator`, `includeHeader`, `nullValue`, `quoteStyle` with
+  `QuoteStyle`, `floatPrecision`, `decimalComma`). `readCsv` is now
+  `scanCsv(...).collect`. (#37)
+- Dev log post "The great polar bear census": every 0.2 feature on a season of messy
+  ranger logs. Its outputs were computed with py-polars before 0.2 existed, and the
+  page build now fails if Nanuq's outputs differ. (#38)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with

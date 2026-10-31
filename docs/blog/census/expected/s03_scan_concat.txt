@@ -1,0 +1,10 @@
+week           i64
+station        str
+ranger         str
+bears          str
+cubs           i64
+weight_kg      f64
+collared       i64
+ringed         i64
+bearded        i64
+ice_cm         i64

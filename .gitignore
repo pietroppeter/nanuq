@@ -8,6 +8,7 @@ nimcache/
 /tests/test_verbs
 /tests/test_expressions
 /tests/test_selectors
+/tests/test_csv
 *.out
 /docs/**/*.html
 /docs/**/*.png

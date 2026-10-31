@@ -45,6 +45,7 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 (`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>, which lists
 the posts newest first:
 
+- [The great polar bear census](https://pietroppeter.github.io/nanuq/blog/2026-10-31-bear-census.html) (31 October 2026)
 - [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
 - [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
 - [Shipping the Rust half](https://pietroppeter.github.io/nanuq/blog/2026-10-27-shipping-rust-binaries.html) (27 October 2026)
@@ -149,6 +150,13 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 ## What is there
 
 - Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
+- CSV: `scanCsv("logs/*.csv")` reads lazily, globs included (same columns in every
+  file). `readCsv` (which is `scanCsv(...).collect`) takes the same named options with
+  Polars' defaults: `separator = ';'`, `hasHeader`, `nullValues = ["NA"]`,
+  `schemaOverrides = {"bears": Int64}`, `skipRows`, `nRows`, `columns`,
+  `inferSchemaLength` (`none(int)` for all rows), `ignoreErrors`, `decimalComma`.
+  `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
+  `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
   `toSeq(df, "col", float)` (one FFI call per column)
 - Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,

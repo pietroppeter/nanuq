@@ -229,6 +229,8 @@ type
     nqrHalfToEven, nqrHalfAwayFromZero, nqrToZero
   NqDtypeClass* {.size: sizeof(cint).} = enum
     nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
+  NqQuoteStyle* {.size: sizeof(cint).} = enum
+    nqsNecessary, nqsAlways, nqsNonNumeric, nqsNever
 
 {.push importc, cdecl.}
 
@@ -251,8 +253,14 @@ proc nq_series_new_str_opt*(name: cstring, data: ptr cstring, valid: ptr bool, l
 # dataframe
 proc nq_df_free*(df: ptr NqDataFrame)
 proc nq_df_new*(series: ptr ptr NqSeries, n: csize_t): ptr NqDataFrame
-proc nq_df_read_csv*(path: cstring, nullValues: ptr cstring, n: csize_t): ptr NqDataFrame
-proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring): bool
+proc nq_lf_scan_csv*(path: cstring, separator: uint8, hasHeader: bool,
+                     nullValues: ptr cstring, nNulls: csize_t,
+                     overrideNames: ptr cstring, overrideDtypes: ptr NqDtype,
+                     nOverrides: csize_t, skipRows: csize_t, nRows: int64,
+                     inferSchemaLength: int64, ignoreErrors, decimalComma: bool): ptr NqLazyFrame
+proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring, separator: uint8,
+                      includeHeader: bool, nullValue: cstring, quoteStyle: NqQuoteStyle,
+                      floatPrecision: int32, decimalComma: bool): bool
 proc nq_df_height*(df: ptr NqDataFrame): int64
 proc nq_df_width*(df: ptr NqDataFrame): int64
 proc nq_df_to_string*(df: ptr NqDataFrame): cstring
