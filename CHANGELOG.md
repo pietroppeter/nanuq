@@ -13,14 +13,14 @@ its OpenSpec change is archived. Format based on
 - `col.name` shorthand (`col.race` is `col("race")`, like Python's `pl.col.race`), a
   block syntax for `newDataFrame` (`name: [values]` lines, `nil` for missing values),
   `Expr.nullCount`, and `rank` with a `RankMethod` (`rank(Min, descending = true)`).
-  The wrapper crate is `0.3.0-dev`. (add-api-polish, #PR)
+  The wrapper crate is `0.3.0-dev`. (add-api-polish, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
   divide to f64, and a division by zero gives `inf` or `NaN`. `div` stays floor
-  division. (add-api-polish, #PR)
+  division. (add-api-polish, #47)
 - **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so
-  `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #PR)
+  `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #47)
 
 ## [0.2.0] - 2026-10-31
 
