@@ -40,7 +40,7 @@ its OpenSpec change is archived. Format based on
   `nRows`, `columns`, `inferSchemaLength`, `ignoreErrors`, `decimalComma`); write
   options on `writeCsv` (`separator`, `includeHeader`, `nullValue`, `quoteStyle` with
   `QuoteStyle`, `floatPrecision`, `decimalComma`). `readCsv` is now
-  `scanCsv(...).collect`. (#PR)
+  `scanCsv(...).collect`. (#37)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
