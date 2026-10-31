@@ -17,7 +17,7 @@
 ## 3. Docs and integration
 
 - [x] 3.1 Update README "What is there" with `DataType`, `schema` and `cast`; verify `nimble example` passes and the dev-log post output is unchanged
-- [ ] 3.2 Check that CI is green on the PR, including the one-off Rust rebuild
+- [x] 3.2 Check that CI is green on the PR, including the one-off Rust rebuild
 
 ## Workflow follow-up
 
