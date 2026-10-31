@@ -47,7 +47,7 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): string functions (conditionals and `over` landed in 0.2).
-- **Block syntax for building a dataframe** (S, for 0.3). A `newDataFrame` that takes a
+- **Block syntax for building a dataframe** (S, for 0.3). *In progress: `add-api-polish`.* A `newDataFrame` that takes a
   block of `name: values` lines, so examples don't repeat `series(...)` for every column
   (Pietro, 2026-10-31, while porting the Polars user guide in the Nanuq Book):
   ```nim
@@ -58,7 +58,8 @@ two), L (more).
   A macro that rewrites each line to `series("name", values)`. To settle in the proposal:
   string keys for names that are not Nim identifiers (`"nrs + 5": [...]`), and how to
   write missing values (today `some(1)` / `none(int)`).
-- **`/` on two integer columns: open design question** (S). Today `col("a") / col("b")`
+- **`/` on two integer columns: open design question** (S). *In progress: `add-api-polish`
+  (decided 2026-10-31: true division).* Today `col("a") / col("b")`
   with integer columns follows Rust Polars' `/` (`Operator::RustDivide`): it truncates to
   an integer and gives `null` for a division by zero. Python Polars' `/` is always a true
   division to floats (`Expr::true_div`, so `1 / 0` is `inf` and `0 / 0` is `NaN`), and so
@@ -66,7 +67,7 @@ two), L (more).
   this is a contested choice and may change: switching `/` to `true_div` would match both
   Python and Nim, with `div` already there for floor division. Found by the Nanuq Book's
   Nim vs Python table check (Missing data chapter).
-- **`toSeq` clashes with `sequtils.toSeq`** (S). With `nanuq` imported,
+- **`toSeq` clashes with `sequtils.toSeq`** (S). *In progress: `add-api-polish` (renamed `toList`).* With `nanuq` imported,
   `toSeq(walkFiles("*.csv"))` fails to compile ("attempting to call routine:
   'walkFiles'"): overload resolution picks Nanuq's `toSeq(df, column, T)` proc over the
   `sequtils` template. Found while writing the 0.2 explainer. Options: rename the column
