@@ -45,6 +45,7 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 (`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>, which lists
 the posts newest first:
 
+- [Designing Nanuq 0.3](https://pietroppeter.github.io/nanuq/blog/2026-10-31-designing-0-3.html) (31 October 2026)
 - [The great polar bear census](https://pietroppeter.github.io/nanuq/blog/2026-10-31-bear-census.html) (31 October 2026)
 - [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
 - [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
