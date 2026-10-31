@@ -5,7 +5,7 @@
 ### Requirement: Nim declarations mirror the C ABI
 `src/nanuq/ffi.nim` SHALL declare every exported function with matching signatures, and
 the enums `NqBinOp`, `NqUnary`, `NqDtype`, `NqJoinType`, `NqJoinValidation`,
-`NqJoinOrder` and `NqConcat` SHALL keep the same order as in Rust. `NqDtype` SHALL also
+`NqMaintainOrderJoin` and `NqConcat` SHALL keep the same order as in Rust. `NqDtype` SHALL also
 keep the order of `DataTypeKind`, and the join and concat enums the order of their Nim
 API enums.
 
