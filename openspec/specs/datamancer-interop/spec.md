@@ -11,16 +11,6 @@ and ggplotnim code can use Polars for queries. Datamancer stays an optional depe
 DataFrame: integers as `int`, floats as `float`, booleans as `bool`, strings as `string`,
 and any other dtype as `string` formatted by Polars.
 
-```nim
-import nanuq/datamancer
-let dm = penguins().dropNulls.toDatamancer    # a Datamancer DataFrame
-echo dm.len
-```
-
-```text
-333
-```
-
 #### Scenario: Penguins without nulls
 - **WHEN** `penguins().dropNulls().toDatamancer` is called
 - **THEN** the result has 333 rows, the same column names in order, and `body_mass_g` is an `int` column
@@ -38,16 +28,6 @@ A column with nulls SHALL become an object column whose missing entries are Data
 `bool` to bool, `string` to str, constant columns repeated, and object columns of one
 value kind plus nulls to that dtype with nulls. Other object columns SHALL raise
 `NanuqError`.
-
-```nim
-import nanuq/datamancer
-let back = penguins().toDatamancer.fromDatamancer
-echo back.shape, " ", back.nullCount("body_mass_g")
-```
-
-```text
-(344, 8) 2
-```
 
 #### Scenario: Round trip
 - **WHEN** a Nanuq DataFrame is converted with `toDatamancer` and back with `fromDatamancer`

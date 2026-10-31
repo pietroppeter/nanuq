@@ -12,34 +12,6 @@ a `JoinType`: `Inner` (default), `Left`, `Right`, `Full`, `Semi`, `Anti` or `Cro
 SHALL be given as `on` (same names on both sides) or `leftOn` and `rightOn`, as column
 names or expressions. A cross join SHALL take no keys.
 
-```nim
-let bears = newDataFrame(series("k", [1, 2, 3]), series("bear", ["Nanuq", "Ursa", "Kuma"]))
-let seen = newDataFrame(series("k", [1, 3]), series("where", ["ice", "shore"]))
-echo bears.join(seen, on = ["k"], how = Left)
-echo bears.join(seen, on = ["k"], how = Anti)
-```
-
-```text
-shape: (3, 3)
-┌─────┬───────┬───────┐
-│ k   ┆ bear  ┆ where │
-│ --- ┆ ---   ┆ ---   │
-│ i64 ┆ str   ┆ str   │
-╞═════╪═══════╪═══════╡
-│ 1   ┆ Nanuq ┆ ice   │
-│ 2   ┆ Ursa  ┆ null  │
-│ 3   ┆ Kuma  ┆ shore │
-└─────┴───────┴───────┘
-shape: (1, 2)
-┌─────┬──────┐
-│ k   ┆ bear │
-│ --- ┆ ---  │
-│ i64 ┆ str  │
-╞═════╪══════╡
-│ 2   ┆ Ursa │
-└─────┴──────┘
-```
-
 #### Scenario: Left join
 - **WHEN** a frame with keys 1, 2, 3 is left-joined on `k` to a frame with keys 1, 3
 - **THEN** the result has three rows, and the right side's columns are null for key 2
@@ -67,24 +39,6 @@ names, `validate` (`JoinValidation`: `ManyToMany`, or `ManyToOne`, `OneToMany`, 
 `maintainOrder` (`MaintainOrderJoin`: `None`, or `Left`, `Right`, `LeftRight`,
 `RightLeft`).
 
-```nim
-let a = newDataFrame(series("k", [1, 2]), series("v", [10, 20]))
-let b = newDataFrame(series("k", [1, 2]), series("v", [100, 200]))
-echo a.join(b, on = ["k"], suffix = "_b", validate = OneToOne, maintainOrder = Left)
-```
-
-```text
-shape: (2, 3)
-┌─────┬─────┬─────┐
-│ k   ┆ v   ┆ v_b │
-│ --- ┆ --- ┆ --- │
-│ i64 ┆ i64 ┆ i64 │
-╞═════╪═════╪═════╡
-│ 1   ┆ 10  ┆ 100 │
-│ 2   ┆ 20  ┆ 200 │
-└─────┴─────┴─────┘
-```
-
 #### Scenario: Suffix
 - **WHEN** both frames have a non-key column `v` and `suffix = "_b"`
 - **THEN** the result has columns `v` and `v_b`
@@ -106,24 +60,6 @@ The API SHALL concatenate a list of LazyFrames or DataFrames with `concat`, with
 a `ConcatMethod`: `Vertical` (default, same schema), `VerticalRelaxed` (cast to
 common supertypes), `Horizontal` (side by side), `Diagonal` (union of columns, missing
 ones null) or `DiagonalRelaxed`. An empty list SHALL raise `NanuqError`.
-
-```nim
-let ab = newDataFrame(series("a", [1]), series("b", [2]))
-let bc = newDataFrame(series("b", [3]), series("c", [4]))
-echo concat([ab, bc], how = Diagonal)
-```
-
-```text
-shape: (2, 3)
-┌──────┬─────┬──────┐
-│ a    ┆ b   ┆ c    │
-│ ---  ┆ --- ┆ ---  │
-│ i64  ┆ i64 ┆ i64  │
-╞══════╪═════╪══════╡
-│ 1    ┆ 2   ┆ null │
-│ null ┆ 3   ┆ 4    │
-└──────┴─────┴──────┘
-```
 
 #### Scenario: Vertical
 - **WHEN** two frames with the same columns and 2 and 3 rows are concatenated

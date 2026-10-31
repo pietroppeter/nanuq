@@ -74,16 +74,9 @@ proc parseSpec(text: string): SpecDoc =
   var inPurpose = false
   var purpose: seq[string]
   template curReq: untyped = result.sections[section].reqs[^1]
-  var inFence = false
   for raw in text.splitLines:
     let line = raw.strip(leading = false)
-    if line.strip.startsWith("```"): inFence = not inFence
-    if inFence or line.strip.startsWith("```"):
-      # code examples: kept verbatim, never read as headings
-      if section >= 0 and result.sections[section].reqs.len > 0 and curReq.scenarios.len == 0:
-        curReq.body.add line & "\n"
-      elif inPurpose: purpose.add line
-    elif line.startsWith("## "):
+    if line.startsWith("## "):
       let title = line[3..^1].strip
       inPurpose = title == "Purpose"
       if not inPurpose:

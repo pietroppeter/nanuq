@@ -12,19 +12,6 @@ expected to move out of the library later.
 and the columns species, island, bill_length_mm, bill_depth_mm, flipper_length_mm,
 body_mass_g, sex and year, with "NA" fields as nulls.
 
-```nim
-let df = penguins()
-echo df.shape
-echo df.columns
-echo df.nullCount("body_mass_g"), " ", df.nullCount("sex")
-```
-
-```text
-(344, 8)
-@["species", "island", "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g", "sex", "year"]
-2 11
-```
-
 #### Scenario: Shape and columns
 - **WHEN** `penguins()` is called
 - **THEN** the result has shape (344, 8) and the columns listed above, in that order
