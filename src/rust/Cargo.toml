@@ -1,6 +1,6 @@
 [package]
 name = "nanuq_ffi"
-version = "0.2.0-dev"
+version = "0.2.0"
 edition = "2021"
 description = "C ABI over Polars, consumed by the Nanuq Nim library"
 license = "MIT"

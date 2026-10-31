@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.2.0"
 author        = "Pietro Peterlongo"
 description   = "Polars DataFrames for Nim, by wrapping the Rust library through a C ABI"
 license       = "MIT"

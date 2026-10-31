@@ -6,6 +6,16 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
+Nanuq 0.2 covers what a first real analysis needs: data types and casts, joins and
+concatenation, frame verbs, conditional and window expressions, column selectors, and
+CSV options with lazy `scanCsv`. The dev log post "The great polar bear census" walks
+through all of it. The prebuilt library is `lib-v0.2.0` (Polars 0.55).
+
+Known limitations compared with Polars: no dates, datetimes or categoricals yet, no
+string functions, and CSV is the only file format.
+
 ### Added
 - Data types: `DataType` with Polars-named constants (`Int64`, `String`, ...), `dtypes`,
   `schema`, `collectSchema`, `dataType(T)`, and `cast` on expressions and frames, taking
