@@ -38,10 +38,7 @@ type
 
 const Int64* = DataType(kind: dkInt64)   # and so on for each primitive kind
 ```
-`==` compares kinds (and the name for `dkOther`). `$` returns the Nim type name
-(`int64`, `float32`, `bool`, `string`), `null` for `dkNull`, and Polars' name for
-`dkOther`. Polars' short names (`i64`) stay in Polars' own table output and the HTML
-table header, which read them from `nq_df_column_dtype`.
+`==` compares kinds (and the name for `dkOther`). `$` returns Polars' short name.
 - *Why:* Polars' Rust `DataType` is an enum with data in some variants; an object
   variant is the Nim equivalent, and later kinds (`dkDatetime` with `unit` and `zone`,
   `dkList` with an `inner: ref DataType`) are added as new branches without changing

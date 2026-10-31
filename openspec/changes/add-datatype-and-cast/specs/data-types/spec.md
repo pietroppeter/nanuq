@@ -6,34 +6,22 @@
 The API SHALL provide a `DataType` value with a `kind` of type `DataTypeKind` covering
 Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64,
 String and Null, plus `dkOther` carrying Polars' name for any other dtype. It SHALL
-export constants with Polars' names (`Int64`, `String`, ...), `==`, and the predicates
-`isInteger`, `isSignedInteger`, `isUnsignedInteger`, `isFloat` and `isNumeric`.
-`dtype(df, col)` SHALL return a `DataType`.
+export constants with Polars' names (`Int64`, `String`, ...), `==`, `$` returning
+Polars' short name, and the predicates `isInteger`, `isSignedInteger`,
+`isUnsignedInteger`, `isFloat` and `isNumeric`. `dtype(df, col)` SHALL return a
+`DataType`.
 
 #### Scenario: Column dtype
 - **WHEN** a DataFrame is built from a Nim `seq[int]` column `a`
-- **THEN** `df.dtype("a") == Int64`
-
-#### Scenario: Predicates
-- **WHEN** `isNumeric` is called on `UInt8`, `Float32` and `String`
-- **THEN** it returns true, true and false
-
-### Requirement: DataType names
-`$` on a `DataType` SHALL return the Nim type name (`int64`, `uint8`, `float32`, `bool`,
-`string`), `null` for Null, and Polars' name for `dkOther`. Polars' table output and
-the HTML table header SHALL keep Polars' short names.
-
-#### Scenario: Nim name
-- **WHEN** `$df.dtype("a")` is evaluated on an i64 column
-- **THEN** it returns `"int64"`
-
-#### Scenario: Tables keep Polars names
-- **WHEN** `toHtml` renders that DataFrame
-- **THEN** the dtype row shows `i64`, as Polars does
+- **THEN** `df.dtype("a") == Int64` and `$df.dtype("a") == "i64"`
 
 #### Scenario: Unmodelled dtype
 - **WHEN** a column has a dtype Nanuq does not model
 - **THEN** its `kind` is `dkOther` and `$` returns Polars' name for it
+
+#### Scenario: Predicates
+- **WHEN** `isNumeric` is called on `UInt8`, `Float32` and `String`
+- **THEN** it returns true, true and false
 
 ### Requirement: Schemas
 The API SHALL return the column names and dtypes of a DataFrame (`schema`) and of a

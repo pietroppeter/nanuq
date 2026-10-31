@@ -16,7 +16,7 @@
 
 ## 3. Docs and integration
 
-- [ ] 3.1 Update README "What is there" with `DataType`, `schema` and `cast`; verify `nimble example` passes and the dev-log post renders (its `dtype` line now prints `int64`)
+- [ ] 3.1 Update README "What is there" with `DataType`, `schema` and `cast`; verify `nimble example` passes and the dev-log post output is unchanged
 - [ ] 3.2 Check that CI is green on the PR, including the one-off Rust rebuild
 
 ## Workflow follow-up
