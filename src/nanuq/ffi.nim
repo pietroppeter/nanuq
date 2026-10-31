@@ -201,6 +201,12 @@ type
     nqFirst, nqLast, nqNUnique, nqStd,
     nqIsNull, nqIsNotNull
 
+  NqDtype* {.size: sizeof(cint).} = enum
+    ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
+    nqBoolean, nqInt8, nqInt16, nqInt32, nqInt64,
+    nqUInt8, nqUInt16, nqUInt32, nqUInt64,
+    nqFloat32, nqFloat64, nqString, nqNull, nqOther
+
 {.push importc, cdecl.}
 
 # errors and strings
@@ -230,6 +236,7 @@ proc nq_df_to_string*(df: ptr NqDataFrame): cstring
 proc nq_df_head*(df: ptr NqDataFrame, n: csize_t): ptr NqDataFrame
 proc nq_df_column_name*(df: ptr NqDataFrame, idx: csize_t): cstring
 proc nq_df_column_dtype*(df: ptr NqDataFrame, name: cstring): cstring
+proc nq_df_column_dtype_kind*(df: ptr NqDataFrame, name: cstring): int32
 proc nq_df_get_i64*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr int64): bool
 proc nq_df_get_f64*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr float64): bool
 proc nq_df_get_bool*(df: ptr NqDataFrame, name: cstring, row: csize_t, output: ptr bool): bool
@@ -260,6 +267,7 @@ proc nq_expr_binary*(a: ptr NqExpr, op: NqBinOp, b: ptr NqExpr): ptr NqExpr
 proc nq_expr_unary*(e: ptr NqExpr, op: NqUnary): ptr NqExpr
 proc nq_expr_fill_null*(e: ptr NqExpr, value: ptr NqExpr): ptr NqExpr
 proc nq_expr_alias*(e: ptr NqExpr, name: cstring): ptr NqExpr
+proc nq_expr_cast*(e: ptr NqExpr, code: NqDtype, strict: bool): ptr NqExpr
 proc nq_expr_to_string*(e: ptr NqExpr): cstring
 
 # lazy frames
@@ -275,6 +283,10 @@ proc nq_lf_sort*(lf: ptr NqLazyFrame, by: cstring, descending: bool): ptr NqLazy
 proc nq_lf_drop_nulls*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t): ptr NqLazyFrame
 proc nq_lf_limit*(lf: ptr NqLazyFrame, n: uint32): ptr NqLazyFrame
 proc nq_lf_explain*(lf: ptr NqLazyFrame): cstring
+proc nq_lf_collect_schema*(lf: ptr NqLazyFrame): ptr NqDataFrame
+proc nq_lf_cast*(lf: ptr NqLazyFrame, names: ptr cstring, codes: ptr NqDtype, n: csize_t,
+                 strict: bool): ptr NqLazyFrame
+proc nq_lf_cast_all*(lf: ptr NqLazyFrame, code: NqDtype, strict: bool): ptr NqLazyFrame
 
 {.pop.}
 

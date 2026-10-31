@@ -83,10 +83,10 @@ suite "nulls":
 
   test "round trip keeps dtype":
     let df = gaps()
-    check df.dtype("a") == "i64"
-    check df.dtype("b") == "f64"
-    check df.dtype("c") == "bool"
-    check df.dtype("d") == "str"
+    check df.dtype("a") == Int64
+    check df.dtype("b") == Float64
+    check df.dtype("c") == Boolean
+    check df.dtype("d") == String
 
   test "isNull and isNotNull":
     let df = gaps()
@@ -110,13 +110,13 @@ suite "nulls":
 suite "csv nulls":
   test "nullValues":
     let df = readCsv(dataDir / "with_na.csv", nullValues = ["NA"])
-    check df.dtype("mass") == "i64"
+    check df.dtype("mass") == Int64
     check df.toSeq("mass", Option[int]) == @[some(3750), none(int), some(4250)]
     check df.toSeq("species", Option[string]) == @[some("Adelie"), some("Adelie"), none(string)]
-    check df.dtype("flag") == "bool"
+    check df.dtype("flag") == Boolean
     check df.nullCount("flag") == 1
 
   test "without nullValues NA is a string":
     let df = readCsv(dataDir / "with_na.csv")
-    check df.dtype("mass") == "str"
+    check df.dtype("mass") == String
     check df.toSeq("mass", string)[1] == "NA"

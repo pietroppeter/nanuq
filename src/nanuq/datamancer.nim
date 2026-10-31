@@ -18,10 +18,6 @@ import std/options
 import pkg/datamancer as dmc except toSeq
 import ../nanuq
 
-const
-  intDtypes = ["i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64"]
-  floatDtypes = ["f32", "f64"]
-
 proc column[T](df: nanuq.DataFrame, name: string, _: typedesc[T]): Column =
   ## A typed column, or an object column with `null` entries if it has nulls.
   if df.hasNulls(name):
@@ -41,9 +37,9 @@ proc toDatamancer*(df: nanuq.DataFrame): dmc.DataFrame =
   for name in df.columns:
     let dt = df.dtype(name)
     result[name] =
-      if dt in intDtypes: column(df, name, int)
-      elif dt in floatDtypes: column(df, name, float)
-      elif dt == "bool": column(df, name, bool)
+      if dt.isInteger: column(df, name, int)
+      elif dt.isFloat: column(df, name, float)
+      elif dt == Boolean: column(df, name, bool)
       else: column(df, name, string)
   result.len = df.height
 

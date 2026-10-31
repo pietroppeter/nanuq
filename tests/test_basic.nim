@@ -10,10 +10,10 @@ suite "dataframe construction":
                           series("c", [1.5, 2.5, 3.5]), series("d", [true, false, true]))
     check df.shape == (3, 4)
     check df.columns == @["a", "b", "c", "d"]
-    check df.dtype("a") == "i64"
-    check df.dtype("b") == "str"
-    check df.dtype("c") == "f64"
-    check df.dtype("d") == "bool"
+    check df.dtype("a") == Int64
+    check df.dtype("b") == String
+    check df.dtype("c") == Float64
+    check df.dtype("d") == Boolean
     check df["b", 1, string] == "y"
     check df.toSeq("a", int) == @[1, 2, 3]
     check "shape: (3, 4)" in $df
@@ -30,7 +30,7 @@ suite "csv":
   test "read":
     let df = readCsv(dataDir / "penguins.csv", nullValues = ["NA"])
     check df.shape == (344, 8)
-    check df.dtype("bill_length_mm") == "f64"
+    check df.dtype("bill_length_mm") == Float64
     check df.getFloat("bill_length_mm", 0) == 39.1
 
   test "missing file raises":

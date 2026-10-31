@@ -335,6 +335,75 @@ pub unsafe extern "C" fn nq_df_column_dtype(df: *const DataFrame, name: *const c
     .unwrap_or(ptr::null_mut())
 }
 
+/// Data type codes. Keep in sync with `NqDtype` in nanuq/ffi.nim and
+/// `DataTypeKind` in nanuq.nim (same order).
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NqDtype {
+    Boolean = 0,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+    Float32,
+    Float64,
+    String,
+    Null,
+    Other,
+}
+
+fn dtype_code(d: &DataType) -> NqDtype {
+    match d {
+        DataType::Boolean => NqDtype::Boolean,
+        DataType::Int8 => NqDtype::Int8,
+        DataType::Int16 => NqDtype::Int16,
+        DataType::Int32 => NqDtype::Int32,
+        DataType::Int64 => NqDtype::Int64,
+        DataType::UInt8 => NqDtype::UInt8,
+        DataType::UInt16 => NqDtype::UInt16,
+        DataType::UInt32 => NqDtype::UInt32,
+        DataType::UInt64 => NqDtype::UInt64,
+        DataType::Float32 => NqDtype::Float32,
+        DataType::Float64 => NqDtype::Float64,
+        DataType::String => NqDtype::String,
+        DataType::Null => NqDtype::Null,
+        _ => NqDtype::Other,
+    }
+}
+
+fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
+    Ok(match c {
+        NqDtype::Boolean => DataType::Boolean,
+        NqDtype::Int8 => DataType::Int8,
+        NqDtype::Int16 => DataType::Int16,
+        NqDtype::Int32 => DataType::Int32,
+        NqDtype::Int64 => DataType::Int64,
+        NqDtype::UInt8 => DataType::UInt8,
+        NqDtype::UInt16 => DataType::UInt16,
+        NqDtype::UInt32 => DataType::UInt32,
+        NqDtype::UInt64 => DataType::UInt64,
+        NqDtype::Float32 => DataType::Float32,
+        NqDtype::Float64 => DataType::Float64,
+        NqDtype::String => DataType::String,
+        NqDtype::Null => DataType::Null,
+        NqDtype::Other => return Err("cannot cast to a dtype Nanuq does not model".into()),
+    })
+}
+
+/// Data type code (`NqDtype`) of a column, or -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_dtype_kind(df: *const DataFrame, name: *const c_char) -> i32 {
+    guard(|| {
+        let col = borrow(df, "DataFrame")?.column(cstr(name)?).map_err(pe)?;
+        Ok(dtype_code(col.dtype()) as i32)
+    })
+    .unwrap_or(-1)
+}
+
 fn cell<'a>(df: &'a DataFrame, name: &str, row: usize) -> Result<AnyValue<'a>, String> {
     df.column(name).map_err(pe)?.get(row).map_err(pe)
 }
@@ -735,6 +804,17 @@ pub unsafe extern "C" fn nq_expr_fill_null(e: *const Expr, value: *const Expr) -
     }))
 }
 
+/// Casts to the dtype `code`; strict casts fail on values that can't be
+/// converted, non-strict ones turn them into nulls.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cast(e: *const Expr, code: NqDtype, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let dt = dtype_from_code(code)?;
+        Ok(if strict { e.strict_cast(dt) } else { e.cast(dt) })
+    }))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nq_expr_alias(e: *const Expr, name: *const c_char) -> *mut Expr {
     boxed(guard(|| Ok(borrow(e, "expression")?.clone().alias(cstr(name)?))))
@@ -849,4 +929,40 @@ pub unsafe extern "C" fn nq_lf_limit(lf_: *const LazyFrame, n: u32) -> *mut Lazy
 #[no_mangle]
 pub unsafe extern "C" fn nq_lf_explain(lf_: *const LazyFrame) -> *mut c_char {
     guard(|| Ok(to_c_string(lf(lf_)?.explain(true).map_err(pe)?))).unwrap_or(ptr::null_mut())
+}
+
+/// The schema of the plan, without running it: an empty DataFrame with the
+/// resolved column names and dtypes.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_collect_schema(lf_: *const LazyFrame) -> *mut DataFrame {
+    boxed(guard(|| {
+        let schema = lf(lf_)?.collect_schema().map_err(pe)?;
+        Ok(DataFrame::empty_with_arc_schema(schema))
+    }))
+}
+
+/// Casts the `n` named columns to the matching dtype codes.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_cast(
+    lf_: *const LazyFrame,
+    names: *const *const c_char,
+    codes: *const NqDtype,
+    n: usize,
+    strict: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let names = slice(names, n)?;
+        let codes = slice(codes, n)?;
+        let mut map = PlHashMap::new();
+        for (name, code) in names.iter().zip(codes) {
+            map.insert(cstr(*name)?, dtype_from_code(*code)?);
+        }
+        Ok(lf(lf_)?.cast(map, strict))
+    }))
+}
+
+/// Casts every column to the dtype `code`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_cast_all(lf_: *const LazyFrame, code: NqDtype, strict: bool) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.cast_all(dtype_from_code(code)?, strict))))
 }

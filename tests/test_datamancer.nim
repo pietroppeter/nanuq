@@ -28,7 +28,7 @@ suite "datamancer interop":
   test "unsigned integers become int":
     let counts = penguins().lazy.groupBy(col("species"))
       .agg(col("species").count.alias("n")).sort("species").collect
-    check counts.dtype("n") == "u32"
+    check counts.dtype("n") == UInt32
     let dm = counts.toDatamancer
     check dm["n"].kind == colInt
     check dm["n", 0, int] == 152

@@ -23,10 +23,11 @@
 ##   echo df.nullCount("a")            # 1
 ##   df.toSeq("a", int)                # raises NanuqError: column has nulls
 
-import std/options
+import std/[options, tables]
 import nanuq/ffi
 
 export options  # some/none/Option, for null-aware reads and series
+export tables   # Schema is an OrderedTable
 export nanuqLibVersion  # version of the Rust wrapper crate these bindings expect
 
 type
@@ -99,6 +100,92 @@ template firstOrNil[T](s: seq[T]): ptr T =
 proc polarsWrapperVersion*(): string =
   ## Version of the Rust wrapper crate.
   $nq_version()
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
+
+type
+  DataTypeKind* = enum
+    ## Same order as `NqDtype` in the C ABI.
+    dkBoolean, dkInt8, dkInt16, dkInt32, dkInt64, dkUInt8, dkUInt16, dkUInt32,
+    dkUInt64, dkFloat32, dkFloat64, dkString, dkNull, dkOther
+
+  DataType* = object
+    ## A Polars data type. Compare with the constants (`Int64`, `String`, ...).
+    ## Dtypes Nanuq does not model yet (dates, lists, ...) have kind `dkOther`
+    ## and keep Polars' name.
+    case kind*: DataTypeKind
+    of dkOther: name*: string
+    else: discard
+
+  Schema* = OrderedTable[string, DataType]
+    ## Column names and data types, in column order.
+
+const
+  Boolean* = DataType(kind: dkBoolean)
+  Int8* = DataType(kind: dkInt8)
+  Int16* = DataType(kind: dkInt16)
+  Int32* = DataType(kind: dkInt32)
+  Int64* = DataType(kind: dkInt64)
+  UInt8* = DataType(kind: dkUInt8)
+  UInt16* = DataType(kind: dkUInt16)
+  UInt32* = DataType(kind: dkUInt32)
+  UInt64* = DataType(kind: dkUInt64)
+  Float32* = DataType(kind: dkFloat32)
+  Float64* = DataType(kind: dkFloat64)
+  String* = DataType(kind: dkString)
+  Null* = DataType(kind: dkNull)
+
+proc `==`*(a, b: DataType): bool =
+  a.kind == b.kind and (a.kind != dkOther or a.name == b.name)
+
+proc `$`*(t: DataType): string =
+  ## Polars' short name, e.g. "i64", "str".
+  case t.kind
+  of dkBoolean: "bool"
+  of dkInt8: "i8"
+  of dkInt16: "i16"
+  of dkInt32: "i32"
+  of dkInt64: "i64"
+  of dkUInt8: "u8"
+  of dkUInt16: "u16"
+  of dkUInt32: "u32"
+  of dkUInt64: "u64"
+  of dkFloat32: "f32"
+  of dkFloat64: "f64"
+  of dkString: "str"
+  of dkNull: "null"
+  of dkOther: t.name
+
+proc isSignedInteger*(t: DataType): bool = t.kind in {dkInt8 .. dkInt64}
+proc isUnsignedInteger*(t: DataType): bool = t.kind in {dkUInt8 .. dkUInt64}
+proc isInteger*(t: DataType): bool = t.isSignedInteger or t.isUnsignedInteger
+proc isFloat*(t: DataType): bool = t.kind in {dkFloat32, dkFloat64}
+proc isNumeric*(t: DataType): bool = t.isInteger or t.isFloat
+
+proc dataType*(T: typedesc): DataType =
+  ## The data type of a Nim type: `int8` .. `int64`, `uint8` .. `uint64`,
+  ## `float32`, `float64`, `bool`, `string`. `int` and `float` give `Int64`
+  ## and `Float64`, as `series` builds them. Other types do not compile.
+  when T is int8: Int8
+  elif T is int16: Int16
+  elif T is int32: Int32
+  elif T is int64 or T is int: Int64
+  elif T is uint8: UInt8
+  elif T is uint16: UInt16
+  elif T is uint32: UInt32
+  elif T is uint64: UInt64
+  elif T is float32: Float32
+  elif T is float64: Float64
+  elif T is bool: Boolean
+  elif T is string: String
+  else: {.error: "nanuq: no Polars data type for " & $T.}
+
+proc code(t: DataType): NqDtype =
+  if t.kind == dkOther:
+    raise newException(NanuqError, "cannot cast to " & t.name & ": Nanuq does not model this dtype yet")
+  NqDtype(ord(t.kind))
 
 # ---------------------------------------------------------------------------
 # Series and DataFrame construction
@@ -188,9 +275,22 @@ proc columns*(df: DataFrame): seq[string] =
   for i in 0 ..< df.width:
     result.add takeString nq_df_column_name(df.raw, i.csize_t)
 
-proc dtype*(df: DataFrame, column: string): string =
-  ## Polars data type of a column, e.g. "i64", "f64", "str".
-  takeString nq_df_column_dtype(df.raw, column.cstring)
+proc dtype*(df: DataFrame, column: string): DataType =
+  ## Data type of a column, e.g. `Int64`; `$` gives Polars' name ("i64").
+  let k = nq_df_column_dtype_kind(df.raw, column.cstring)
+  if k < 0: raiseLast()
+  if k == ord(dkOther):
+    DataType(kind: dkOther, name: takeString nq_df_column_dtype(df.raw, column.cstring))
+  else:
+    DataType(kind: DataTypeKind(k))
+
+proc dtypes*(df: DataFrame): seq[DataType] =
+  ## Data types of all columns, in order.
+  for name in df.columns: result.add df.dtype(name)
+
+proc schema*(df: DataFrame): Schema =
+  ## Column names and data types, in column order.
+  for name in df.columns: result[name] = df.dtype(name)
 
 proc getInt*(df: DataFrame, column: string, row: int): int =
   ## Raises `NanuqError` if the cell is null; see `df[column, row, Option[int]]`.
@@ -294,7 +394,7 @@ proc toHtml*(df: DataFrame, maxRows = 10, maxCols = 75): string =
     result.add "<th>" & (if c == -1: "&hellip;" else: htmlEscape(names[c])) & "</th>"
   result.add "</tr><tr>"
   for c in cols:
-    result.add "<td>" & (if c == -1: "&hellip;" else: df.dtype(names[c])) & "</td>"
+    result.add "<td>" & (if c == -1: "&hellip;" else: $df.dtype(names[c])) & "</td>"
   result.add "</tr></thead><tbody>"
   for r in rows:
     result.add "<tr>"
@@ -423,6 +523,16 @@ proc fillNull*[T: SomeNumber | string | bool](e: Expr, value: T): Expr = e.fillN
 
 proc alias*(e: Expr, name: string): Expr = wrap nq_expr_alias(e.raw, name.cstring)
 
+proc `cast`*(e: Expr, dtype: DataType, strict = true): Expr =
+  ## Converts to `dtype`. A strict cast fails (when the query runs) on values
+  ## that can't be converted; with `strict = false` they become nulls.
+  ## `cast` is a Nim keyword: write `e.cast(Int32)`, or `` `cast`(e, Int32) ``.
+  wrap nq_expr_cast(e.raw, dtype.code, strict)
+
+proc `cast`*(e: Expr, T: typedesc, strict = true): Expr =
+  ## Converts to the data type of a Nim type: `col("a").cast(int32)`.
+  e.cast(dataType(T), strict)
+
 # ---------------------------------------------------------------------------
 # Lazy API
 # ---------------------------------------------------------------------------
@@ -460,6 +570,27 @@ proc dropNulls*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
   for i, s in subset: names[i] = s.cstring
   wrap nq_lf_drop_nulls(lf.raw, names.firstOrNil, names.len.csize_t)
 
+proc collectSchema*(lf: LazyFrame): Schema =
+  ## The schema of the result, without running the query.
+  schema(wrap nq_lf_collect_schema(lf.raw))
+
+proc `cast`*(lf: LazyFrame, dtypes: openArray[(string, DataType)], strict = true): LazyFrame =
+  ## Casts the named columns: `lf.cast({"a": Int32, "b": Float32})`.
+  var names = newSeq[cstring](dtypes.len)
+  var codes = newSeq[NqDtype](dtypes.len)
+  for i, (name, t) in dtypes:
+    names[i] = name.cstring
+    codes[i] = t.code
+  wrap nq_lf_cast(lf.raw, names.firstOrNil, codes.firstOrNil, names.len.csize_t, strict)
+
+proc `cast`*(lf: LazyFrame, dtype: DataType, strict = true): LazyFrame =
+  ## Casts every column to `dtype`.
+  wrap nq_lf_cast_all(lf.raw, dtype.code, strict)
+
+proc `cast`*(lf: LazyFrame, T: typedesc, strict = true): LazyFrame =
+  ## Casts every column to the data type of a Nim type: `lf.cast(float64)`.
+  lf.cast(dataType(T), strict)
+
 proc limit*(lf: LazyFrame, n: int): LazyFrame = wrap nq_lf_limit(lf.raw, n.uint32)
 
 proc explain*(lf: LazyFrame): string =
@@ -473,3 +604,7 @@ proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predica
 proc sort*(df: DataFrame, by: string, descending = false): DataFrame = df.lazy.sort(by, descending).collect
 proc groupBy*(df: DataFrame, by: varargs[Expr]): LazyGroupBy = df.lazy.groupBy(by)
 proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect
+proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true): DataFrame =
+  df.lazy.cast(dtypes, strict).collect
+proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collect
+proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collect

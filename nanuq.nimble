@@ -20,8 +20,8 @@ task buildRust, "Build the Rust wrapper library (src/rust/target/release/libnanu
   exec "cargo build --release --manifest-path src/rust/Cargo.toml"
 
 task test, "Run the tests (tests/test_datamancer.nim needs Datamancer installed)":
-  for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datasets.nim",
-            "tests/test_html.nim", "tests/test_datamancer.nim"]:
+  for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datatypes.nim",
+            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_datamancer.nim"]:
     exec "nim r --hints:off " & t
 
 task example, "Run the basic example":
