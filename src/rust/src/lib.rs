@@ -732,6 +732,9 @@ pub enum NqBinOp {
     GtEq,
     And,
     Or,
+    Mod,
+    FloorDiv,
+    Pow,
 }
 
 #[no_mangle]
@@ -752,6 +755,9 @@ pub unsafe extern "C" fn nq_expr_binary(a: *const Expr, op: NqBinOp, b: *const E
             NqBinOp::GtEq => a.gt_eq(b),
             NqBinOp::And => a.and(b),
             NqBinOp::Or => a.or(b),
+            NqBinOp::Mod => a % b,
+            NqBinOp::FloorDiv => a.floor_div(b),
+            NqBinOp::Pow => a.pow(b),
         })
     }))
 }
@@ -773,6 +779,10 @@ pub enum NqUnary {
     Std,
     IsNull,
     IsNotNull,
+    Abs,
+    Median,
+    Len,
+    Neg,
 }
 
 #[no_mangle]
@@ -792,6 +802,10 @@ pub unsafe extern "C" fn nq_expr_unary(e: *const Expr, op: NqUnary) -> *mut Expr
             NqUnary::Std => e.std(1),
             NqUnary::IsNull => e.is_null(),
             NqUnary::IsNotNull => e.is_not_null(),
+            NqUnary::Abs => e.abs(),
+            NqUnary::Median => e.median(),
+            NqUnary::Len => e.len(),
+            NqUnary::Neg => -e,
         })
     }))
 }
@@ -1252,4 +1266,208 @@ pub unsafe extern "C" fn nq_df_sample(
 #[no_mangle]
 pub extern "C" fn nq_set_random_seed(seed: u64) {
     polars_core::random::set_global_random_seed(seed);
+}
+
+// ---------------------------------------------------------------------------
+// More expressions
+// ---------------------------------------------------------------------------
+
+/// `when(conds[0]).then(values[0]).when(conds[1]).then(values[1])...`, ending
+/// with `otherwise`, or null when `otherwise` is NULL.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_when_then(
+    conds: *const *const Expr,
+    values: *const *const Expr,
+    n: usize,
+    otherwise: *const Expr,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let conds = exprs(conds, n)?;
+        let values = exprs(values, n)?;
+        if conds.is_empty() {
+            return Err("when/then needs at least one branch".into());
+        }
+        let other = if otherwise.is_null() {
+            lit(NULL)
+        } else {
+            borrow(otherwise, "expression")?.clone()
+        };
+        let mut it = conds.into_iter().zip(values);
+        let (c0, v0) = it.next().unwrap();
+        let first = when(c0).then(v0);
+        let rest: Vec<(Expr, Expr)> = it.collect();
+        if rest.is_empty() {
+            return Ok(first.otherwise(other));
+        }
+        let mut chain = None::<ChainedThen>;
+        let mut first = Some(first);
+        for (c, v) in rest {
+            chain = Some(match chain.take() {
+                None => first.take().unwrap().when(c).then(v),
+                Some(ch) => ch.when(c).then(v),
+            });
+        }
+        Ok(chain.unwrap().otherwise(other))
+    }))
+}
+
+/// A literal holding a whole Series (for `is_in` with a list of values).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_lit_series(s: *const Series) -> *mut Expr {
+    boxed(guard(|| Ok(lit(borrow(s, "Series")?.clone()).implode(true))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_is_in(
+    e: *const Expr,
+    other: *const Expr,
+    nulls_equal: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(e.is_in(borrow(other, "expression")?.clone(), nulls_equal))
+    }))
+}
+
+/// Same order as Nim's `ClosedInterval`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqClosedInterval {
+    Both,
+    Left,
+    Right,
+    None,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_is_between(
+    e: *const Expr,
+    lower: *const Expr,
+    upper: *const Expr,
+    closed: NqClosedInterval,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let closed = match closed {
+            NqClosedInterval::Both => ClosedInterval::Both,
+            NqClosedInterval::Left => ClosedInterval::Left,
+            NqClosedInterval::Right => ClosedInterval::Right,
+            NqClosedInterval::None => ClosedInterval::None,
+        };
+        let e = borrow(e, "expression")?.clone();
+        let lo = borrow(lower, "expression")?.clone();
+        let hi = borrow(upper, "expression")?.clone();
+        Ok(e.is_between(lo, hi, closed))
+    }))
+}
+
+/// Same order as Nim's `QuantileMethod`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqQuantileMethod {
+    Nearest,
+    Lower,
+    Higher,
+    Midpoint,
+    Linear,
+    Equiprobable,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_quantile(
+    e: *const Expr,
+    q: f64,
+    method: NqQuantileMethod,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let method = match method {
+            NqQuantileMethod::Nearest => QuantileMethod::Nearest,
+            NqQuantileMethod::Lower => QuantileMethod::Lower,
+            NqQuantileMethod::Higher => QuantileMethod::Higher,
+            NqQuantileMethod::Midpoint => QuantileMethod::Midpoint,
+            NqQuantileMethod::Linear => QuantileMethod::Linear,
+            NqQuantileMethod::Equiprobable => QuantileMethod::Equiprobable,
+        };
+        Ok(borrow(e, "expression")?.clone().quantile(lit(q), method))
+    }))
+}
+
+/// Variance (`is_var`) or standard deviation with `ddof` delta degrees of freedom.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_var_std(e: *const Expr, ddof: u8, is_var: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if is_var { e.var(ddof) } else { e.std(ddof) })
+    }))
+}
+
+/// Same order as Nim's `FillNullStrategy`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqFillNullStrategy {
+    Forward,
+    Backward,
+    Mean,
+    Min,
+    Max,
+    Zero,
+    One,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_fill_null_strategy(
+    e: *const Expr,
+    strategy: NqFillNullStrategy,
+    has_limit: bool,
+    limit: u32,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let limit: Option<IdxSize> = has_limit.then_some(limit as IdxSize);
+        let strategy = match strategy {
+            NqFillNullStrategy::Forward => FillNullStrategy::Forward(limit),
+            NqFillNullStrategy::Backward => FillNullStrategy::Backward(limit),
+            NqFillNullStrategy::Mean => FillNullStrategy::Mean,
+            NqFillNullStrategy::Min => FillNullStrategy::Min,
+            NqFillNullStrategy::Max => FillNullStrategy::Max,
+            NqFillNullStrategy::Zero => FillNullStrategy::Zero,
+            NqFillNullStrategy::One => FillNullStrategy::One,
+        };
+        Ok(borrow(e, "expression")?.clone().fill_null_with_strategy(strategy))
+    }))
+}
+
+/// Same order as Nim's `RoundMode`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqRoundMode {
+    HalfToEven,
+    HalfAwayFromZero,
+    ToZero,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_round(e: *const Expr, decimals: u32, mode: NqRoundMode) -> *mut Expr {
+    boxed(guard(|| {
+        let mode = match mode {
+            NqRoundMode::HalfToEven => RoundMode::HalfToEven,
+            NqRoundMode::HalfAwayFromZero => RoundMode::HalfAwayFromZero,
+            NqRoundMode::ToZero => RoundMode::ToZero,
+        };
+        Ok(borrow(e, "expression")?.clone().round(decimals, mode))
+    }))
+}
+
+/// Computes `e` per group of the `n` partition keys, one value per row.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_over(
+    e: *const Expr,
+    by: *const *const Expr,
+    n: usize,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let by = exprs(by, n)?;
+        if by.is_empty() {
+            return Err("over needs at least one partition key".into());
+        }
+        borrow(e, "expression")?.clone().over(by).map_err(pe)
+    }))
 }

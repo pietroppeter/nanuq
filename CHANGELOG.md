@@ -25,6 +25,13 @@ its OpenSpec change is archived. Format based on
   `maintainOrder`. (#30)
 - `sample` on DataFrame, by `n` or `fraction`, with `withReplacement`, `shuffle` and
   `seed`. (#30) `setRandomSeed` for Polars' global generator, and `seed = 42` as a plain int. (#31)
+- Conditional expressions: the Polars chain `` `when`(c).then(a).otherwise(b) `` and the
+  `choose` macro over `if`/`elif`/`else`; strings in branches are values. (#PR)
+- Expressions: `isIn`, `isBetween` (`ClosedInterval`), `mod` and `div` (Polars' floor
+  semantics), `^`/`pow`, `abs`, unary `-`, `round` (`RoundMode`), `median`, `var`,
+  `quantile` (`QuantileMethod`), `len`, and `ddof` on `std`. (#PR)
+- Null fill strategies (`fillNull(Forward)`, `FillNullStrategy`, `forwardFill`,
+  `backwardFill`) and window expressions (`over`). (#PR)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
