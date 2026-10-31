@@ -49,6 +49,7 @@ two), L (more).
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): `when/then/otherwise`, string functions, casting, window
   functions (`over`).
+  *Casting: in progress* as OpenSpec change `add-datatype-and-cast`.
 
 ## Ecosystem
 

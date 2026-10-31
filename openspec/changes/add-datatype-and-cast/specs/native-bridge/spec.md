@@ -1,0 +1,12 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: Nim declarations mirror the C ABI
+`src/nanuq/ffi.nim` SHALL declare every exported function with matching signatures, and
+the enums `NqBinOp`, `NqUnary` and `NqDtype` SHALL keep the same order as in Rust.
+`NqDtype` SHALL also keep the order of `DataTypeKind` in the Nim API.
+
+#### Scenario: ABI change
+- **WHEN** a function is added or changed in `rust/src/lib.rs`
+- **THEN** `src/nanuq/ffi.nim` is updated in the same change
