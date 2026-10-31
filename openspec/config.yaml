@@ -19,6 +19,13 @@ rules:
       names), or saying there are none
     - Name the API after Polars in camelCase, and spell option values as the
       api-conventions spec says (pure enums with Rust Polars names, no strings)
+  specs:
+    - Give every requirement that describes Nim API an example, as the spec-examples
+      spec says, a ```nim block after the requirement text and before the scenarios,
+      followed by a ```text block with what it prints (full Polars tables). Show
+      allowed use; failures stay in scenarios. Outputs are written by hand in a
+      proposal and corrected with `nim r tools/specexamples.nim --update` once the
+      change is implemented and archived
 
 operations:
   archive:
