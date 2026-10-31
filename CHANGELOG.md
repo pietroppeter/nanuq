@@ -34,7 +34,7 @@ its OpenSpec change is archived. Format based on
   `backwardFill`) and window expressions (`over`). (#33)
 - Column selectors: `col(SomeNumber)` and the other Nim typeclasses, `col(int)`,
   `col(float, string)`, `col("a", "b")`, `all()`, `exclude`, and `name.suffix` /
-  `name.prefix` for the output names. (#PR)
+  `name.prefix` for the output names. (#35)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
