@@ -9,11 +9,10 @@
 ## 2. Nim API
 
 - [ ] 2.1 Add `DataTypeKind`, `DataType`, the constants, `==`, `$` and the predicates; verify with unit tests that need no DataFrame
-- [ ] 2.2 Change `dtype(df, col)` to return `DataType` (name lookup for `dkOther`); update `datamancer.nim`, the HTML dtype row (`$` names) and the tests that compare dtype strings; verify `nimble test` passes
+- [ ] 2.2 Change `dtype(df, col)` to return `DataType` (name lookup for `dkOther`); update `datamancer.nim`, the HTML table and the tests that compare dtype strings; verify `nimble test` passes
 - [ ] 2.3 Add `Schema`, `schema(df)`, `dtypes(df)` and `collectSchema(lf)`; verify column order and that a lazy schema does not execute the query
-- [ ] 2.4 Rewrite the dtype row in `nq_df_to_string` with Nim names, widening columns as needed; verify with tests on short and long names, elided columns and a `dkOther` column
-- [ ] 2.5 Add `dataType(T)` for the supported Nim types; verify the mapping, and with a compile-time check that an unsupported type does not compile
-- [ ] 2.6 Add `cast` on Expr, and on LazyFrame and DataFrame for all columns (Nim type or `DataType`) and for named columns (`DataType`); verify narrowing, a Nim-type target, strict failure, non-strict nulls and the `dkOther` error
+- [ ] 2.4 Add `dataType(T)` for the supported Nim types; verify the mapping, and with a compile-time check that an unsupported type does not compile
+- [ ] 2.5 Add `cast` on Expr, and on LazyFrame and DataFrame for all columns (Nim type or `DataType`) and for named columns (`DataType`); verify narrowing, a Nim-type target, strict failure, non-strict nulls and the `dkOther` error
 
 ## 3. Docs and integration
 

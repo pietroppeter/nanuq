@@ -40,24 +40,8 @@ const Int64* = DataType(kind: dkInt64)   # and so on for each primitive kind
 ```
 `==` compares kinds (and the name for `dkOther`). `$` returns the Nim type name
 (`int64`, `float32`, `bool`, `string`), `null` for `dkNull`, and Polars' name for
-`dkOther`. The tables show the same names (see "Nim names in tables").
-
-### Nim names in tables
-- *HTML:* `toHtml` builds the dtype row itself, so it uses `$` on each column's
-  `DataType`.
-- *Text (`$df`):* Polars renders the table (comfy_table), with the dtype in the third
-  header line of each column and no option to rename it. `nq_df_to_string` post-processes
-  that string in Rust: for each column it replaces the dtype cell with the Nim name and,
-  when the name is longer than the column, widens that column by the difference on every
-  line (spaces in content lines, the border character in border lines, at the column's
-  right edge). Rust knows each column's dtype and the table layout is fixed, so this is a
-  string pass with no Polars internals. Elided columns (`…`) have no dtype cell and are
-  skipped.
-- *Alternative:* hide Polars' dtypes (`POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES`) and
-  rename columns to `name\n---\nint64` in a cheap clone. Rejected: Polars measures and
-  truncates the name as one string, so widths come out wrong.
-- *Alternative:* Nanuq's own text renderer, like `toHtml`. More code to keep in line
-  with Polars' cell formatting; worth it only if the post-processing proves fragile.
+`dkOther`. Polars' short names (`i64`) stay in Polars' own table output and the HTML
+table header, which read them from `nq_df_column_dtype`.
 - *Why:* Polars' Rust `DataType` is an enum with data in some variants; an object
   variant is the Nim equivalent, and later kinds (`dkDatetime` with `unit` and `zone`,
   `dkList` with an `inner: ref DataType`) are added as new branches without changing
