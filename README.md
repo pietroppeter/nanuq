@@ -50,6 +50,11 @@ the posts newest first:
 - [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
 - [Shipping the Rust half](https://pietroppeter.github.io/nanuq/blog/2026-10-27-shipping-rust-binaries.html) (27 October 2026)
 
+[The Nanuq Book](https://pietroppeter.github.io/nanuq-book/)
+([source](https://github.com/pietroppeter/nanuq-book)) ports public Polars tutorials to
+Nanuq, starting with chapters of the Polars user guide. Every chapter runs when the book
+is built, and each one names its source and licence.
+
 Official documentation will come later.
 
 ## How it works
