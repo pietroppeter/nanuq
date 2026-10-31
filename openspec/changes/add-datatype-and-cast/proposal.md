@@ -45,6 +45,8 @@ The rest of that entry stays in the backlog. It is the first change of the 0.2 r
 - `data-types`: the `DataType` value, schemas, and casting.
 
 ### Modified Capabilities
+- `dataframe-api`: the HTML tables requirement matches Python except for the dtype row,
+  which shows Nim type names.
 - `native-bridge`: the enums that must keep the same order in Rust and `ffi.nim` now
   include `NqDtype`.
 
@@ -65,9 +67,10 @@ Expected differences from Polars' Rust and Python APIs:
 - **No 128-bit integers, no Decimal.** `Int128`, `UInt128` and `Decimal` are left out
   (they need extra Polars features); they would read as `dkOther`.
 - **`$` is the Nim type name.** Python prints `Int64` and Rust's `Display` prints `i64`;
-  Nanuq prints `int64`, the Nim type you would read the column as. Polars' own table
-  output (`$df`) and the HTML table header keep Polars' short names (`i64`), so tables
-  look the same as in Python.
+  Nanuq prints `int64`, the Nim type you would read the column as. The tables use the
+  same names, for consistency: the dtype row of `$df` and of `toHtml` shows `int64`,
+  `string`, `float64` where Polars shows `i64`, `str`, `f64`. So `toHtml` no longer
+  matches Python's `_repr_html_` exactly, only in the dtype row.
 - **Schema type.** Python's `pl.Schema` is an ordered mapping; Nanuq uses Nim's
   `OrderedTable[string, DataType]`. Python's `df.schema` is a property; in Nim it is a
   proc, `df.schema` reads the same.
@@ -97,7 +100,8 @@ Expected differences from Polars' Rust and Python APIs:
 - `src/nanuq/ffi.nim`, `src/nanuq.nim`: the matching declarations and API; imports
   `std/tables`.
 - `src/nanuq/datamancer.nim` switches from dtype strings to `DataType`. The HTML table
-  keeps Polars' short name in its header (from `nq_df_column_dtype`).
+  header uses `$` on `DataType`. `nq_df_to_string` rewrites the dtype row of Polars'
+  text table (see design.md).
 - `tests/`: dtype string comparisons become constant comparisons; new tests for
   schemas and casts. The dev-log post "How Nanuq works" prints `dtype` with `echo`, so
   its output changes from `i64` to `int64`.

@@ -20,16 +20,17 @@ export constants with Polars' names (`Int64`, `String`, ...), `==`, and the pred
 
 ### Requirement: DataType names
 `$` on a `DataType` SHALL return the Nim type name (`int64`, `uint8`, `float32`, `bool`,
-`string`), `null` for Null, and Polars' name for `dkOther`. Polars' table output and
-the HTML table header SHALL keep Polars' short names.
+`string`), `null` for Null, and Polars' name for `dkOther`. The dtype row of `$df`
+SHALL show the same names, with columns widened to fit them.
 
 #### Scenario: Nim name
 - **WHEN** `$df.dtype("a")` is evaluated on an i64 column
 - **THEN** it returns `"int64"`
 
-#### Scenario: Tables keep Polars names
-- **WHEN** `toHtml` renders that DataFrame
-- **THEN** the dtype row shows `i64`, as Polars does
+#### Scenario: Text table
+- **WHEN** `$df` renders a DataFrame with an i64 column `a` and a str column `b`
+- **THEN** the dtype row shows `int64` and `string`, and every line of the table has
+  the same width
 
 #### Scenario: Unmodelled dtype
 - **WHEN** a column has a dtype Nanuq does not model
