@@ -14,6 +14,10 @@ its OpenSpec change is archived. Format based on
   block syntax for `newDataFrame` (`name: [values]` lines, `nil` for missing values),
   `Expr.nullCount`, and `rank` with a `RankMethod` (`rank(Min, descending = true)`).
   The wrapper crate is `0.3.0-dev`. (add-api-polish, #47)
+- `glimpse` (returns Python's one-line-per-column preview as a string), `describe`
+  (summary statistics with `percentiles`), and display config: `setTblRows`,
+  `setTblCols`, `setTblWidthChars`, `setFmtStrLengths`, `setConfig(...)`,
+  `resetConfig()` and the scoped `withConfig(...): body`. (add-inspection-and-config, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns

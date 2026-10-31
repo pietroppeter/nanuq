@@ -167,7 +167,11 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
   `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
-  `toList(df, "col", float)` (one FFI call per column)
+  `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
+  column), `describe` (summary statistics)
+- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`),
+  `setConfig(tblRows = 20, tblCols = 10)`, `resetConfig()`, and for one block
+  `withConfig(tblRows = 40): echo df`
 - Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
   `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
   `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,

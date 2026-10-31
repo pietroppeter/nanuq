@@ -14,3 +14,4 @@ nimcache/
 /docs/**/*.png
 /specview.html
 /tools/specview
+/tests/test_inspection

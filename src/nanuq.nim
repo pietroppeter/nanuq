@@ -26,7 +26,8 @@
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
 
-import std/[macros, options, tables]
+import std/[macros, options, tables, os, strutils, math]
+from std/unicode import runeLen, runeSubStr
 import nanuq/ffi
 
 export options  # some/none/Option, for null-aware reads and series
@@ -1220,3 +1221,183 @@ proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = 
 proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
              seed: int): DataFrame =
   df.sample(fraction, withReplacement, shuffle, some(seed))
+
+# ---------------------------------------------------------------------------
+# Inspection: glimpse and describe, ported from Python Polars
+# ---------------------------------------------------------------------------
+
+proc pyRepr(s: string): string =
+  ## A string quoted as Python's `repr` quotes it.
+  let q = if '\'' in s and '"' notin s: '"' else: '\''
+  result.add q
+  for c in s:
+    case c
+    of '\\': result.add "\\\\"
+    of '\n': result.add "\\n"
+    of '\r': result.add "\\r"
+    of '\t': result.add "\\t"
+    else:
+      if c == q: result.add '\\'
+      result.add c
+  result.add q
+
+proc glimpse*(df: DataFrame, maxItemsPerColumn = 10, maxColnameLength = 50): string =
+  ## A dense preview, one line per column, as Python Polars' `glimpse`:
+  ## `echo df.glimpse`. Shows the first `maxItemsPerColumn` values of each column.
+  let head = df.head(min(maxItemsPerColumn, df.height))
+  var rows: seq[(string, string, string)]
+  for name in df.columns:
+    let dt = df.dtype(name)
+    var shown = name
+    if shown.runeLen > maxColnameLength:
+      shown = shown.runeSubStr(0, maxColnameLength - 1) & "…"
+    var vals: seq[string]
+    for v in head.toList(name, Option[string]):
+      if v.isNone: vals.add "null"
+      elif dt == String: vals.add pyRepr(v.get)
+      elif dt == Boolean: vals.add(if v.get == "true": "True" else: "False")
+      else: vals.add v.get
+    rows.add (shown, "<" & $dt & ">", vals.join(", "))
+  var wName, wType = 0
+  for (n, t, _) in rows:
+    wName = max(wName, n.runeLen)
+    wType = max(wType, t.runeLen)
+  result = "Rows: " & $df.height & "\nColumns: " & $df.width & "\n"
+  for (n, t, v) in rows:
+    result.add "$ " & n & repeat(' ', wName - n.runeLen) & " " &
+      repeat(' ', wType - t.runeLen) & t & " " & v & "\n"
+
+proc percentLabel(q: float): string =
+  ## Python's `f"{q * 100:g}%"`.
+  let v = q * 100
+  result = formatFloat(v, ffDecimal, 6)
+  result = result.strip(leading = false, chars = {'0'}).strip(leading = false, chars = {'.'})
+  result.add '%'
+
+proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
+               interpolation = QuantileMethod.Nearest): DataFrame =
+  ## Summary statistics, as Python Polars' `describe`: a `statistic` column and one
+  ## column per input column (f64 for numeric and boolean columns, str otherwise).
+  let schema = lf.collectSchema
+  if schema.len == 0:
+    raise newException(NanuqError, "cannot describe a frame that has no columns")
+  var metrics = @["count", "null_count", "mean", "std", "min"]
+  for q in percentiles: metrics.add percentLabel(q)
+  metrics.add "max"
+  var exprs: seq[Expr]
+  var numericResult: seq[bool]
+  var computed: seq[seq[bool]]  # per column, per metric: was it computed
+  for name, dt in schema:
+    let numeric = dt.isNumeric
+    let asFloat = numeric or dt.kind in {DataTypeKind.Boolean, DataTypeKind.Null}
+    let minMax = dt.kind notin {DataTypeKind.Null, DataTypeKind.Other}
+    let target = if asFloat: Float64 else: String
+    var have: seq[bool]
+    proc add(e: Expr, ok: bool, metric: string) =
+      have.add ok
+      if ok: exprs.add e.cast(target).alias(metric & ":" & name)
+    let c = col(name)
+    add(c.count, true, "count")
+    add(c.nullCount, true, "null_count")
+    add(c.mean, numeric or dt == Boolean, "mean")
+    add(c.std, numeric, "std")
+    add(c.min, minMax, "min")
+    for q in percentiles:
+      add(c.quantile(q, interpolation), numeric, $q)
+    add(c.max, minMax, "max")
+    numericResult.add asFloat
+    computed.add have
+  let row = lf.select(exprs).collect
+  var columns = @[series("statistic", metrics)]
+  var i = 0
+  for name, dt in schema:
+    if numericResult[i]:
+      var vals: seq[Option[float]]
+      for m, metric in metrics:
+        let label = (if m in 5 ..< 5 + percentiles.len: $percentiles[m - 5] else: metric)
+        vals.add(if computed[i][m]: row[label & ":" & name, 0, Option[float]] else: none(float))
+      columns.add series(name, vals)
+    else:
+      var vals: seq[Option[string]]
+      for m, metric in metrics:
+        let label = (if m in 5 ..< 5 + percentiles.len: $percentiles[m - 5] else: metric)
+        vals.add(if computed[i][m]: row[label & ":" & name, 0, Option[string]] else: none(string))
+      columns.add series(name, vals)
+    inc i
+  newDataFrameOf(columns)
+
+proc describe*(df: DataFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
+               interpolation = QuantileMethod.Nearest): DataFrame =
+  df.lazy.describe(percentiles, interpolation)
+
+# ---------------------------------------------------------------------------
+# Display config, through the environment variables Rust Polars reads
+# ---------------------------------------------------------------------------
+
+const configVars = ["POLARS_FMT_MAX_ROWS", "POLARS_FMT_MAX_COLS", "POLARS_TABLE_WIDTH",
+                    "POLARS_FMT_STR_LEN"]
+
+proc setVar(name: string, n: Option[int]) =
+  if n.isSome: putEnv(name, $n.get) else: delEnv(name)
+
+proc setTblRows*(n: int | Option[int]) =
+  ## Rows shown when a frame prints (`-1`: all; `none(int)`: Polars' default, 10).
+  setVar(configVars[0], toOpt(n))
+proc setTblCols*(n: int | Option[int]) =
+  ## Columns shown when a frame prints (`-1`: all; `none(int)`: Polars' default, 8).
+  setVar(configVars[1], toOpt(n))
+proc setTblWidthChars*(n: int | Option[int]) =
+  ## Maximum table width in characters (`none(int)`: the terminal's width).
+  setVar(configVars[2], toOpt(n))
+proc setFmtStrLengths*(n: int | Option[int]) =
+  ## Characters shown of each string value (`-1`: all; `none(int)`: Polars' default, 30).
+  setVar(configVars[3], toOpt(n))
+
+proc setConfig*(tblRows: int | Option[int] = none(int); tblCols: int | Option[int] = none(int);
+                tblWidthChars: int | Option[int] = none(int);
+                fmtStrLengths: int | Option[int] = none(int)) =
+  ## Sets several display options at once, like Python's `pl.Config(...)`:
+  ## `setConfig(tblRows = 12, tblCols = 10)`. Options left out are unchanged.
+  if toOpt(tblRows).isSome: setTblRows(tblRows)
+  if toOpt(tblCols).isSome: setTblCols(tblCols)
+  if toOpt(tblWidthChars).isSome: setTblWidthChars(tblWidthChars)
+  if toOpt(fmtStrLengths).isSome: setFmtStrLengths(fmtStrLengths)
+
+proc resetConfig*() =
+  ## Restores Polars' default for every display option.
+  for v in configVars: delEnv(v)
+
+type ConfigSnapshot = array[4, Option[string]]
+
+proc saveConfig(): ConfigSnapshot =
+  for i, v in configVars:
+    if existsEnv(v): result[i] = some(getEnv(v))
+
+proc restoreConfig(s: ConfigSnapshot) =
+  for i, v in configVars:
+    if s[i].isSome: putEnv(v, s[i].get) else: delEnv(v)
+
+macro withConfig*(args: varargs[untyped]): untyped =
+  ## Applies display options for one block, then restores the previous ones,
+  ## like Python's `with pl.Config(...)`:
+  ##
+  ## .. code-block:: nim
+  ##   withConfig(tblRows = 40):
+  ##     echo season
+  if args.len == 0 or args[^1].kind != nnkStmtList:
+    error("withConfig expects named options and a block", args)
+  let body = args[^1]
+  let setCall = newCall(bindSym"setConfig")
+  for i in 0 ..< args.len - 1:
+    if args[i].kind != nnkExprEqExpr:
+      error("withConfig options are named: withConfig(tblRows = 20)", args[i])
+    setCall.add args[i]
+  let saved = genSym(nskLet, "saved")
+  result = quote do:
+    block:
+      let `saved` = saveConfig()
+      try:
+        `setCall`
+        `body`
+      finally:
+        restoreConfig(`saved`)
