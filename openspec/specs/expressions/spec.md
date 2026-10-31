@@ -13,6 +13,28 @@ and `.otherwise(value)`. Rows matching no condition SHALL be null when there is 
 `otherwise`. A chain SHALL be usable wherever an `Expr` is expected. Values SHALL be
 expressions or Nim literals, and strings SHALL be literal values.
 
+```nim
+let bears = newDataFrame(series("w", [100, 300, 900]))
+echo bears.select(
+  `when`(col("w") < 150).then("cub")
+  .when(col("w") < 500).then("adult")
+  .otherwise("chonk")
+  .alias("size"))
+```
+
+```text
+shape: (3, 1)
+┌───────┐
+│ size  │
+│ ---   │
+│ str   │
+╞═══════╡
+│ cub   │
+│ adult │
+│ chonk │
+└───────┘
+```
+
 #### Scenario: Three-way label
 - **WHEN** `` `when`(col("w") < 150).then("cub").when(col("w") < 500).then("adult").otherwise("chonk") `` is selected over weights 100, 300 and 900
 - **THEN** the result is "cub", "adult" and "chonk"
@@ -25,6 +47,28 @@ expressions or Nim literals, and strings SHALL be literal values.
 The API SHALL provide a `choose` macro that turns an `if`/`elif`/`else` expression with
 expression conditions into the same chain. A missing `else` SHALL mean null. Any other
 body SHALL fail to compile.
+
+```nim
+let bears = newDataFrame(series("w", [100, 300, 900]))
+let size = choose:
+  if col("w") < 150: "cub"
+  elif col("w") < 500: "adult"
+  else: "chonk"
+echo bears.select(col("w"), size.alias("size"))
+```
+
+```text
+shape: (3, 2)
+┌─────┬───────┐
+│ w   ┆ size  │
+│ --- ┆ ---   │
+│ i64 ┆ str   │
+╞═════╪═══════╡
+│ 100 ┆ cub   │
+│ 300 ┆ adult │
+│ 900 ┆ chonk │
+└─────┴───────┘
+```
 
 #### Scenario: Same plan as the chain
 - **WHEN** a `choose` block and the equivalent chain are built
@@ -39,6 +83,27 @@ body SHALL fail to compile.
 `nullsEqual = false`, and `isBetween(lower, upper, closed = Both)` with a pure enum
 `ClosedInterval` (`Both`, `Left`, `Right`, `None`).
 
+```nim
+let df = newDataFrame(series("a", [1, 2, 3]))
+echo df.select(
+  col("a"),
+  col("a").isIn([1, 3]).alias("in_1_3"),
+  col("a").isBetween(1, 3, closed = Left).alias("in_[1,3)"))
+```
+
+```text
+shape: (3, 3)
+┌─────┬────────┬──────────┐
+│ a   ┆ in_1_3 ┆ in_[1,3) │
+│ --- ┆ ---    ┆ ---      │
+│ i64 ┆ bool   ┆ bool     │
+╞═════╪════════╪══════════╡
+│ 1   ┆ true   ┆ true     │
+│ 2   ┆ false  ┆ true     │
+│ 3   ┆ true   ┆ false    │
+└─────┴────────┴──────────┘
+```
+
 #### Scenario: isIn
 - **WHEN** `col("a").isIn([1, 3])` is selected over 1, 2 and 3
 - **THEN** the result is true, false and true
@@ -52,6 +117,24 @@ body SHALL fail to compile.
 with Nim literals on either side of a binary operator. `mod` and `div` SHALL follow
 Polars' floor semantics.
 
+```nim
+let df = newDataFrame(series("a", [-7, 3]))
+echo df.select(col("a"), (col("a") mod 3).alias("mod"), (col("a") div 3).alias("div"),
+               (col("a") ^ 2).alias("sq"), abs(col("a")).alias("abs"))
+```
+
+```text
+shape: (2, 5)
+┌─────┬─────┬─────┬─────┬─────┐
+│ a   ┆ mod ┆ div ┆ sq  ┆ abs │
+│ --- ┆ --- ┆ --- ┆ --- ┆ --- │
+│ i64 ┆ i64 ┆ i64 ┆ i64 ┆ i64 │
+╞═════╪═════╪═════╪═════╪═════╡
+│ -7  ┆ 2   ┆ -3  ┆ 49  ┆ 7   │
+│ 3   ┆ 0   ┆ 1   ┆ 9   ┆ 3   │
+└─────┴─────┴─────┴─────┴─────┘
+```
+
 #### Scenario: Floor semantics
 - **WHEN** `lit(-7) mod 3` and `lit(-7) div 3` are evaluated
 - **THEN** the results are 2 and -3
@@ -63,6 +146,24 @@ Polars' floor semantics.
 ### Requirement: Rounding
 `Expr` SHALL support `round(decimals = 0, mode = HalfToEven)` with a pure enum `RoundMode`
 (`HalfToEven`, `HalfAwayFromZero`, `ToZero`).
+
+```nim
+let df = newDataFrame(series("w", [1.23456, 2.5]))
+echo df.select(col("w").round(2).alias("r2"), col("w").round.alias("even"),
+               col("w").round(mode = HalfAwayFromZero).alias("away"))
+```
+
+```text
+shape: (2, 3)
+┌──────┬──────┬──────┐
+│ r2   ┆ even ┆ away │
+│ ---  ┆ ---  ┆ ---  │
+│ f64  ┆ f64  ┆ f64  │
+╞══════╪══════╪══════╡
+│ 1.23 ┆ 1.0  ┆ 1.0  │
+│ 2.5  ┆ 2.0  ┆ 3.0  │
+└──────┴──────┴──────┘
+```
 
 #### Scenario: Two decimals
 - **WHEN** `col("w").round(2)` is selected over 1.23456
@@ -76,6 +177,24 @@ Polars' floor semantics.
 `Expr` SHALL support `median`, `var(ddof = 1)`, `std(ddof = 1)`, `quantile(q, interpolation =
 Nearest)` with a pure enum `QuantileMethod` (`Nearest`, `Lower`, `Higher`, `Midpoint`,
 `Linear`, `Equiprobable`), and `len`, which counts rows including nulls.
+
+```nim
+let df = newDataFrame(series("a", [some(1), some(2), none(int), some(4)]))
+echo df.select(col("a").median.alias("median"),
+               col("a").quantile(0.5, interpolation = Linear).alias("q50"),
+               col("a").len.alias("len"), col("a").count.alias("count"))
+```
+
+```text
+shape: (1, 4)
+┌────────┬─────┬─────┬───────┐
+│ median ┆ q50 ┆ len ┆ count │
+│ ---    ┆ --- ┆ --- ┆ ---   │
+│ f64    ┆ f64 ┆ u32 ┆ u32   │
+╞════════╪═════╪═════╪═══════╡
+│ 2.0    ┆ 2.0 ┆ 4   ┆ 3     │
+└────────┴─────┴─────┴───────┘
+```
 
 #### Scenario: Median and quantile
 - **WHEN** `median` and `quantile(0.25, interpolation = Linear)` are computed over 1, 2, 3 and 4
@@ -91,6 +210,26 @@ Nearest)` with a pure enum `QuantileMethod` (`Nearest`, `Lower`, `Higher`, `Midp
 shortcuts `forwardFill(limit)` and `backwardFill(limit)`. `limit` SHALL also accept a
 plain `int`. A limit SHALL bound how many consecutive nulls are filled.
 
+```nim
+let df = newDataFrame(series("a", [some(1), none(int), none(int), some(4)]))
+echo df.select(col("a"), col("a").forwardFill(1).alias("ffill1"),
+               col("a").backwardFill.alias("bfill"), col("a").fillNull(Mean).alias("mean"))
+```
+
+```text
+shape: (4, 4)
+┌──────┬────────┬───────┬──────┐
+│ a    ┆ ffill1 ┆ bfill ┆ mean │
+│ ---  ┆ ---    ┆ ---   ┆ ---  │
+│ i64  ┆ i64    ┆ i64   ┆ i64  │
+╞══════╪════════╪═══════╪══════╡
+│ 1    ┆ 1      ┆ 1     ┆ 1    │
+│ null ┆ 1      ┆ 4     ┆ 2    │
+│ null ┆ null   ┆ 4     ┆ 2    │
+│ 4    ┆ 4      ┆ 4     ┆ 4    │
+└──────┴────────┴───────┴──────┘
+```
+
 #### Scenario: Forward with limit
 - **WHEN** `col("a").forwardFill(1)` is selected over 1, null, null and 4
 - **THEN** the result is 1, 1, null and 4
@@ -102,6 +241,24 @@ plain `int`. A limit SHALL bound how many consecutive nulls are filled.
 ### Requirement: Window expressions
 `Expr` SHALL support `over(partitionBy)` with one column name, a list of names, or a list
 of expressions. It SHALL compute the expression per group and return one value per row.
+
+```nim
+let df = newDataFrame(series("g", ["x", "x", "y"]), series("v", [1, 3, 10]))
+echo df.withColumns(col("v").mean.over("g").alias("group_mean"))
+```
+
+```text
+shape: (3, 3)
+┌─────┬─────┬────────────┐
+│ g   ┆ v   ┆ group_mean │
+│ --- ┆ --- ┆ ---        │
+│ str ┆ i64 ┆ f64        │
+╞═════╪═════╪════════════╡
+│ x   ┆ 1   ┆ 2.0        │
+│ x   ┆ 3   ┆ 2.0        │
+│ y   ┆ 10  ┆ 10.0       │
+└─────┴─────┴────────────┘
+```
 
 #### Scenario: Group mean per row
 - **WHEN** `col("v").mean.over("g")` is selected over groups x, x, y with values 1, 3, 10

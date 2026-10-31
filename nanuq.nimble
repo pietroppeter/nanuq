@@ -36,5 +36,8 @@ task docs, "Render the nimib dev log posts in docs/blog, then the index (needs n
       exec "nim r --hints:off " & f
   exec "nim r --hints:off docs/index.nim"
 
+task specexamples, "Compile and run the Nim examples in openspec/specs and check their output":
+  exec "nim r --hints:off tools/specexamples.nim"
+
 task specview, "Render the OpenSpec review page to specview.html, with file diffs against origin/main":
   exec "nim r --hints:off tools/specview.nim --base:origin/main"

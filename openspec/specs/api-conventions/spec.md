@@ -14,6 +14,19 @@ Nanuq SHALL name one after Python Polars' parameter strings, in PascalCase. Stri
 SHALL NOT be used for closed sets of options. Internal C ABI enums in `ffi.nim` keep
 their `Nq`/`nq` prefixes and are exempt.
 
+```nim
+let a = newDataFrame(series("k", [1, 2]))
+let b = newDataFrame(series("k", [2, 3]))
+echo a.join(b, on = ["k"], how = Left, maintainOrder = Left).shape   # JoinType.Left, MaintainOrderJoin.Left
+let how = JoinType.Full    # outside a typed parameter, qualify the value
+echo a.join(b, on = ["k"], how = how).shape
+```
+
+```text
+(2, 1)
+(3, 2)
+```
+
 #### Scenario: Bare value in a typed context
 - **WHEN** user code passes `how = Left` to `join`
 - **THEN** it compiles and means `JoinType.Left`

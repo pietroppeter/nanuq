@@ -14,6 +14,18 @@ excluded names, and renaming the outputs of such expressions.
 - Several types SHALL select their union.
 - A type without a dtype SHALL not compile.
 
+```nim
+let df = newDataFrame(series("station", ["N", "S"]), series("bears", [3, 5]),
+                      series("weight", [410.5, 380.0]))
+echo df.select(col(SomeNumber)).columns
+echo df.select(col(float, string)).columns
+```
+
+```text
+@["bears", "weight"]
+@["station", "weight"]
+```
+
 #### Scenario: Numeric columns
 - **WHEN** `select(col(SomeNumber))` runs on columns `station` (str), `bears` (i64) and `weight` (f64)
 - **THEN** the result has columns `bears` and `weight`
@@ -31,6 +43,20 @@ excluded names, and renaming the outputs of such expressions.
 order, and `all()` SHALL select every column. `col` with one name SHALL keep returning
 an `Expr`, and a name that starts with `^` and ends with `$` SHALL be a regex.
 
+```nim
+let df = newDataFrame(series("weight_kg", [410.5]), series("weight_lb", [905.0]),
+                      series("name", ["Nanuq"]))
+echo df.select(col("^weight_.*$")).columns    # regex
+echo df.select(col("name", "weight_kg")).columns
+echo df.select(all()).columns
+```
+
+```text
+@["weight_kg", "weight_lb"]
+@["name", "weight_kg"]
+@["weight_kg", "weight_lb", "name"]
+```
+
 #### Scenario: Regex
 - **WHEN** `select(col("^weight_.*$"))` runs on columns `weight_kg`, `weight_lb` and `name`
 - **THEN** the result has columns `weight_kg` and `weight_lb`
@@ -38,6 +64,15 @@ an `Expr`, and a name that starts with `^` and ends with `$` SHALL be a regex.
 ### Requirement: Excluding columns
 `Selector` SHALL support `exclude(names: varargs[string])`, which removes the named columns
 from the selection.
+
+```nim
+let df = newDataFrame(series("id", [1]), series("a", [2]), series("b", [3]))
+echo df.select(all().exclude("id")).columns
+```
+
+```text
+@["a", "b"]
+```
 
 #### Scenario: All but one
 - **WHEN** `select(all().exclude("id"))` runs on columns `id`, `a` and `b`
@@ -47,6 +82,26 @@ from the selection.
 A `Selector` SHALL convert to `Expr` automatically. An expression built from it SHALL
 apply to every selected column and keep each column's name.
 
+```nim
+let df = newDataFrame(series("station", ["N", "N", "S"]), series("bears", [3, 5, 4]),
+                      series("cubs", [1, 0, 2]), series("weight", [410.5, 380.0, 300.0]))
+echo df.lazy.groupBy(col("station"))
+  .agg(col(SomeNumber).exclude("cubs").mean)
+  .sort("station").collect
+```
+
+```text
+shape: (2, 3)
+┌─────────┬───────┬────────┐
+│ station ┆ bears ┆ weight │
+│ ---     ┆ ---   ┆ ---    │
+│ str     ┆ f64   ┆ f64    │
+╞═════════╪═══════╪════════╡
+│ N       ┆ 4.0   ┆ 395.25 │
+│ S       ┆ 4.0   ┆ 300.0  │
+└─────────┴───────┴────────┘
+```
+
 #### Scenario: Mean per group of every numeric column but one
 - **WHEN** a frame is grouped by `station` and aggregated with `col(SomeNumber).exclude("cubs").mean`
 - **THEN** the result has `station` and one mean column per remaining numeric column, with the original names
@@ -54,6 +109,23 @@ apply to every selected column and keep each column's name.
 ### Requirement: Output name suffix and prefix
 `Expr` SHALL support `name.suffix(s)` and `name.prefix(s)`, which append or prepend `s` to
 the name of every column the expression produces.
+
+```nim
+let df = newDataFrame(series("a", [1.0, 3.0]), series("b", [2.0, 4.0]))
+echo df.select(col(SomeFloat).mean.name.suffix("_mean"),
+               col(SomeFloat).max.name.prefix("max_"))
+```
+
+```text
+shape: (1, 4)
+┌────────┬────────┬───────┬───────┐
+│ a_mean ┆ b_mean ┆ max_a ┆ max_b │
+│ ---    ┆ ---    ┆ ---   ┆ ---   │
+│ f64    ┆ f64    ┆ f64   ┆ f64   │
+╞════════╪════════╪═══════╪═══════╡
+│ 2.0    ┆ 3.0    ┆ 3.0   ┆ 4.0   │
+└────────┴────────┴───────┴───────┘
+```
 
 #### Scenario: Two aggregations of one selector
 - **WHEN** `agg(col(SomeFloat).mean.name.suffix("_mean"), col(SomeFloat).max.name.suffix("_max"))` runs on float columns `a` and `b`
