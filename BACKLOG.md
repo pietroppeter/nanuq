@@ -45,6 +45,7 @@ two), L (more).
 ## API
 
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
+  *In progress* (`scanCsv` and CSV options) as OpenSpec change `add-csv-options-and-scan`.
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): string functions (conditionals and `over` landed in 0.2).
 
