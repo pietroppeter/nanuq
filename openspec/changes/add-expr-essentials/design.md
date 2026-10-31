@@ -10,7 +10,8 @@ Expressions cross the ABI as opaque `Expr` pointers. Binary operators go through
   `ChainedThen` also convert into `Expr` (otherwise null).
 - `is_in(other, nulls_equal)` (feature `is_in`) and `is_between(lower, upper,
   ClosedInterval)` (feature `is_between`).
-- `floor_div`, `%` (Rem), `pow` and `abs` (feature `abs`).
+- `floor_div`, `%` (Rem), `pow`, `abs` (feature `abs`) and `round(decimals, RoundMode)`
+  (feature `round_series`).
 - `median`, `var(ddof)`, `std(ddof)`, `quantile(Expr, QuantileMethod)` and `len`.
 - `fill_null_with_strategy(FillNullStrategy)` and `over(partition_by)`.
 
@@ -61,9 +62,9 @@ procs), turns it into a literal with `nq_expr_lit_series`, and calls
 side is a plain column, which is what Polars expects in 0.55.
 
 ### Enums
-`ClosedInterval`, `QuantileMethod` and `FillNullStrategy` are pure enums with Rust's
-names, in Rust's order, mirrored as `NqClosedInterval`, `NqQuantileMethod` and
-`NqFillNullStrategy`. Fill uses
+`ClosedInterval`, `QuantileMethod`, `FillNullStrategy` and `RoundMode` are pure enums
+with Rust's names, in Rust's order, mirrored as `NqClosedInterval`, `NqQuantileMethod`,
+`NqFillNullStrategy` and `NqRoundMode` (`nq_expr_round(e, decimals, mode)`). Fill uses
 `nq_expr_fill_null_strategy(e, strategy, has_limit, limit)`. `forwardFill(limit)` and
 `backwardFill(limit)` are Nim one-liners on top. `limit` is `Option[int]`, with
 plain-`int` overloads (like `sample`'s `seed`).

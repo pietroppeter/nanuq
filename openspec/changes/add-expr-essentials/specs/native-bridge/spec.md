@@ -6,7 +6,7 @@
 `src/nanuq/ffi.nim` SHALL declare every exported function with matching signatures, and
 the enums `NqBinOp`, `NqUnary`, `NqDtype`, `NqJoinType`, `NqJoinValidation`,
 `NqMaintainOrderJoin`, `NqConcat`, `NqUniqueKeepStrategy`, `NqClosedInterval`,
-`NqQuantileMethod` and `NqFillNullStrategy` SHALL keep the same order as in Rust.
+`NqQuantileMethod`, `NqFillNullStrategy` and `NqRoundMode` SHALL keep the same order as in Rust.
 `NqDtype` SHALL also keep the order of `DataTypeKind`, and the option enums the order of
 their Nim API enums.
 

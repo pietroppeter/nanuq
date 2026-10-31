@@ -56,6 +56,18 @@ Polars' floor semantics.
 - **WHEN** `col("a") ^ 2` is selected over 3
 - **THEN** the result is 9
 
+### Requirement: Rounding
+`Expr` SHALL support `round(decimals = 0, mode = HalfToEven)` with a pure enum `RoundMode`
+(`HalfToEven`, `HalfAwayFromZero`, `ToZero`).
+
+#### Scenario: Two decimals
+- **WHEN** `col("w").round(2)` is selected over 1.23456
+- **THEN** the result is 1.23
+
+#### Scenario: Half to even by default
+- **WHEN** `col("w").round` and `col("w").round(mode = HalfAwayFromZero)` are selected over 2.5
+- **THEN** the results are 2.0 and 3.0
+
 ### Requirement: More aggregations
 `Expr` SHALL support `median`, `var(ddof = 1)`, `std(ddof = 1)`, `quantile(q, method =
 Nearest)` with a pure enum `QuantileMethod` (`Nearest`, `Lower`, `Higher`, `Midpoint`,

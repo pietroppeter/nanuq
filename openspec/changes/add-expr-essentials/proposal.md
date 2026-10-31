@@ -35,7 +35,8 @@ API choices the explainer forces" (options A + D for conditionals, with the macr
   `nullsEqual = false`. `isBetween(lower, upper, closed = Both)`, where `closed` is a
   `ClosedInterval` (`Both`, `Left`, `Right`, `None`).
 - **Arithmetic**: `mod` (Polars' `%`), `div` (Polars' floor division `//`), `pow` and
-  `^`, `abs`, and unary `-`.
+  `^`, `abs`, unary `-`, and `round(decimals = 0, mode = HalfToEven)` with a `RoundMode`
+  (`HalfToEven`, `HalfAwayFromZero`, `ToZero`).
 - **Aggregations**: `median`, `var(ddof = 1)` (written `e.var`), `std(ddof = 1)` (gains
   `ddof`), `quantile(q, method = Nearest)` with a `QuantileMethod` (`Nearest`, `Lower`,
   `Higher`, `Midpoint`, `Linear`, `Equiprobable`), and `len` (rows including nulls, unlike
@@ -46,9 +47,9 @@ API choices the explainer forces" (options A + D for conditionals, with the macr
   unchanged.
 - **Windows**: `over("station")`, `over(["a", "b"])` or `over([expr])` computes an
   expression per group and broadcasts it back to the rows.
-- New pure enums `ClosedInterval`, `QuantileMethod` and `FillNullStrategy`, following the
-  `api-conventions` spec. Polars features `is_in`, `is_between` and `abs` are compiled
-  in. The ABI stays `0.2.0-dev`.
+- New pure enums `ClosedInterval`, `QuantileMethod`, `FillNullStrategy` and `RoundMode`,
+  following the `api-conventions` spec. Polars features `is_in`, `is_between`, `abs` and
+  `round_series` are compiled in. The ABI stays `0.2.0-dev`.
 
 ## Capabilities
 
@@ -80,7 +81,9 @@ Expected differences from Polars' Rust and Python APIs:
 - **`quantile`** takes a float, not an expression, in this change.
 - **`over`** takes only the partition keys. Python's `order_by` and `mapping_strategy`
   are left for later.
-- **Not in this change:** string functions, `cum_*`, `rank`, `diff`, `shift`, `round`,
+- **`round`** defaults to half-to-even, as Rust Polars and Python Polars do (Nim's
+  `round` rounds half away from zero).
+- **Not in this change:** string functions, `cum_*`, `rank`, `diff`, `shift`, `floor`/`ceil`,
   `log`/`exp`, rolling windows, `is_duplicated`/`is_unique`, `replace`, and
   `when` with several conditions per branch (`when(a, b)`, write `a and b`). They stay in
   the coverage map.
@@ -93,12 +96,12 @@ Expected differences from Polars' Rust and Python APIs:
   - `nq_expr_when_then` builds a whole chain from lists of conditions and values plus an
     optional otherwise.
   - `nq_expr_is_in`, `nq_expr_is_between`, `nq_expr_quantile`, `nq_expr_var_std` (ddof),
-    `nq_expr_fill_null_strategy`, `nq_expr_over` and `nq_expr_lit_series` (for `isIn`
-    with Nim values).
+    `nq_expr_fill_null_strategy`, `nq_expr_over`, `nq_expr_round` and `nq_expr_lit_series`
+    (for `isIn` with Nim values).
   - New `NqBinOp` values `Mod`, `FloorDiv` and `Pow`; new `NqUnary` values `Abs`,
     `Median`, `Len` and `Neg`.
-  - `Cargo.toml` adds three features.
-- `src/nanuq/ffi.nim` and `src/nanuq.nim` get the declarations, the three enums, the
+  - `Cargo.toml` adds four features.
+- `src/nanuq/ffi.nim` and `src/nanuq.nim` get the declarations, the four enums, the
   chain types with their converter to `Expr`, the `choose` macro and the procs.
 - `tests/test_expressions.nim` covers every function and option, and checks that the
   macro and the chain give the same plan.
