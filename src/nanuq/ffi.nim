@@ -215,6 +215,8 @@ type
     nqoNone, nqoLeft, nqoRight, nqoLeftRight, nqoRightLeft
   NqConcat* {.size: sizeof(cint).} = enum
     nqcVertical, nqcVerticalRelaxed, nqcHorizontal, nqcDiagonal, nqcDiagonalRelaxed
+  NqUniqueKeepStrategy* {.size: sizeof(cint).} = enum
+    nqkFirst, nqkLast, nqkNone, nqkAny
 
 {.push importc, cdecl.}
 
@@ -288,7 +290,9 @@ proc nq_lf_with_columns*(lf: ptr NqLazyFrame, e: ptr ptr NqExpr, n: csize_t): pt
 proc nq_lf_filter*(lf: ptr NqLazyFrame, predicate: ptr NqExpr): ptr NqLazyFrame
 proc nq_lf_group_by_agg*(lf: ptr NqLazyFrame, by: ptr ptr NqExpr, nby: csize_t,
                          aggs: ptr ptr NqExpr, naggs: csize_t): ptr NqLazyFrame
-proc nq_lf_sort*(lf: ptr NqLazyFrame, by: cstring, descending: bool): ptr NqLazyFrame
+proc nq_lf_sort_by*(lf: ptr NqLazyFrame, by: ptr ptr NqExpr, n: csize_t, descending: ptr bool,
+                    nDesc: csize_t, nullsLast: ptr bool, nNulls: csize_t,
+                    maintainOrder: bool): ptr NqLazyFrame
 proc nq_lf_drop_nulls*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t): ptr NqLazyFrame
 proc nq_lf_limit*(lf: ptr NqLazyFrame, n: uint32): ptr NqLazyFrame
 proc nq_lf_explain*(lf: ptr NqLazyFrame): cstring
@@ -301,6 +305,18 @@ proc nq_lf_join*(left, right: ptr NqLazyFrame, leftOn: ptr ptr NqExpr, nLeft: cs
                  validate: NqJoinValidation, nullsEqual: bool, coalesce: int32,
                  maintainOrder: NqMaintainOrderJoin): ptr NqLazyFrame
 proc nq_lf_concat*(lfs: ptr ptr NqLazyFrame, n: csize_t, how: NqConcat): ptr NqLazyFrame
+
+# frame verbs
+proc nq_lf_drop*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t, strict: bool): ptr NqLazyFrame
+proc nq_lf_rename*(lf: ptr NqLazyFrame, existing, new: ptr cstring, n: csize_t,
+                   strict: bool): ptr NqLazyFrame
+proc nq_lf_slice*(lf: ptr NqLazyFrame, offset: int64, len: uint32): ptr NqLazyFrame
+proc nq_lf_reverse*(lf: ptr NqLazyFrame): ptr NqLazyFrame
+proc nq_lf_with_row_index*(lf: ptr NqLazyFrame, name: cstring, offset: uint32): ptr NqLazyFrame
+proc nq_lf_unique*(lf: ptr NqLazyFrame, subset: ptr cstring, n: csize_t,
+                   keep: NqUniqueKeepStrategy, maintainOrder: bool): ptr NqLazyFrame
+proc nq_df_sample*(df: ptr NqDataFrame, n: csize_t, fraction: float64, byFraction: bool,
+                   withReplacement, shuffle, hasSeed: bool, seed: uint64): ptr NqDataFrame
 
 {.pop.}
 

@@ -17,6 +17,14 @@ its OpenSpec change is archived. Format based on
   diagonal. (#28)
 - API conventions, written down in the README and the `api-conventions` spec: Polars
   names in camelCase, option values as pure enums with Rust Polars names. (#28)
+- Frame verbs on LazyFrame and DataFrame: `drop`, `rename`, `head` (lazy), `tail`,
+  `slice`, `reverse`, `withRowIndex`, and `unique` with `keep` (`UniqueKeepStrategy`)
+  and `maintainOrder`. (#PR)
+- Sorting by several keys (names or expressions) with per-key `descending` and
+  `nullsLast`, and `maintainOrder`; the one-column `sort` gains `nullsLast` and
+  `maintainOrder`. (#PR)
+- `sample` on DataFrame, by `n` or `fraction`, with `withReplacement`, `shuffle` and
+  `seed`. (#PR)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with

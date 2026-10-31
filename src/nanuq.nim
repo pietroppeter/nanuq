@@ -562,8 +562,26 @@ proc agg*(g: LazyGroupBy, aggs: varargs[Expr]): LazyFrame =
   let a = raws(aggs)
   wrap nq_lf_group_by_agg(g.lf.raw, b.firstOrNil, b.len.csize_t, a.firstOrNil, a.len.csize_t)
 
-proc sort*(lf: LazyFrame, by: string, descending = false): LazyFrame =
-  wrap nq_lf_sort(lf.raw, by.cstring, descending)
+proc sort*(lf: LazyFrame, by: openArray[Expr], descending: openArray[bool] = [],
+           nullsLast: openArray[bool] = [], maintainOrder = false): LazyFrame =
+  ## Sorts by several keys. `descending` and `nullsLast` hold one value per key,
+  ## or one value for every key; empty means false.
+  let b = raws(by)
+  let d = @descending
+  let nl = @nullsLast
+  wrap nq_lf_sort_by(lf.raw, b.firstOrNil, b.len.csize_t, d.firstOrNil, d.len.csize_t,
+                     nl.firstOrNil, nl.len.csize_t, maintainOrder)
+
+proc sort*(lf: LazyFrame, by: openArray[string], descending: openArray[bool] = [],
+           nullsLast: openArray[bool] = [], maintainOrder = false): LazyFrame =
+  ## Sorts by several columns: `sort(["species", "mass"], descending = [false, true])`.
+  var keys: seq[Expr]
+  for n in by: keys.add col(n)
+  lf.sort(keys, descending, nullsLast, maintainOrder)
+
+proc sort*(lf: LazyFrame, by: string, descending = false, nullsLast = false,
+           maintainOrder = false): LazyFrame =
+  lf.sort([col(by)], [descending], [nullsLast], maintainOrder)
 
 proc dropNulls*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
   ## Drops rows with a null in any column, or only in the `subset` columns.
@@ -668,6 +686,69 @@ proc concat*(frames: openArray[LazyFrame], how = ConcatMethod.Vertical): LazyFra
 
 proc limit*(lf: LazyFrame, n: int): LazyFrame = wrap nq_lf_limit(lf.raw, n.uint32)
 
+# ---------------------------------------------------------------------------
+# Frame verbs
+# ---------------------------------------------------------------------------
+
+type
+  UniqueKeepStrategy* {.pure.} = enum
+    ## Which row of a group of duplicates `unique` keeps (Polars'
+    ## `UniqueKeepStrategy`). `Any` lets Polars pick, which is fastest.
+    First, Last, None, Any
+
+proc cstrings(xs: openArray[string]): seq[cstring] =
+  result = newSeq[cstring](xs.len)
+  for i, x in xs: result[i] = x.cstring
+
+proc drop*(lf: LazyFrame, columns: openArray[string], strict = true): LazyFrame =
+  ## Removes columns: `drop(["a", "b"])`. With `strict`, a missing column raises
+  ## `NanuqError`.
+  let c = cstrings(columns)
+  wrap nq_lf_drop(lf.raw, c.firstOrNil, c.len.csize_t, strict)
+
+proc drop*(lf: LazyFrame, column: string, strict = true): LazyFrame =
+  ## Removes one column: `drop("a")`.
+  lf.drop([column], strict)
+
+proc rename*(lf: LazyFrame, mapping: openArray[(string, string)], strict = true): LazyFrame =
+  ## Renames columns: `rename({"old": "new"})`. With `strict`, a missing column
+  ## raises `NanuqError`.
+  var olds, news: seq[cstring]
+  for (o, n) in mapping:
+    olds.add o.cstring
+    news.add n.cstring
+  wrap nq_lf_rename(lf.raw, olds.firstOrNil, news.firstOrNil, olds.len.csize_t, strict)
+
+proc slice*(lf: LazyFrame, offset: int, length: int): LazyFrame =
+  ## `length` rows from `offset`; a negative offset counts from the end.
+  if length < 0: raise newException(ValueError, "slice length must not be negative")
+  wrap nq_lf_slice(lf.raw, offset.int64, min(length, high(uint32).int).uint32)
+
+proc slice*(lf: LazyFrame, offset: int): LazyFrame =
+  ## The rows from `offset` to the end.
+  wrap nq_lf_slice(lf.raw, offset.int64, high(uint32))
+
+proc head*(lf: LazyFrame, n = 5): LazyFrame = lf.limit(n)
+proc tail*(lf: LazyFrame, n = 5): LazyFrame = lf.slice(-n, n)
+proc reverse*(lf: LazyFrame): LazyFrame = wrap nq_lf_reverse(lf.raw)
+
+proc withRowIndex*(lf: LazyFrame, name = "index", offset = 0): LazyFrame =
+  ## Adds a row number column, first, counting from `offset`.
+  if offset < 0: raise newException(ValueError, "row index offset must not be negative")
+  wrap nq_lf_with_row_index(lf.raw, name.cstring, offset.uint32)
+
+proc unique*(lf: LazyFrame, subset: openArray[string] = [], keep = UniqueKeepStrategy.Any,
+             maintainOrder = false): LazyFrame =
+  ## Drops duplicate rows, judged on the `subset` columns (all when empty).
+  let c = cstrings(subset)
+  wrap nq_lf_unique(lf.raw, c.firstOrNil, c.len.csize_t, NqUniqueKeepStrategy(ord(keep)),
+                    maintainOrder)
+
+proc unique*(lf: LazyFrame, subset: string, keep = UniqueKeepStrategy.Any,
+             maintainOrder = false): LazyFrame =
+  ## Drops rows whose `subset` column value was already seen: `unique("k", keep = First)`.
+  lf.unique([subset], keep, maintainOrder)
+
 proc explain*(lf: LazyFrame): string =
   ## The optimized query plan.
   takeString nq_lf_explain(lf.raw)
@@ -676,7 +757,15 @@ proc explain*(lf: LazyFrame): string =
 proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collect
 proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collect
 proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collect
-proc sort*(df: DataFrame, by: string, descending = false): DataFrame = df.lazy.sort(by, descending).collect
+proc sort*(df: DataFrame, by: string, descending = false, nullsLast = false,
+           maintainOrder = false): DataFrame =
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+proc sort*(df: DataFrame, by: openArray[string], descending: openArray[bool] = [],
+           nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+proc sort*(df: DataFrame, by: openArray[Expr], descending: openArray[bool] = [],
+           nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
 proc groupBy*(df: DataFrame, by: varargs[Expr]): LazyGroupBy = df.lazy.groupBy(by)
 proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect
 proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true): DataFrame =
@@ -709,3 +798,40 @@ proc concat*(frames: openArray[DataFrame], how = ConcatMethod.Vertical): DataFra
   var lfs: seq[LazyFrame]
   for f in frames: lfs.add f.lazy
   concat(lfs, how).collect
+
+proc drop*(df: DataFrame, columns: openArray[string], strict = true): DataFrame =
+  df.lazy.drop(columns, strict).collect
+proc drop*(df: DataFrame, column: string, strict = true): DataFrame =
+  df.lazy.drop(column, strict).collect
+proc rename*(df: DataFrame, mapping: openArray[(string, string)], strict = true): DataFrame =
+  df.lazy.rename(mapping, strict).collect
+proc slice*(df: DataFrame, offset: int, length: int): DataFrame = df.lazy.slice(offset, length).collect
+proc slice*(df: DataFrame, offset: int): DataFrame = df.lazy.slice(offset).collect
+proc tail*(df: DataFrame, n = 5): DataFrame = df.lazy.tail(n).collect
+proc reverse*(df: DataFrame): DataFrame = df.lazy.reverse.collect
+proc withRowIndex*(df: DataFrame, name = "index", offset = 0): DataFrame =
+  df.lazy.withRowIndex(name, offset).collect
+proc unique*(df: DataFrame, subset: openArray[string] = [], keep = UniqueKeepStrategy.Any,
+             maintainOrder = false): DataFrame =
+  df.lazy.unique(subset, keep, maintainOrder).collect
+proc unique*(df: DataFrame, subset: string, keep = UniqueKeepStrategy.Any,
+             maintainOrder = false): DataFrame =
+  df.lazy.unique(subset, keep, maintainOrder).collect
+
+proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacement,
+                shuffle: bool, seed: Option[int]): DataFrame =
+  if seed.isSome and seed.get < 0:
+    raise newException(ValueError, "sample seed must not be negative")
+  wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, shuffle,
+                    seed.isSome, seed.get(0).uint64)
+
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+             seed = none(int)): DataFrame =
+  ## `n` random rows. The same `seed` gives the same rows.
+  if n < 0: raise newException(ValueError, "sample size must not be negative")
+  sampleImpl(df, n, 0.0, false, withReplacement, shuffle, seed)
+
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+             seed = none(int)): DataFrame =
+  ## A random `fraction` of the rows: `df.sample(fraction = 0.1)`.
+  sampleImpl(df, 0, fraction, true, withReplacement, shuffle, seed)

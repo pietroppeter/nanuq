@@ -3,14 +3,14 @@
 ## ADDED Requirements
 
 ### Requirement: Dropping and renaming columns
-LazyFrame and DataFrame SHALL support `drop(columns: varargs[string], strict = true)` and
-`rename(mapping: openArray[(string, string)], strict = true)`. With `strict = true`, a
+LazyFrame and DataFrame SHALL support `drop(columns, strict = true)`, with one column
+name or a list of names, and `rename(mapping: openArray[(string, string)], strict = true)`. With `strict = true`, a
 column that does not exist SHALL raise `NanuqError`. With `strict = false`, it SHALL be
 ignored.
 
 #### Scenario: Drop
 - **WHEN** `df.drop("b")` runs on columns `a`, `b`, `c`
-- **THEN** the columns are `a`, `c`
+- **THEN** the columns are `a`, `c`, and `df.drop(["a", "b"])` leaves `c`
 
 #### Scenario: Rename
 - **WHEN** `df.rename({"a": "x"})` runs on columns `a`, `b`
@@ -38,8 +38,9 @@ reverse the row order.
 - **THEN** the result is rows 2 to 5
 
 ### Requirement: Unique rows
-LazyFrame and DataFrame SHALL support `unique(subset: varargs[string], keep, maintainOrder
-= false)`, judging duplicates on all columns when the subset is empty. `keep` is a pure
+LazyFrame and DataFrame SHALL support `unique(subset = [], keep, maintainOrder = false)`,
+with one column name or a list of names, judging duplicates on all columns when the
+subset is empty. `keep` is a pure
 enum `UniqueKeepStrategy` (`Any` (default), `First`, `Last`, `None`). With
 `maintainOrder = true`, the rows SHALL keep their original order.
 
