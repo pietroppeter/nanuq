@@ -9,7 +9,7 @@ its OpenSpec change is archived. Format based on
 ### Added
 - Runnable examples in the OpenSpec specs: every API requirement shows a Nim example and
   the table it prints, checked against the code by `nimble specexamples` in CI; specview
-  shows them (add-spec-examples, #41, #PR)
+  shows them (add-spec-examples, #41, #43)
 
 ## [0.2.0] - 2026-10-31
 
