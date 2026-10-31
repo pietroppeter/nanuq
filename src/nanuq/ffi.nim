@@ -267,7 +267,7 @@ type
     nqtStripCharsStart, nqtStripCharsEnd, nqtStripPrefix, nqtStripSuffix, nqtStartsWith,
     nqtEndsWith, nqtContains, nqtFind, nqtCountMatches, nqtExtract, nqtReplace,
     nqtReplaceAll, nqtSlice, nqtHead, nqtTail, nqtPadStart, nqtPadEnd, nqtZfill,
-    nqtReverse, nqtJoin
+    nqtReverse, nqtJoin, nqtToTitlecase
 
 {.push importc, cdecl.}
 

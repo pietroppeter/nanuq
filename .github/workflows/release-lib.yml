@@ -7,6 +7,12 @@ name: Release lib
 # without publishing, unless "publish" is ticked on main: then the release step
 # also creates the lib-v<version> tag on the commit it built. PRs that change this
 # workflow build and test without publishing.
+#
+# The archives are built with a pinned nightly Rust and the crate features
+# "nightly" (Polars' SIMD and nightly-only code paths) and "jemalloc" (the
+# allocator py-polars uses), which bring Nanuq within a few percent of py-polars
+# on PDS-H. Windows uses the system allocator, as py-polars does (it uses mimalloc
+# there).
 on:
   push:
     tags: ["lib-v*"]
@@ -51,18 +57,19 @@ jobs:
       matrix:
         include:
           # Linux builds run in manylinux_2_28, so they link on glibc 2.28 and newer
-          - { target: x86_64-unknown-linux-gnu, variant: "", cpu: x86-64-v3, os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64" }
-          - { target: x86_64-unknown-linux-gnu, variant: "-legacy-cpu", cpu: "", os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64" }
-          - { target: aarch64-unknown-linux-gnu, variant: "", cpu: "", os: ubuntu-24.04-arm, container: "quay.io/pypa/manylinux_2_28_aarch64" }
-          - { target: aarch64-apple-darwin, variant: "", cpu: "", os: macos-15, container: "" }
+          - { target: x86_64-unknown-linux-gnu, variant: "", cpu: x86-64-v3, os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64", features: "nightly jemalloc" }
+          - { target: x86_64-unknown-linux-gnu, variant: "-legacy-cpu", cpu: "", os: ubuntu-24.04, container: "quay.io/pypa/manylinux_2_28_x86_64", features: "nightly jemalloc" }
+          - { target: aarch64-unknown-linux-gnu, variant: "", cpu: "", os: ubuntu-24.04-arm, container: "quay.io/pypa/manylinux_2_28_aarch64", features: "nightly jemalloc" }
+          - { target: aarch64-apple-darwin, variant: "", cpu: "", os: macos-15, container: "", features: "nightly jemalloc" }
           # gnu, so the library links with Nim's default MinGW gcc
-          - { target: x86_64-pc-windows-gnu, variant: "", cpu: x86-64-v3, os: windows-latest, container: "" }
-          - { target: x86_64-pc-windows-gnu, variant: "-legacy-cpu", cpu: "", os: windows-latest, container: "" }
+          - { target: x86_64-pc-windows-gnu, variant: "", cpu: x86-64-v3, os: windows-latest, container: "", features: "nightly" }
+          - { target: x86_64-pc-windows-gnu, variant: "-legacy-cpu", cpu: "", os: windows-latest, container: "", features: "nightly" }
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     env:
       ARCHIVE: libnanuq_ffi-${{ needs.version.outputs.version }}-${{ matrix.target }}${{ matrix.variant }}.tar.gz
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      TOOLCHAIN: nightly-2026-04-01   # pinned, so release builds are reproducible
     defaults:
       run:
         shell: bash
@@ -72,15 +79,19 @@ jobs:
         run: |
           # the GitHub runners have rustup, the manylinux containers don't
           if command -v rustup > /dev/null; then
-            rustup target add ${{ matrix.target }}
+            rustup toolchain install "$TOOLCHAIN" --profile minimal --target ${{ matrix.target }}
           else
-            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --target ${{ matrix.target }}
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+              --default-toolchain "$TOOLCHAIN" --target ${{ matrix.target }}
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
       - name: Build
         run: |
           if [ -n "${{ matrix.cpu }}" ]; then export RUSTFLAGS="-C target-cpu=${{ matrix.cpu }}"; fi
-          cargo build --profile dist --manifest-path src/rust/Cargo.toml --target ${{ matrix.target }}
+          # 64 KiB pages, so the library also runs on aarch64 kernels that use them (as py-polars)
+          if [ "${{ matrix.target }}" = aarch64-unknown-linux-gnu ]; then export JEMALLOC_SYS_WITH_LG_PAGE=16; fi
+          cargo "+$TOOLCHAIN" build --profile dist --manifest-path src/rust/Cargo.toml \
+            --target ${{ matrix.target }} --features "${{ matrix.features }}"
           tar czf "$ARCHIVE" -C src/rust/target/${{ matrix.target }}/dist libnanuq_ffi.a
           ls -l "$ARCHIVE"
       - uses: actions/upload-artifact@v4
@@ -120,6 +131,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: mkdir prebuilt && tar xzf "$ARCHIVE" -C prebuilt
       - run: nim r -d:nanuqLibDir=prebuilt --hints:off tests/test_basic.nim
+      - run: nim r -d:nanuqLibDir=prebuilt -d:nanuqNightly --hints:off tests/test_strings.nim
 
   release:
     if: github.ref_type == 'tag' || inputs.publish

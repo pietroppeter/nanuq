@@ -39,6 +39,8 @@ its OpenSpec change is archived. Format based on
   `startsWith`, `slice`, ...) and `Expr.toPhysical`. (add-categoricals, #47)
 - `Expr.filter(predicate)` for conditional aggregations, and `col(names)` with a list or
   seq of names. (add-expr-filter, #47)
+- `str.toTitlecase`, with the release libraries (it needs Polars' nightly feature).
+  (build-lib-with-nightly, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
@@ -50,6 +52,10 @@ its OpenSpec change is archived. Format based on
   `ShapeError`, `StructFieldNotFoundError`, `SqlError`) raised by Polars error kind
   (new `nq_last_error_kind` in the ABI). IO failures raise Nim's `IOError`.
   (add-typed-errors, #47)
+- The prebuilt libraries are built with nightly Rust, Polars' `nightly` feature and
+  jemalloc (crate features `nightly` and `jemalloc`, off for local builds), as py-polars
+  is: PDS-H at scale factor 1 goes from 13.6 s to 3.2 s on an M3 Pro, within 5% of
+  py-polars. (build-lib-with-nightly, #47)
 - Data types cross the native ABI as an `NqDtypeSpec` struct (code, time unit, time
   zone, categories) instead of a single enum code. (add-temporal-types, #47)
 - **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so

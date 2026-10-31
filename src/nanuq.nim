@@ -1970,6 +1970,11 @@ proc lenBytes*(s: StrNameSpace): Expr = strOp(s, nqtLenBytes)
 proc toUppercase*(s: StrNameSpace): Expr = strOp(s, nqtToUppercase)
 proc toLowercase*(s: StrNameSpace): Expr = strOp(s, nqtToLowercase)
 
+proc toTitlecase*(s: StrNameSpace): Expr = strOp(s, nqtToTitlecase)
+  ## "tour de france" → "Tour De France". Needs the native library built with
+  ## the `nightly` feature, as the prebuilt release libraries are; otherwise it
+  ## raises `InvalidOperationError` when the expression is built.
+
 proc stripChars*(s: StrNameSpace): Expr = strOp(s, nqtStripChars)
   ## Removes leading and trailing whitespace.
 proc stripChars*(s: StrNameSpace, characters: StrArg): Expr =

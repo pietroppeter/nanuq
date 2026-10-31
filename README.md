@@ -154,6 +154,12 @@ Once that file exists it is linked instead of the download, so run `nimble build
 again after each change to `src/rust/`, and delete the file to go back to the prebuilt
 library. Bump the crate version to a `-dev` version when you change it (CI checks this).
 
+A stable build is several times slower than the prebuilt library, which is built like
+py-polars: with nightly Rust, Polars' `nightly` feature and jemalloc. To get the same
+speed locally, build with `cargo +nightly-2026-04-01 build --release --features
+"nightly jemalloc" --manifest-path src/rust/Cargo.toml` (`str.toTitlecase` also needs
+the `nightly` feature).
+
 ## What is there
 
 - Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, or a

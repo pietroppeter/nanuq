@@ -11,6 +11,11 @@
 //!   `nq_string_free`.
 //! - Panics are caught and turned into errors, they never unwind into Nim.
 
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, CStr, CString};
 use std::fs::File;
@@ -2114,6 +2119,21 @@ pub enum NqStrOp {
     Zfill,
     Reverse,
     Join,
+    ToTitlecase,
+}
+
+/// `str.to_titlecase`, which Polars only has with its nightly feature.
+#[cfg(feature = "nightly")]
+fn titlecase(ns: polars::lazy::dsl::string::StringNameSpace) -> Result<Expr, String> {
+    Ok(ns.to_titlecase())
+}
+
+#[cfg(not(feature = "nightly"))]
+fn titlecase(_ns: polars::lazy::dsl::string::StringNameSpace) -> Result<Expr, String> {
+    LAST_KIND.with(|k| k.set(NqErrorKind::InvalidOperation));
+    Err("str.toTitlecase needs the native library built with the nightly feature \
+         (the prebuilt release libraries are)"
+        .into())
 }
 
 fn opt_expr(p: *const Expr) -> Result<Expr, String> {
@@ -2176,6 +2196,7 @@ pub unsafe extern "C" fn nq_expr_str(
             NqStrOp::Zfill => ns.zfill(a),
             NqStrOp::Reverse => ns.reverse(),
             NqStrOp::Join => ns.join(cstr(s)?, flag1),
+            NqStrOp::ToTitlecase => titlecase(ns)?,
         })
     }))
 }

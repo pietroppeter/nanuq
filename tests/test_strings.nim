@@ -8,6 +8,14 @@ suite "str namespace":
   let df = newDataFrame:
     s: ["Pogačar", "  Seixas ", nil]
 
+  test "titlecase needs a nightly library":
+    let t = newDataFrame(series("r", ["tour de france"]))
+    try:
+      check t.one(col.r.str.toTitlecase) == @[some("Tour De France")]
+    except InvalidOperationError:
+      # a local stable build; release libraries (-d:nanuqNightly in their smoke test) have it
+      check not defined(nanuqNightly)
+
   test "case, length, reverse":
     check df.one(col.s.str.toUppercase) == @[some("POGAČAR"), some("  SEIXAS "), none(string)]
     check df.one(col.s.str.toLowercase)[0] == some("pogačar")
