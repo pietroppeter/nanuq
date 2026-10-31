@@ -1246,3 +1246,10 @@ pub unsafe extern "C" fn nq_df_sample(
         }
     }))
 }
+
+/// Seeds Polars' global random generator, used by random operations that get
+/// no seed of their own.
+#[no_mangle]
+pub extern "C" fn nq_set_random_seed(seed: u64) {
+    polars_core::random::set_global_random_seed(seed);
+}

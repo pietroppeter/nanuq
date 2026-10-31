@@ -89,11 +89,16 @@ remain.
 DataFrame SHALL support `sample(n, withReplacement = false, shuffle = false, seed =
 none(int))` and `sample(fraction, ...)` with the same options. Asking for more rows than
 there are without replacement SHALL raise `NanuqError`. The same seed SHALL give the same
-rows.
+rows. `seed` SHALL also accept a plain `int` (`seed = 42`), and `setRandomSeed(seed)` SHALL
+seed Polars' global generator, used when no seed is passed.
 
 #### Scenario: Seeded sample
 - **WHEN** `sample(3, seed = some(42))` runs twice on the same 10-row frame
 - **THEN** both results have 3 rows and are equal
+
+#### Scenario: Global seed
+- **WHEN** `setRandomSeed(42)` is called before each of two `sample(4)` calls on the same frame
+- **THEN** both results are equal
 
 #### Scenario: Fraction
 - **WHEN** `sample(fraction = 0.5)` runs on 10 rows

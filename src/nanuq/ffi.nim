@@ -317,6 +317,7 @@ proc nq_lf_unique*(lf: ptr NqLazyFrame, subset: ptr cstring, n: csize_t,
                    keep: NqUniqueKeepStrategy, maintainOrder: bool): ptr NqLazyFrame
 proc nq_df_sample*(df: ptr NqDataFrame, n: csize_t, fraction: float64, byFraction: bool,
                    withReplacement, shuffle, hasSeed: bool, seed: uint64): ptr NqDataFrame
+proc nq_set_random_seed*(seed: uint64)
 
 {.pop.}
 

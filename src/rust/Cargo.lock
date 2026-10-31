@@ -1242,6 +1242,7 @@ name = "nanuq_ffi"
 version = "0.2.0-dev"
 dependencies = [
  "polars",
+ "polars-core",
 ]
 
 [[package]]
