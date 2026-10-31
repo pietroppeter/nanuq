@@ -47,6 +47,14 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): string functions (conditionals and `over` landed in 0.2).
+- **`/` on two integer columns: open design question** (S). Today `col("a") / col("b")`
+  with integer columns follows Rust Polars' `/` (`Operator::RustDivide`): it truncates to
+  an integer and gives `null` for a division by zero. Python Polars' `/` is always a true
+  division to floats (`Expr::true_div`, so `1 / 0` is `inf` and `0 / 0` is `NaN`), and so
+  is Nim's `/` on ints. Nanuq keeps the Rust behaviour for now (Pietro, 2026-10-31), but
+  this is a contested choice and may change: switching `/` to `true_div` would match both
+  Python and Nim, with `div` already there for floor division. Found by the Nanuq Book's
+  Nim vs Python table check (Missing data chapter).
 - **`toSeq` clashes with `sequtils.toSeq`** (S). With `nanuq` imported,
   `toSeq(walkFiles("*.csv"))` fails to compile ("attempting to call routine:
   'walkFiles'"): overload resolution picks Nanuq's `toSeq(df, column, T)` proc over the
