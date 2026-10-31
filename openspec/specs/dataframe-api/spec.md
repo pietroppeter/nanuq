@@ -11,12 +11,35 @@ Polars, with automatic memory management and Nim exceptions.
 free the underlying Rust object when the last reference goes away. Copying the inner
 objects SHALL be a compile-time error.
 
+```nim
+var a = newDataFrame(series("n", [1, 2]))
+let b = a          # same Polars frame, no copy
+a = nil            # still alive through b
+echo b.shape       # freed when b goes out of scope
+```
+
+```text
+(2, 1)
+```
+
 #### Scenario: Shared value
 - **WHEN** two Nim variables refer to the same DataFrame
 - **THEN** the Rust object is freed once, after both go out of scope
 
 ### Requirement: Errors as NanuqError
 Any failing FFI call SHALL raise `NanuqError` carrying the message from Rust.
+
+```nim
+let df = newDataFrame(series("a", [1]))
+try:
+  discard df.select(col("nope"))
+except NanuqError as e:
+  echo e.msg.splitLines[0]
+```
+
+```text
+not found: unable to find column "nope"; valid columns: ["a"]
+```
 
 #### Scenario: Bad column
 - **WHEN** a query selects a column that does not exist
@@ -27,6 +50,25 @@ The API SHALL build a DataFrame from Nim arrays of int, float, bool and string
 (`series`, `newDataFrame`), read and write CSV with a header row, and expose `shape`,
 `columns`, `dtype`, `head`, `$` (Polars' table format), single cells and whole columns.
 
+```nim
+let df = newDataFrame(series("bear", ["Nanuq", "Ursa"]), series("weight", [410.5, 380.0]))
+echo df
+echo df.shape, " ", df.columns, " ", df["bear", 0, string], " ", df.toSeq("weight", float)
+```
+
+```text
+shape: (2, 2)
+┌───────┬────────┐
+│ bear  ┆ weight │
+│ ---   ┆ ---    │
+│ str   ┆ f64    │
+╞═══════╪════════╡
+│ Nanuq ┆ 410.5  │
+│ Ursa  ┆ 380.0  │
+└───────┴────────┘
+(2, 2) @["bear", "weight"] Nanuq @[410.5, 380.0]
+```
+
 #### Scenario: Columns of different lengths
 - **WHEN** `newDataFrame` gets series of different lengths
 - **THEN** `NanuqError` is raised
@@ -35,6 +77,17 @@ The API SHALL build a DataFrame from Nim arrays of int, float, bool and string
 Reading as `float` SHALL accept any integer or float column; as `string`, any column,
 formatted as Polars does; as `int`, only integer columns; as `bool`, only boolean
 columns. A dtype that does not match SHALL raise `NanuqError`.
+
+```nim
+let df = newDataFrame(series("a", [1, 2]))
+echo df.toSeq("a", float)     # integers widen to float
+echo df.toSeq("a", string)    # any column formats as text
+```
+
+```text
+@[1.0, 2.0]
+@["1", "2"]
+```
 
 #### Scenario: Integers read as floats
 - **WHEN** an i64 column holding 1, 2 is read with `toSeq(df, "a", float)`
@@ -54,6 +107,28 @@ The API SHALL provide `col`, `lit`, arithmetic, comparison and boolean operators
 last, nUnique and std, and `alias`. LazyFrame SHALL support select, withColumns, filter,
 groupBy/agg, sort, limit, explain and collect. DataFrame SHALL offer eager shortcuts for
 select, withColumns, filter and sort.
+
+```nim
+let query = penguins().lazy
+  .filter(col("body_mass_g").isNotNull)
+  .groupBy(col("species"))
+  .agg(col("body_mass_g").mean.alias("mass"), col("species").count.alias("n"))
+  .sort("mass", descending = true)
+echo query.collect          # nothing runs before collect
+```
+
+```text
+shape: (3, 3)
+┌───────────┬─────────────┬─────┐
+│ species   ┆ mass        ┆ n   │
+│ ---       ┆ ---         ┆ --- │
+│ str       ┆ f64         ┆ u32 │
+╞═══════════╪═════════════╪═════╡
+│ Gentoo    ┆ 5076.01626  ┆ 123 │
+│ Chinstrap ┆ 3733.088235 ┆ 68  │
+│ Adelie    ┆ 3700.662252 ┆ 151 │
+└───────────┴─────────────┴─────┘
+```
 
 #### Scenario: Lazy group by
 - **WHEN** a LazyFrame is filtered, grouped, aggregated and sorted

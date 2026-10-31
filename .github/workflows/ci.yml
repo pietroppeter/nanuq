@@ -1,28 +1,34 @@
 name: CI
 
 # Commits that only touch prose (README, BACKLOG, LICENSE, ...) or OpenSpec
-# planning files (openspec/, .claude/) don't run CI.
-# Changes under docs/ still do, since they rebuild the dev log.
+# planning files (openspec/, .claude/) don't run CI. Two exceptions: docs/ (it
+# rebuilds the dev log) and openspec/specs/ (its examples are run, see
+# tools/specexamples.nim). paths-ignore cannot re-include a path, so this uses
+# paths with negations: the last pattern that matches a file wins.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
-      - "openspec/**"
-      - ".claude/**"
-      - "tools/specview.nim"
-      - ".github/workflows/openspec.yml"
+    paths:
+      - "**"
+      - "!**.md"
+      - "!LICENSE"
+      - "!.gitignore"
+      - "!openspec/**"
+      - "!.claude/**"
+      - "!tools/specview.nim"
+      - "!.github/workflows/openspec.yml"
+      - "openspec/specs/**"
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
-      - "openspec/**"
-      - ".claude/**"
-      - "tools/specview.nim"
-      - ".github/workflows/openspec.yml"
+    paths:
+      - "**"
+      - "!**.md"
+      - "!LICENSE"
+      - "!.gitignore"
+      - "!openspec/**"
+      - "!.claude/**"
+      - "!tools/specview.nim"
+      - "!.github/workflows/openspec.yml"
+      - "openspec/specs/**"
   workflow_dispatch:
 
 # The Polars wrapper (src/rust/) is the slow part: a cold build takes ~9 minutes.
@@ -99,6 +105,8 @@ jobs:
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
+      # the examples in openspec/specs must still compile, run and print what they show
+      - run: nim r --hints:off tools/specexamples.nim -d:nanuqNoCargo
 
   docs:
     needs: rust-lib

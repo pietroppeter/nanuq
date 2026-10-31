@@ -11,6 +11,28 @@ file until the query runs. `path` SHALL accept a glob that matches several files
 same columns. A glob whose files have different columns SHALL raise `NanuqError` when the
 query runs.
 
+```nim
+let dir = getTempDir() / "census"
+createDir dir
+writeFile(dir / "week_01.csv", "station,bears\nNorth,3\nSouth,5\n")
+writeFile(dir / "week_02.csv", "station,bears\nNorth,4\nSouth,2\nEast,1\n")
+let weeks = scanCsv(dir / "*.csv")         # nothing is read yet
+echo weeks.groupBy(col("station")).agg(col("bears").sum).sort("station").collect
+```
+
+```text
+shape: (3, 2)
+┌─────────┬───────┐
+│ station ┆ bears │
+│ ---     ┆ ---   │
+│ str     ┆ i64   │
+╞═════════╪═══════╡
+│ East    ┆ 1     │
+│ North   ┆ 7     │
+│ South   ┆ 7     │
+└─────────┴───────┘
+```
+
 #### Scenario: A folder of logs
 - **WHEN** `scanCsv(dir / "*.csv").collect` runs on two files with the same columns and 2 and 3 rows
 - **THEN** the result has 5 rows
@@ -24,6 +46,26 @@ query runs.
 - `ignoreErrors = false` and `decimalComma = false`
 
 `nRows` and `inferSchemaLength` SHALL also accept a plain `int`.
+
+```nim
+let path = getTempDir() / "survey.csv"
+writeFile(path, "Polar survey 2026\nexported by hand\nstation;bears;weight\n" &
+                "North;3;410\nSouth;lots;380\nEast;1;355\n")
+echo readCsv(path, separator = ';', skipRows = 2, nRows = 2, nullValues = ["lots"],
+             schemaOverrides = {"weight": Float64}, columns = ["station", "weight", "bears"])
+```
+
+```text
+shape: (2, 3)
+┌─────────┬────────┬───────┐
+│ station ┆ weight ┆ bears │
+│ ---     ┆ ---    ┆ ---   │
+│ str     ┆ f64    ┆ i64   │
+╞═════════╪════════╪═══════╡
+│ North   ┆ 410.0  ┆ 3     │
+│ South   ┆ 380.0  ┆ null  │
+└─────────┴────────┴───────┘
+```
 
 #### Scenario: Semicolons and null words
 - **WHEN** a file with `;` separators and the value "lots" is read with `separator = ';', nullValues = ["lots"]`
@@ -49,6 +91,21 @@ query runs.
   `NonNumeric`, `Never`)
 - `floatPrecision = none(int)` (also a plain `int`)
 - `decimalComma = false`
+
+```nim
+let df = newDataFrame(series("bear", ["Nanuq", "Ursa"]),
+                      series("weight", [some(410.256), none(float)]))
+let path = getTempDir() / "out.csv"
+df.writeCsv(path, separator = ';', nullValue = "NA", floatPrecision = 1,
+            decimalComma = true, quoteStyle = NonNumeric)
+echo readFile(path)
+```
+
+```text
+"bear";"weight"
+"Nanuq";410,3
+"Ursa";NA
+```
 
 #### Scenario: Spreadsheet in a comma-decimal locale
 - **WHEN** a frame with 1.5 is written with `separator = ';', decimalComma = true` and read back with the same options
