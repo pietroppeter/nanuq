@@ -47,9 +47,8 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
 - **Joins** (M): inner, left, outer, cross.
 - **More dtypes** (M): dates and datetimes, categoricals.
-- **More expressions** (M): `when/then/otherwise`, string functions, casting, window
-  functions (`over`).
-  *Casting: in progress* as OpenSpec change `add-datatype-and-cast`.
+- **More expressions** (M): `when/then/otherwise`, string functions, window functions
+  (`over`).
 
 ## Ecosystem
 

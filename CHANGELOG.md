@@ -6,6 +6,16 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- Data types: `DataType` with Polars-named constants (`Int64`, `String`, ...), `dtypes`,
+  `schema`, `collectSchema`, `dataType(T)`, and `cast` on expressions and frames, taking
+  a Nim type (`col("a").cast(int32)`) or `DataType` values (`df.cast({"a": Int32})`),
+  strict by default. The wrapper crate is `0.2.0-dev` until `lib-v0.2.0`. (#26)
+
+### Changed
+- **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
+  the constants (`== Int64`); `$` gives the old string. (#26)
+
 ## [0.1.0] - 2026-10-28
 
 ### Added
