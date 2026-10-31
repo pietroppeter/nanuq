@@ -201,6 +201,9 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
   `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
   and read back as UTC instants
+- Categoricals: a Nim enum is a Polars Enum (`col.race.cast(Monument)` sorts races in
+  enum order, `toList(df, "race", Monument)`, `col.race == Roubaix`), `Enum(["low",
+  "high"])` at run time, `cast(Categorical)`, and `cat.getCategories`
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,

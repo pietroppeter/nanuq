@@ -10,12 +10,13 @@ columns and expressions.
 The API SHALL provide a `DataType` value with a `kind` of type `DataTypeKind` (a pure
 enum, see `api-conventions`) covering
 Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64,
-String, Null, Date, Datetime, Duration and Time, plus `DataTypeKind.Other` carrying
-Polars' name for any other dtype. Datetime and Duration values SHALL carry a `timeUnit`
-(std/times' `TimeUnit`: `Nanoseconds`, `Microseconds` or `Milliseconds`), and Datetime
-values a `timeZone` ("" when naive). `dtype(df, col)` SHALL return a `DataType`.
-`dtype == T` with a Nim type SHALL compare with `dataType(T)`, except that `DateTime`
-and `Duration` SHALL match any time unit and zone.
+String, Null, Date, Datetime, Duration, Time, Categorical and Enum, plus
+`DataTypeKind.Other` carrying Polars' name for any other dtype. Datetime and Duration
+values SHALL carry a `timeUnit` (std/times' `TimeUnit`: `Nanoseconds`, `Microseconds`
+or `Milliseconds`), Datetime values a `timeZone` ("" when naive), and Enum values their
+`categories`. `dtype(df, col)` SHALL return a `DataType`. `dtype == T` with a Nim type
+SHALL compare with `dataType(T)`, except that `DateTime` and `Duration` SHALL match any
+time unit and zone.
 
 ```nim
 let df = newDataFrame(series("a", [1, 2]))
@@ -45,6 +46,10 @@ datetime[ms, Europe/Rome] Europe/Rome true
 #### Scenario: Zoned datetime
 - **WHEN** a Datetime column has unit ms and zone Europe/Rome
 - **THEN** `$` gives "datetime[ms, Europe/Rome]" and it equals `DateTime`
+
+#### Scenario: Enum categories
+- **WHEN** a column is cast to `Enum(["low", "high"])`
+- **THEN** `$` of its dtype gives "enum" and `categories` is `@["low", "high"]`
 
 ### Requirement: DataType constants and predicates
 The API SHALL export `DataType` constants with Polars' names (`Int64`, `String`, ...),
@@ -144,17 +149,20 @@ datetime[ms, UTC]
 `dataType(T)` SHALL map `int8` to `int64`, `uint8` to `uint64`, `float32`, `float64`,
 `bool` and `string` to their dtypes, `int` to `Int64` and `float` to `Float64`.
 `dataType(T, timeUnit = Microseconds, timeZone = "")` SHALL map `Date`, `DateTime`,
-std/times' `Duration` and `TimeOfDay` to Date, Datetime, Duration and Time. Other types
-SHALL not compile.
+std/times' `Duration` and `TimeOfDay` to Date, Datetime, Duration and Time. A Nim enum
+SHALL map to an Enum of `$` of its values. Other types SHALL not compile.
 
 ```nim
+type Medal = enum Gold, Silver, Bronze
 echo dataType(int), " ", dataType(float32), " ", dataType(uint8), " ", dataType(string)
 echo dataType(Date), " ", dataType(DateTime), " ", dataType(Duration, Nanoseconds), " ", dataType(TimeOfDay)
+echo dataType(Medal), " ", dataType(Medal).categories
 ```
 
 ```text
 i64 f32 u8 str
 date datetime[μs] duration[ns] time
+enum @["Gold", "Silver", "Bronze"]
 ```
 
 #### Scenario: Platform int
@@ -168,3 +176,7 @@ date datetime[μs] duration[ns] time
 #### Scenario: Unsupported unit
 - **WHEN** `dataType(DateTime, Seconds)` is evaluated
 - **THEN** `ValueError` is raised
+
+#### Scenario: Nim enum
+- **WHEN** `dataType(Medal)` is evaluated for `enum Gold, Silver, Bronze`
+- **THEN** it equals `Enum(["Gold", "Silver", "Bronze"])`

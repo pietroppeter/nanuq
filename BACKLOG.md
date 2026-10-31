@@ -46,7 +46,7 @@ two), L (more).
 
 - **More IO** (M): NDJSON, Excel, writing to streams, sink functions (streaming writes),
   cloud storage. (CSV, Parquet, IPC and reading streams are done.)
-- **More dtypes** (M): categoricals, lists, structs, decimals.
+- **More dtypes** (M): lists, structs, decimals, binary.
 
 ## Ecosystem
 

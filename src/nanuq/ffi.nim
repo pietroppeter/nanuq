@@ -207,7 +207,8 @@ type
     ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
     nqBoolean, nqInt8, nqInt16, nqInt32, nqInt64,
     nqUInt8, nqUInt16, nqUInt32, nqUInt64,
-    nqFloat32, nqFloat64, nqString, nqNull, nqDate, nqDatetime, nqDuration, nqTime, nqOther
+    nqFloat32, nqFloat64, nqString, nqNull, nqDate, nqDatetime, nqDuration, nqTime,
+    nqCategorical, nqEnum, nqOther
   NqTimeUnit* {.size: sizeof(cint).} = enum
     nquNanoseconds, nquMicroseconds, nquMilliseconds
   NqClosedWindow* {.size: sizeof(cint).} = enum
@@ -242,6 +243,8 @@ type
     nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
   NqQuoteStyle* {.size: sizeof(cint).} = enum
     nqsNecessary, nqsAlways, nqsNonNumeric, nqsNever
+  NqCatOp* {.size: sizeof(cint).} = enum
+    nqcGetCategories, nqcLenBytes, nqcLenChars, nqcStartsWith, nqcEndsWith, nqcSlice
   NqParquetCompression* {.size: sizeof(cint).} = enum
     nqpLz4, nqpUncompressed, nqpSnappy, nqpGzip, nqpBrotli, nqpZstd
   NqIpcCompression* {.size: sizeof(cint).} = enum
@@ -414,6 +417,10 @@ proc nq_expr_concat_str*(es: ptr ptr NqExpr, n: csize_t, separator: cstring,
 # temporal values
 proc nq_df_column_time_unit*(df: ptr NqDataFrame, name: cstring): int32
 proc nq_df_column_time_zone*(df: ptr NqDataFrame, name: cstring): cstring
+proc nq_df_column_n_categories*(df: ptr NqDataFrame, name: cstring): int64
+proc nq_df_column_category*(df: ptr NqDataFrame, name: cstring, i: csize_t): cstring
+proc nq_series_cast*(s: ptr NqSeries, dtype: ptr NqDtypeSpec): ptr NqSeries
+proc nq_expr_cat*(e: ptr NqExpr, op: NqCatOp, s: cstring, offset, length: int64): ptr NqExpr
 proc nq_df_column_physical*(df: ptr NqDataFrame, name: cstring, output: ptr int64, valid: ptr bool,
                             n: csize_t): bool
 proc nq_series_new_temporal*(name: cstring, values: ptr int64, valid: ptr bool, n: csize_t,

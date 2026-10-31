@@ -662,6 +662,8 @@ pub enum NqDtype {
     Datetime,
     Duration,
     Time,
+    Categorical,
+    Enum,
     Other,
 }
 
@@ -720,6 +722,11 @@ unsafe fn dtype_from_spec(spec: &NqDtypeSpec) -> Result<DataType, String> {
         NqDtype::Datetime => DataType::Datetime(time_unit(spec.time_unit), time_zone(spec.time_zone)?),
         NqDtype::Duration => DataType::Duration(time_unit(spec.time_unit)),
         NqDtype::Time => DataType::Time,
+        NqDtype::Categorical => DataType::from_categories(Categories::global()),
+        NqDtype::Enum => {
+            let cats = names(spec.categories, spec.n_categories)?;
+            DataType::from_frozen_categories(FrozenCategories::new(cats).map_err(pe)?)
+        }
         c => dtype_from_code(c)?,
     })
 }
@@ -747,6 +754,8 @@ fn dtype_code(d: &DataType) -> NqDtype {
         DataType::Datetime(_, _) => NqDtype::Datetime,
         DataType::Duration(_) => NqDtype::Duration,
         DataType::Time => NqDtype::Time,
+        DataType::Categorical(_, _) => NqDtype::Categorical,
+        DataType::Enum(_, _) => NqDtype::Enum,
         _ => NqDtype::Other,
     }
 }
@@ -766,11 +775,88 @@ fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
         NqDtype::Float64 => DataType::Float64,
         NqDtype::String => DataType::String,
         NqDtype::Null => DataType::Null,
-        NqDtype::Date | NqDtype::Datetime | NqDtype::Duration | NqDtype::Time => {
-            return Err("temporal dtypes need their parameters".into())
-        }
+        NqDtype::Date
+        | NqDtype::Datetime
+        | NqDtype::Duration
+        | NqDtype::Time
+        | NqDtype::Categorical
+        | NqDtype::Enum => return Err("this dtype needs its parameters".into()),
         NqDtype::Other => return Err("cannot cast to a dtype Nanuq does not model".into()),
     })
+}
+
+/// A copy of `s` cast to `dtype` (strict: values that do not fit raise).
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_cast(s: *const Series, dtype: *const NqDtypeSpec) -> *mut Series {
+    boxed(guard(|| {
+        let dt = dtype_from_spec(borrow(dtype, "dtype")?)?;
+        borrow(s, "series")?.strict_cast(&dt).map_err(pe)
+    }))
+}
+
+/// Number of categories of an Enum column, or -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_n_categories(df: *const DataFrame, name: *const c_char) -> i64 {
+    guard(|| match borrow(df, "DataFrame")?.column(cstr(name)?).map_err(pe)?.dtype() {
+        DataType::Enum(fcats, _) => Ok(fcats.categories().len() as i64),
+        dt => Err(format!("{dt} has no fixed categories")),
+    })
+    .unwrap_or(-1)
+}
+
+/// Category `i` of an Enum column, or NULL on error. Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_category(
+    df: *const DataFrame,
+    name: *const c_char,
+    i: usize,
+) -> *mut c_char {
+    guard(|| match borrow(df, "DataFrame")?.column(cstr(name)?).map_err(pe)?.dtype() {
+        DataType::Enum(fcats, _) => {
+            let cats = fcats.categories();
+            if i >= cats.len() {
+                return Err(format!("category {i} out of range"));
+            }
+            Ok(to_c_string(cats.value(i).to_string()))
+        }
+        dt => Err(format!("{dt} has no fixed categories")),
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Functions of the `cat` namespace. Same order as `NqCatOp` in ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqCatOp {
+    GetCategories = 0,
+    LenBytes,
+    LenChars,
+    StartsWith,
+    EndsWith,
+    Slice,
+}
+
+/// A `cat` namespace function. `s` is the prefix or suffix; `offset` and
+/// `length` (`< 0`: to the end) are for `Slice`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cat(
+    e: *const Expr,
+    op: NqCatOp,
+    s: *const c_char,
+    offset: i64,
+    length: i64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expr")?.clone().cat();
+        Ok(match op {
+            NqCatOp::GetCategories => e.get_categories(),
+            NqCatOp::LenBytes => e.len_bytes(),
+            NqCatOp::LenChars => e.len_chars(),
+            NqCatOp::StartsWith => e.starts_with(cstr(s)?.to_string()),
+            NqCatOp::EndsWith => e.ends_with(cstr(s)?.to_string()),
+            NqCatOp::Slice => e.slice(offset, (length >= 0).then_some(length as usize)),
+        })
+    }))
 }
 
 /// Data type code (`NqDtype`) of a column, or -1 on error.

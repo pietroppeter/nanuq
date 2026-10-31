@@ -26,7 +26,7 @@
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
 
-import std/[macros, options, tables, os, strutils, math, times, streams]
+import std/[macros, options, tables, sets, os, strutils, math, times, streams]
 from std/unicode import runeLen, runeSubStr
 import nanuq/ffi
 
@@ -147,7 +147,8 @@ type
     ## Same order as `NqDtype` in the C ABI. `Other` is a dtype Nanuq does not
     ## model yet.
     Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
-    UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Other
+    UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Categorical,
+    Enum, Other
 
   DataType* = object
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
@@ -159,10 +160,15 @@ type
     of DataTypeKind.Datetime, DataTypeKind.Duration:
       timeUnit*: TimeUnit   ## std/times' `TimeUnit`: Nanoseconds, Microseconds or Milliseconds
       timeZone*: string     ## IANA name, "" for none; always "" for Duration
+    of DataTypeKind.Enum:
+      categories*: seq[string]  ## The allowed values, in order
     else: discard
 
   Schema* = OrderedTable[string, DataType]
     ## Column names and data types, in column order.
+
+  NimEnum = not bool and enum
+    ## Nim enums, which map to Polars' Enum (bool is an enum in Nim).
 
   Date* = distinct int32
     ## A calendar date, as Polars' `Date`: days since 1970-01-01. std/times has
@@ -187,6 +193,9 @@ const
   Float64* = DataType(kind: DataTypeKind.Float64)
   String* = DataType(kind: DataTypeKind.String)
   Null* = DataType(kind: DataTypeKind.Null)
+  Categorical* = DataType(kind: DataTypeKind.Categorical)
+    ## Strings stored as numbers, with categories found in the data (Polars'
+    ## global categories). For a fixed set of values use `Enum`.
 
 proc `==`*(a, b: DataType): bool =
   if a.kind != b.kind: return false
@@ -194,7 +203,18 @@ proc `==`*(a, b: DataType): bool =
   of DataTypeKind.Other: a.name == b.name
   of DataTypeKind.Datetime, DataTypeKind.Duration:
     a.timeUnit == b.timeUnit and a.timeZone == b.timeZone
+  of DataTypeKind.Enum: a.categories == b.categories
   else: true
+
+proc Enum*(categories: openArray[string]): DataType =
+  ## Polars' `Enum`: strings from a fixed set of `categories`, ordered as given
+  ## (`Enum(["Gold", "Silver", "Bronze"])`). A Nim enum type gives the same
+  ## with its values: `cast(Medal)`.
+  var seen = initHashSet[string]()
+  for c in categories:
+    if c in seen: raise newException(ValueError, "Enum categories must be unique: " & c)
+    seen.incl c
+  DataType(kind: DataTypeKind.Enum, categories: @categories)
 
 proc polarsName(u: TimeUnit): string =
   ## Polars' short name: "ns", "μs", "ms".
@@ -230,6 +250,8 @@ proc `$`*(t: DataType): string =
     "datetime[" & polarsName(t.timeUnit) & (if t.timeZone.len > 0: ", " & t.timeZone else: "") & "]"
   of DataTypeKind.Duration: "duration[" & polarsName(t.timeUnit) & "]"
   of DataTypeKind.Time: "time"
+  of DataTypeKind.Categorical: "cat"
+  of DataTypeKind.Enum: "enum"
   of DataTypeKind.Other: t.name
 
 proc isSignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.Int8 .. DataTypeKind.Int64}
@@ -243,7 +265,8 @@ proc dataType*(T: typedesc, timeUnit = TimeUnit.Microseconds, timeZone = ""): Da
   ## The data type of a Nim type: `int8` .. `int64`, `uint8` .. `uint64`,
   ## `float32`, `float64`, `bool`, `string`, `Date`, `DateTime` (Datetime,
   ## with `timeUnit` and `timeZone`), `Duration` (with `timeUnit`) and
-  ## `TimeOfDay` (Time). `int` and `float` give `Int64` and `Float64`, as
+  ## `TimeOfDay` (Time), and Nim enums (Enum, with `$` of each value as the
+  ## categories). `int` and `float` give `Int64` and `Float64`, as
   ## `series` builds them. Other types do not compile.
   when T is int8: Int8
   elif T is int16: Int16
@@ -261,6 +284,10 @@ proc dataType*(T: typedesc, timeUnit = TimeUnit.Microseconds, timeZone = ""): Da
   elif T is DateTime: DataType(kind: DataTypeKind.Datetime, timeUnit: timeUnit, timeZone: timeZone)
   elif T is times.Duration: DataType(kind: DataTypeKind.Duration, timeUnit: timeUnit)
   elif T is TimeOfDay: DataType(kind: DataTypeKind.Time)
+  elif T is enum:
+    var cats: seq[string]
+    for v in T: cats.add $v
+    Enum(cats)
   else: {.error: "nanuq: no Polars data type for " & $T.}
 
 proc `==`*(t: DataType, T: typedesc): bool =
@@ -274,10 +301,12 @@ type DtypeSpecs = object
   ## Specs for the C ABI, with the strings they point to kept alive.
   specs: seq[NqDtypeSpec]
   zones: seq[string]
+  cats: seq[seq[cstring]]
 
 proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
   result.specs = newSeq[NqDtypeSpec](ts.len)
   result.zones = newSeq[string](ts.len)
+  result.cats = newSeq[seq[cstring]](ts.len)
   for i, t in ts:
     if t.kind == DataTypeKind.Other:
       raise newException(InvalidOperationError, "cannot cast to " & t.name &
@@ -287,8 +316,12 @@ proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
       checkUnit(t.timeUnit)
       result.specs[i].timeUnit = NqTimeUnit(ord(t.timeUnit))
       result.zones[i] = t.timeZone
+    if t.kind == DataTypeKind.Enum:
+      result.cats[i] = cstrings(t.categories)   # points into ts, alive for the call
   for i in 0 ..< ts.len:
     result.specs[i].timeZone = result.zones[i].cstring
+    result.specs[i].categories = result.cats[i].firstOrNil
+    result.specs[i].nCategories = result.cats[i].len.csize_t
 
 # ---------------------------------------------------------------------------
 # Temporal values: Date and TimeOfDay, and conversions to Polars' physical values
@@ -433,6 +466,23 @@ proc series*(name: string, data: openArray[Option[string]]): Series =
       valid[i] = true
   wrap nq_series_new_str_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
 
+proc castSeries(s: Series, t: DataType): Series =
+  let sp = toSpecs([t])
+  wrap nq_series_cast(s.raw, sp.specs[0].unsafeAddr)
+
+proc series*[T: NimEnum](name: string, data: openArray[T]): Series =
+  ## An Enum column from Nim enum values; the categories are all values of `T`.
+  var strs = newSeq[string](data.len)
+  for i, x in data: strs[i] = $x
+  series(name, strs).castSeries(dataType(T))
+
+proc series*[T: NimEnum](name: string, data: openArray[Option[T]]): Series =
+  ## An Enum column from Nim enum values, `none` for nulls.
+  var strs = newSeq[Option[string]](data.len)
+  for i, x in data:
+    if x.isSome: strs[i] = some($x.get)
+  series(name, strs).castSeries(dataType(T))
+
 proc temporalSeries(name: string, vals: seq[int64], valid: seq[bool], t: DataType): Series =
   let sp = toSpecs([t])
   wrap nq_series_new_temporal(name.cstring, vals.firstOrNil, valid.firstOrNil, vals.len.csize_t,
@@ -549,6 +599,15 @@ proc dtype*(df: DataFrame, column: string): DataType =
                timeZone: takeString nq_df_column_time_zone(df.raw, column.cstring))
     else:
       DataType(kind: DataTypeKind.Duration, timeUnit: u)
+  of DataTypeKind.Enum:
+    let n = nq_df_column_n_categories(df.raw, column.cstring)
+    if n < 0: raiseLast()
+    var cats = newSeq[string](n)
+    for i in 0 ..< n:
+      let c = nq_df_column_category(df.raw, column.cstring, i.csize_t)
+      if c == nil: raiseLast()
+      cats[i] = takeString(c)
+    DataType(kind: DataTypeKind.Enum, categories: cats)
   else:
     DataType(kind: DataTypeKind(k))
 
@@ -704,6 +763,19 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
     if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
     (vals, valid)
+  elif T is enum and T isnot bool:
+    let (strs, ok) = readColumn(df, column, string)
+    valid = ok
+    var byName = initTable[string, T]()
+    for v in T: byName[$v] = v
+    var vals = newSeq[T](n)
+    for i, x in strs:
+      if valid[i]:
+        if x notin byName:
+          raise newException(InvalidOperationError, "column '" & column & "' holds " &
+                             x.escape & ", which is not a value of " & $T)
+        vals[i] = byName[x]
+    (vals, valid)
   elif T is bool:
     var vals = newSeq[bool](n)
     if not nq_df_column_bool(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
@@ -724,7 +796,7 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
     (vals, valid)
 
-proc toList*[T: int | float | bool | string | TemporalValue](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
                                                             _: typedesc[T]): seq[T] =
   ## Copies a whole column into a Nim seq. Raises `InvalidOperationError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
@@ -740,7 +812,7 @@ proc toList*[T: int | float | bool | string | TemporalValue](df: DataFrame, colu
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
-proc toList*[T: int | float | bool | string | TemporalValue](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
                                                             _: typedesc[Option[T]]): seq[Option[T]] =
   ## Copies a whole column into a Nim seq, with `none` for nulls.
   let (vals, valid) = readColumn(df, column, T)
@@ -774,6 +846,9 @@ proc lit*(v: float): Expr = wrap nq_expr_lit_f64(v)
 proc lit*(v: bool): Expr = wrap nq_expr_lit_bool(v)
 proc lit*(v: string): Expr = wrap nq_expr_lit_str(v.cstring)
 proc lit*(v: Expr): Expr = v
+proc lit*[T: NimEnum](v: T): Expr = lit($v)
+  ## A Nim enum value is its string: compare it with Enum columns
+  ## (`col.monument == Flanders`).
 
 proc litTemporal(v: int64, t: DataType): Expr =
   let sp = toSpecs([t])
@@ -796,8 +871,8 @@ proc binary(a: Expr, op: NqBinOp, b: Expr): Expr = wrap nq_expr_binary(a.raw, op
 
 template defBinOp(name, op) =
   proc name*(a, b: Expr): Expr = binary(a, op, b)
-  proc name*[T: SomeNumber | string | bool | TemporalValue](a: Expr, b: T): Expr = binary(a, op, lit(b))
-  proc name*[T: SomeNumber | string | bool | TemporalValue](a: T, b: Expr): Expr = binary(lit(a), op, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Expr, b: T): Expr = binary(a, op, lit(b))
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Expr): Expr = binary(lit(a), op, b)
 
 defBinOp(`+`, nqAdd)
 defBinOp(`-`, nqSub)
@@ -952,10 +1027,16 @@ macro choose*(body: untyped): untyped =
 proc isIn*(e: Expr, other: Expr, nullsEqual = false): Expr =
   ## True where the value is among the values of `other`.
   wrap nq_expr_is_in(e.raw, other.raw, nullsEqual)
-proc isIn*[T: int | float | bool | string](e: Expr, values: openArray[T],
-                                           nullsEqual = false): Expr =
-  ## True where the value is one of `values`: `col("a").isIn([1, 3])`.
-  let s = series("", values)
+proc isIn*[T: int | float | bool | string | NimEnum](e: Expr, values: openArray[T],
+                                                  nullsEqual = false): Expr =
+  ## True where the value is one of `values`: `col("a").isIn([1, 3])`. Nim enum
+  ## values compare as their strings.
+  when T is enum and T isnot bool:
+    var strs = newSeq[string](values.len)
+    for i, v in values: strs[i] = $v
+    let s = series("", strs)
+  else:
+    let s = series("", values)
   e.isIn(wrap nq_expr_lit_series(s.raw), nullsEqual)
 
 proc isBetween*[A, B](e: Expr, lower: A, upper: B, closed = ClosedInterval.Both): Expr =
@@ -1436,7 +1517,7 @@ type
 
 proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
 
-proc withRowIndex(columns: openArray[string], rowIndexName: string): seq[string] =
+proc keepRowIndex(columns: openArray[string], rowIndexName: string): seq[string] =
   ## `columns` keeps the row index, as in Polars.
   result = @columns
   if columns.len > 0 and rowIndexName.len > 0: result.insert(rowIndexName, 0)
@@ -1447,7 +1528,7 @@ proc scanParquetImpl(path: string, data: ptr string, nRows: Option[int],
   let (dp, dl) = dataArg(data)
   result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
                                    rowIndexOffset.uint32, lowMemory)
-  result = result.selectColumns(withRowIndex(columns, rowIndexName))
+  result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanParquet*(path: string, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
@@ -1496,7 +1577,7 @@ proc scanIpcImpl(path: string, data: ptr string, nRows: Option[int],
   let (dp, dl) = dataArg(data)
   result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
                                rowIndexOffset.uint32)
-  result = result.selectColumns(withRowIndex(columns, rowIndexName))
+  result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanIpc*(path: string, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
@@ -1696,7 +1777,8 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
   for name, dt in schema:
     let numeric = dt.isNumeric
     let asFloat = numeric or dt.kind in {DataTypeKind.Boolean, DataTypeKind.Null}
-    let minMax = dt.kind notin {DataTypeKind.Null, DataTypeKind.Other}
+    let minMax = dt.kind notin {DataTypeKind.Null, DataTypeKind.Categorical, DataTypeKind.Enum,
+                                DataTypeKind.Other}   # as Python
     let target = if asFloat: Float64 else: String
     var have: seq[bool]
     proc add(e: Expr, ok: bool, metric: string) =
@@ -1823,6 +1905,38 @@ macro withConfig*(args: varargs[untyped]): untyped =
 # The str namespace
 # ---------------------------------------------------------------------------
 
+proc toPhysical*(e: Expr): Expr =
+  ## The physical representation: days for Date, integers for Datetime,
+  ## Duration and Time, and category indices (u32) for Categorical and Enum.
+  wrap nq_expr_to_physical(e.raw)
+
+type
+  CatNameSpace* = distinct Expr
+    ## `e.cat`: functions of Categorical and Enum columns, as Polars' `Expr.cat`.
+
+proc cat*(e: Expr): CatNameSpace = CatNameSpace(e)
+  ## Categorical functions: `col.medal.cat.getCategories`.
+
+proc catOp(c: CatNameSpace, op: NqCatOp, s = "", offset = 0'i64, length = -1'i64): Expr =
+  wrap nq_expr_cat(Expr(c).raw, op, s.cstring, offset, length)
+
+proc getCategories*(c: CatNameSpace): Expr = c.catOp(nqcGetCategories)
+  ## The categories as a string column: for an Enum all of them in order, for a
+  ## Categorical those seen so far.
+proc lenBytes*(c: CatNameSpace): Expr = c.catOp(nqcLenBytes)
+  ## Length of each value in bytes (u32).
+proc lenChars*(c: CatNameSpace): Expr = c.catOp(nqcLenChars)
+  ## Length of each value in characters (u32).
+proc startsWith*(c: CatNameSpace, prefix: string): Expr = c.catOp(nqcStartsWith, prefix)
+  ## True where the value starts with `prefix`.
+proc endsWith*(c: CatNameSpace, suffix: string): Expr = c.catOp(nqcEndsWith, suffix)
+  ## True where the value ends with `suffix`.
+proc slice*(c: CatNameSpace, offset: int, length: int | Option[int] = none(int)): Expr =
+  ## Part of each value as a string: `length` characters from `offset` (negative
+  ## counts from the end).
+  let l = (when length is int: some(length) else: length)
+  c.catOp(nqcSlice, "", offset.int64, (if l.isSome: l.get.int64 else: -1'i64))
+
 type
   StrNameSpace* = distinct Expr
     ## `e.str`: string functions, as Polars' `Expr.str`.
@@ -1944,13 +2058,13 @@ proc format*(fstring: string, args: varargs[Expr]): Expr =
 # Temporal cells, ranges and durations
 # ---------------------------------------------------------------------------
 
-proc `[]`*[T: TemporalValue](df: DataFrame, column: string, row: int, _: typedesc[T]): T =
-  ## One temporal cell; raises `InvalidOperationError` if it is null.
+proc `[]`*[T: TemporalValue | NimEnum](df: DataFrame, column: string, row: int, _: typedesc[T]): T =
+  ## One temporal or enum cell; raises `InvalidOperationError` if it is null.
   df.slice(row, 1).toList(column, T)[0]
 
-proc `[]`*[T: TemporalValue](df: DataFrame, column: string, row: int,
+proc `[]`*[T: TemporalValue | NimEnum](df: DataFrame, column: string, row: int,
                              _: typedesc[Option[T]]): Option[T] =
-  ## One temporal cell, `none` if it is null.
+  ## One temporal or enum cell, `none` if it is null.
   df.slice(row, 1).toList(column, Option[T])[0]
 
 type

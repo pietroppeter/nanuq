@@ -33,6 +33,10 @@ its OpenSpec change is archived. Format based on
   `ParquetCompression`, `compressionLevel`, `statistics`, `rowGroupSize`), `scanIpc`,
   `readIpc`, `writeIpc` (with `IpcCompression`), and reading CSV, Parquet and IPC from a
   Nim `Stream` (`readCsv(newStringStream(text))`). (add-parquet-ipc, #47)
+- Categoricals: `Categorical` and `Enum(["low", "high"])` dtypes, and Nim enums as
+  Polars Enums (`cast(Monument)`, `series("m", [Gold, Silver])`, `toList(df, "m",
+  Medal)`, `col.medal == Gold`); the `cat` namespace (`getCategories`, `lenChars`,
+  `startsWith`, `slice`, ...) and `Expr.toPhysical`. (add-categoricals, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
