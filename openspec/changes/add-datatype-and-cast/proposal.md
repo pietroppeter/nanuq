@@ -27,9 +27,13 @@ The rest of that entry stays in the backlog. It is the first change of the 0.2 r
   (`== Int64`) or use `$`.
 - New `schema(df)` and `collectSchema(lf)`: the column names and types, in order, as a
   `Schema` (an `OrderedTable[string, DataType]`). New `dtypes(df)`.
-- New `cast` on expressions (`col("a").cast(Int32)`, `strict = true` by default), on
-  DataFrame and LazyFrame for named columns (`df.cast({"a": Int32})`) and for all columns
-  (`df.cast(Float64)`).
+- New `cast`, `strict = true` by default. The target is a Nim type where one is enough:
+  `col("a").cast(int32)`, `df.cast(float64)` (all columns). Named columns of a frame take
+  `DataType` values, since a list can't hold different typedescs:
+  `df.cast({"a": Int32, "b": Float32})`. Every form also accepts a `DataType`.
+- New `dataType(T)` maps a Nim type to its `DataType`: `int8` .. `int64`, `uint8` ..
+  `uint64`, `float32`, `float64`, `bool`, `string`; `int` and `float` map to `Int64`
+  and `Float64`, matching how `series` builds them.
 - The C ABI version moves to `0.2.0-dev`. Until `lib-v0.2.0` is released, building from
   a checkout compiles the Rust library from source (prebuilt archives are only fetched
   for released versions).
@@ -50,8 +54,11 @@ Expected differences from Polars' Rust and Python APIs:
 - **One value type, not a class hierarchy.** Python has classes (`pl.Int64`,
   `pl.Datetime("ms")`) under `pl.DataType`; Rust has the `DataType` enum with data in
   some variants. Nim gets an object variant with a `kind` enum, which can grow
-  parameters (time unit, inner type) later. The constants make use read like Python:
-  `col("a").cast(Int32)`.
+  parameters (time unit, inner type) later. The constants keep Polars' names, so
+  `df.cast({"a": Int32})` reads like Python.
+- **Nim types as cast targets.** Polars only takes its own dtypes. Nanuq also takes Nim
+  types (`col("a").cast(int32)`), like `toSeq(df, "a", int)` does for reads. `dtype` and
+  `schema` still return `DataType` values: a Nim type can't be returned at run time.
 - **Unmodelled dtypes.** Polars knows every dtype. Nanuq maps the ones it does not model
   yet to `dkOther` with Polars' name, and refuses to `cast` to them.
 - **No 128-bit integers, no Decimal.** `Int128`, `UInt128` and `Decimal` are left out
@@ -61,8 +68,8 @@ Expected differences from Polars' Rust and Python APIs:
 - **Schema type.** Python's `pl.Schema` is an ordered mapping; Nanuq uses Nim's
   `OrderedTable[string, DataType]`. Python's `df.schema` is a property; in Nim it is a
   proc, `df.schema` reads the same.
-- **`cast` is a Nim keyword.** Method-call syntax works (`col("a").cast(Int32)`,
-  `df.cast(Float64)`), but the prefix form needs backticks: `` `cast`(col("a"), Int32) ``.
+- **`cast` is a Nim keyword.** Method-call syntax works (`col("a").cast(int32)`,
+  `df.cast(float64)`), but the prefix form needs backticks: `` `cast`(col("a"), int32) ``.
 - **Frame cast arguments.** Python's `df.cast({"a": pl.Int32})` takes a dict; Nim takes
   an `openArray[(string, DataType)]`, written with the same braces:
   `df.cast({"a": Int32})`.

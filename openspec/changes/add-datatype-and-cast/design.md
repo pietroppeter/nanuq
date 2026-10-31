@@ -77,6 +77,20 @@ it with `schema`. Nothing is computed beyond schema resolution.
   verbs.
 - Nim names: `cast` (a keyword, usable with method-call syntax, see the proposal).
 
+### Nim types as cast targets
+`cast` has a `typedesc` overload next to the `DataType` one:
+```nim
+proc cast*(e: Expr, T: typedesc, strict = true): Expr = e.cast(dataType(T), strict)
+```
+`dataType(T)` is resolved at compile time (`when T is int8: Int8 ...`), and an
+unsupported type (an object, `seq`) is a compile error. Named frame casts stay on
+`DataType` (`{"a": Int32}`), because an `openArray` needs one element type and
+typedescs exist only at compile time; `dataType(int32)` gives the same value.
+- *Why:* reads already take Nim types (`toSeq(df, "a", int)`), so writes and casts should
+  too; the Polars names stay available for run-time values.
+- *Later:* `seq[T]` can map to List and `DateTime` to Datetime, with a `DataType` for the
+  cases a Nim type can't express (time unit, time zone).
+
 ### ABI version during 0.2
 `Cargo.toml` moves to `0.2.0-dev` with this change. `ffi.nim` already treats `-dev`
 versions as development builds (no prebuilt download; local or cargo build). The other

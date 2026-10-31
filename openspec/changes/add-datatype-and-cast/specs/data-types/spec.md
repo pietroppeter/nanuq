@@ -37,15 +37,20 @@ LazyFrame without collecting it (`collectSchema`) as a `Schema`, an
 - **THEN** the schema has `c` with `Float64`, and the query is not executed
 
 ### Requirement: Casting
-The API SHALL cast expressions (`e.cast(dtype, strict = true)`), named columns of a
-DataFrame or LazyFrame (`cast({"a": Int32}, strict = true)`) and all their columns
-(`cast(dtype, strict = true)`). A strict cast SHALL raise `NanuqError` (when the query
+The API SHALL cast expressions (`e.cast(target, strict = true)`), all columns of a
+DataFrame or LazyFrame (`cast(target, strict = true)`), where `target` is a Nim type or
+a `DataType`, and named columns (`cast({"a": Int32}, strict = true)`) with `DataType`
+values. A strict cast SHALL raise `NanuqError` (when the query
 runs) if a value cannot be converted; a non-strict cast SHALL turn such values into
 nulls. Casting to a `dkOther` dtype SHALL raise `NanuqError`.
 
 #### Scenario: Narrow an integer column
 - **WHEN** `df.cast({"a": Int32})` runs on an i64 column
 - **THEN** `dtype("a") == Int32` and `toSeq(df, "a", int)` returns the same values
+
+#### Scenario: Nim type as target
+- **WHEN** `col("a").cast(float32)` is selected from an i64 column
+- **THEN** the result column has dtype `Float32`
 
 #### Scenario: Strict failure
 - **WHEN** a string column holding "1" and "x" is cast to `Int64` with `strict = true`
@@ -54,3 +59,16 @@ nulls. Casting to a `dkOther` dtype SHALL raise `NanuqError`.
 #### Scenario: Non-strict cast
 - **WHEN** the same column is cast with `strict = false`
 - **THEN** the result is 1 and null
+
+### Requirement: Nim types map to DataType
+`dataType(T)` SHALL map `int8` to `int64`, `uint8` to `uint64`, `float32`, `float64`,
+`bool` and `string` to their dtypes, `int` to `Int64` and `float` to `Float64`. Other
+types SHALL not compile.
+
+#### Scenario: Platform int
+- **WHEN** `dataType(int)` is evaluated
+- **THEN** it equals `Int64`, the dtype `series` builds from `seq[int]`
+
+#### Scenario: Unsupported type
+- **WHEN** `col("a").cast(seq[int])` is compiled
+- **THEN** compilation fails
