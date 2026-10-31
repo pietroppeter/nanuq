@@ -15,14 +15,14 @@ verbs"). It has no BACKLOG.md entry.
 ## What Changes
 
 - New verbs on LazyFrame, with eager DataFrame shortcuts:
-  - `drop("a", "b", strict = true)` removes columns.
+  - `drop("a")` or `drop(["a", "b"], strict = true)` removes columns.
   - `rename({"old": "new"}, strict = true)` renames columns.
   - `head(n = 5)` (LazyFrame; DataFrame already has it) and `tail(n = 5)` keep the first
     or last rows.
   - `slice(offset)` and `slice(offset, length)` keep a window of rows. A negative offset
     counts from the end.
-  - `unique("a", keep = First, maintainOrder = false)` drops duplicate rows, judged on
-    all columns or on the named ones. `keep` is a `UniqueKeepStrategy`: `Any` (default),
+  - `unique("a", keep = First, maintainOrder = false)` (or a list of names) drops
+    duplicate rows, judged on all columns or on the named ones. `keep` is a `UniqueKeepStrategy`: `Any` (default),
     `First`, `Last` or `None`.
   - `reverse()` reverses the row order.
   - `withRowIndex(name = "index", offset = 0)` adds a row number column first.
@@ -63,8 +63,10 @@ Expected differences from Polars' Rust and Python APIs:
   `seed` is an `Option[int]`.
 - **`rename` takes pairs only.** Python also accepts a function from old to new name.
   That form is left for later.
-- **`unique`'s subset** is a list of names (`varargs`), like `dropNulls`. Selectors and
-  expressions come with the column selectors change.
+- **`drop` takes one name or a list**, not Python's `*columns`: Nim `varargs` followed by
+  `strict` can't take several positional names, so `drop("a", "b")` is written
+  `drop(["a", "b"])`. **`unique`'s subset** is one name or a list, as in Python.
+  Selectors and expressions come with the column selectors change.
 - **Not in this change:** `drop` with selectors, `gather_every`, `shift`, `top_k`/`bottom_k`,
   `clear`, `first`/`last` on frames, `with_row_count` (deprecated in Python), and sort's
   `multithreaded` flag. They stay in the coverage map.

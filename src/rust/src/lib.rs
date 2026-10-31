@@ -890,15 +890,38 @@ pub unsafe extern "C" fn nq_lf_group_by_agg(
     }))
 }
 
+/// Sorts by `n` key expressions. `descending` and `nulls_last` hold 0, 1 or
+/// `n` values: none means false for every key, one applies to every key.
 #[no_mangle]
-pub unsafe extern "C" fn nq_lf_sort(
+pub unsafe extern "C" fn nq_lf_sort_by(
     lf_: *const LazyFrame,
-    by: *const c_char,
-    descending: bool,
+    by: *const *const Expr,
+    n: usize,
+    descending: *const bool,
+    n_desc: usize,
+    nulls_last: *const bool,
+    n_nulls: usize,
+    maintain_order: bool,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
-        let opts = SortMultipleOptions::default().with_order_descending(descending);
-        Ok(lf(lf_)?.sort([cstr(by)?], opts))
+        let by = exprs(by, n)?;
+        if by.is_empty() {
+            return Err("sort needs at least one key".into());
+        }
+        let flags = |p: *const bool, len: usize, what: &str| -> Result<Vec<bool>, String> {
+            let v = slice(p, len)?.to_vec();
+            match v.len() {
+                0 => Ok(vec![false]),
+                1 => Ok(v),
+                l if l == by.len() => Ok(v),
+                l => Err(format!("sort got {l} values for {what} but {} keys", by.len())),
+            }
+        };
+        let opts = SortMultipleOptions::default()
+            .with_order_descending_multi(flags(descending, n_desc, "descending")?)
+            .with_nulls_last_multi(flags(nulls_last, n_nulls, "nullsLast")?)
+            .with_maintain_order(maintain_order);
+        Ok(lf(lf_)?.sort_by_exprs(by, opts))
     }))
 }
 
@@ -1107,5 +1130,119 @@ pub unsafe extern "C" fn nq_lf_concat(
             NqConcat::Horizontal => concat_lf_horizontal(lfs, HConcatOptions::default()),
         }
         .map_err(pe)
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Frame verbs
+// ---------------------------------------------------------------------------
+
+unsafe fn names<'a>(p: *const *const c_char, n: usize) -> Result<Vec<&'a str>, String> {
+    slice(p, n)?.iter().map(|s| cstr(*s)).collect()
+}
+
+/// Drops the `n` named columns; with `strict`, a missing one is an error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_drop(
+    lf_: *const LazyFrame,
+    cols_: *const *const c_char,
+    n: usize,
+    strict: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.drop(by_name(names(cols_, n)?, strict, false)))))
+}
+
+/// Renames `existing[i]` to `new[i]` for the `n` pairs.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_rename(
+    lf_: *const LazyFrame,
+    existing: *const *const c_char,
+    new: *const *const c_char,
+    n: usize,
+    strict: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.rename(names(existing, n)?, names(new, n)?, strict))))
+}
+
+/// `len` rows from `offset`; a negative offset counts from the end.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_slice(lf_: *const LazyFrame, offset: i64, len: u32) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.slice(offset, len.into()))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_reverse(lf_: *const LazyFrame) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.reverse())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_with_row_index(
+    lf_: *const LazyFrame,
+    name: *const c_char,
+    offset: u32,
+) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.with_row_index(cstr(name)?, Some(offset.into())))))
+}
+
+/// Which row of a group of duplicates `unique` keeps. Same order as Nim's
+/// `UniqueKeepStrategy`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqUniqueKeepStrategy {
+    First,
+    Last,
+    None,
+    Any,
+}
+
+/// Drops duplicate rows, judged on the `n` named columns (all when `n == 0`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_unique(
+    lf_: *const LazyFrame,
+    subset: *const *const c_char,
+    n: usize,
+    keep: NqUniqueKeepStrategy,
+    maintain_order: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let subset = names(subset, n)?;
+        let subset = (!subset.is_empty()).then(|| subset.into_iter().map(col).collect());
+        let keep = match keep {
+            NqUniqueKeepStrategy::First => UniqueKeepStrategy::First,
+            NqUniqueKeepStrategy::Last => UniqueKeepStrategy::Last,
+            NqUniqueKeepStrategy::None => UniqueKeepStrategy::None,
+            NqUniqueKeepStrategy::Any => UniqueKeepStrategy::Any,
+        };
+        let lf = lf(lf_)?;
+        Ok(if maintain_order {
+            lf.unique_stable_generic(subset, keep)
+        } else {
+            lf.unique_generic(subset, keep)
+        })
+    }))
+}
+
+/// Random rows: `n` of them, or `fraction` of the height when `by_fraction`.
+/// `seed` is used only when `has_seed`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_sample(
+    df: *const DataFrame,
+    n: usize,
+    fraction: f64,
+    by_fraction: bool,
+    with_replacement: bool,
+    shuffle: bool,
+    has_seed: bool,
+    seed: u64,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let seed = has_seed.then_some(seed);
+        if by_fraction {
+            let frac = Series::new("frac".into(), [fraction]);
+            df.sample_frac(&frac, with_replacement, Some(shuffle), seed).map_err(pe)
+        } else {
+            df.sample_n_literal(n, with_replacement, Some(shuffle), seed).map_err(pe)
+        }
     }))
 }

@@ -5,6 +5,7 @@ nimcache/
 /tests/test_nulls
 /tests/test_datatypes
 /tests/test_combining
+/tests/test_verbs
 *.out
 /docs/**/*.html
 /docs/**/*.png

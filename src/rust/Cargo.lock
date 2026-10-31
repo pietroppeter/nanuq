@@ -1807,6 +1807,8 @@ dependencies = [
  "polars-error",
  "polars-schema",
  "polars-utils",
+ "rand",
+ "rand_distr",
  "rayon",
  "regex",
  "regex-syntax",
