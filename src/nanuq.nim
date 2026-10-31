@@ -23,7 +23,7 @@
 ##   echo df.nullCount("a")            # 1
 ##   df.toSeq("a", int)                # raises NanuqError: column has nulls
 
-import std/[options, tables]
+import std/[macros, options, tables]
 import nanuq/ffi
 
 export options  # some/none/Option, for null-aware reads and series
@@ -499,6 +499,10 @@ defBinOp(`>`, nqGt)
 defBinOp(`>=`, nqGtEq)
 defBinOp(`and`, nqAnd)
 defBinOp(`or`, nqOr)
+defBinOp(`mod`, nqMod)
+defBinOp(`div`, nqFloorDiv)
+defBinOp(`^`, nqPow)
+defBinOp(pow, nqPow)
 
 proc unary(e: Expr, op: NqUnary): Expr = wrap nq_expr_unary(e.raw, op)
 
@@ -511,8 +515,18 @@ proc count*(e: Expr): Expr = unary(e, nqCount)
 proc first*(e: Expr): Expr = unary(e, nqFirst)
 proc last*(e: Expr): Expr = unary(e, nqLast)
 proc nUnique*(e: Expr): Expr = unary(e, nqNUnique)
-proc std*(e: Expr): Expr = unary(e, nqStd)
-  ## Sample standard deviation (ddof = 1).
+proc std*(e: Expr, ddof = 1): Expr =
+  ## Standard deviation; `ddof = 1` gives the sample standard deviation.
+  wrap nq_expr_var_std(e.raw, ddof.uint8, false)
+proc `var`*(e: Expr, ddof = 1): Expr =
+  ## Variance; `ddof = 1` gives the sample variance. `var` is a Nim keyword:
+  ## write `e.var`, or `` `var`(e) ``.
+  wrap nq_expr_var_std(e.raw, ddof.uint8, true)
+proc median*(e: Expr): Expr = unary(e, nqMedian)
+proc len*(e: Expr): Expr = unary(e, nqLen)
+  ## Number of rows, nulls included (`count` leaves nulls out).
+proc abs*(e: Expr): Expr = unary(e, nqAbs)
+proc `-`*(e: Expr): Expr = unary(e, nqNeg)
 
 proc isNull*(e: Expr): Expr = unary(e, nqIsNull)
 proc isNotNull*(e: Expr): Expr = unary(e, nqIsNotNull)
@@ -533,6 +547,138 @@ proc `cast`*(e: Expr, dtype: DataType, strict = true): Expr =
 proc `cast`*(e: Expr, T: typedesc, strict = true): Expr =
   ## Converts to the data type of a Nim type: `col("a").cast(int32)`.
   e.cast(dataType(T), strict)
+
+# ---------------------------------------------------------------------------
+# More expressions: conditionals, membership, rounding, fill strategies, windows
+# ---------------------------------------------------------------------------
+
+type
+  ClosedInterval* {.pure.} = enum
+    ## Which ends of an `isBetween` range are included (Polars' `ClosedInterval`).
+    Both, Left, Right, None
+  QuantileMethod* {.pure.} = enum
+    ## How `quantile` picks or interpolates a value (Polars' `QuantileMethod`).
+    Nearest, Lower, Higher, Midpoint, Linear, Equiprobable
+  FillNullStrategy* {.pure.} = enum
+    ## How `fillNull` fills nulls (Polars' `FillNullStrategy`).
+    Forward, Backward, Mean, Min, Max, Zero, One
+  RoundMode* {.pure.} = enum
+    ## How `round` breaks ties (Polars' `RoundMode`).
+    HalfToEven, HalfAwayFromZero, ToZero
+
+  When* = object
+    ## A conditional chain waiting for `then`.
+    conds, values: seq[Expr]
+  Then* = object
+    ## A conditional chain that can take another `when`, an `otherwise`, or be
+    ## used as an `Expr` (rows matching no condition are null).
+    conds, values: seq[Expr]
+
+proc whenThen(t: Then, otherwise: Expr): Expr =
+  let c = raws(t.conds)
+  let v = raws(t.values)
+  let o = if otherwise.isNil: nil else: otherwise.raw
+  wrap nq_expr_when_then(c.firstOrNil, v.firstOrNil, c.len.csize_t, o)
+
+proc `when`*(cond: Expr): When =
+  ## Starts a conditional chain, as Polars' `when`:
+  ## `` `when`(col("w") < 150).then("cub").otherwise("big") ``. `when` is a Nim
+  ## keyword, so the first call needs backticks (the `choose` macro avoids them).
+  When(conds: @[cond])
+proc `when`*(t: Then, cond: Expr): When = When(conds: t.conds & cond, values: t.values)
+proc then*[T](w: When, value: T): Then =
+  ## The value for rows matching the last condition. Strings are literals: use
+  ## `col("x")` for a column.
+  Then(conds: w.conds, values: w.values & lit(value))
+proc otherwise*[T](t: Then, value: T): Expr =
+  ## The value for rows matching no condition.
+  whenThen(t, lit(value))
+converter toExpr*(t: Then): Expr =
+  ## A chain without `otherwise`: rows matching no condition are null.
+  whenThen(t, nil)
+proc `$`*(t: Then): string = $toExpr(t)
+
+macro choose*(body: untyped): untyped =
+  ## A conditional expression written as Nim's `if`/`elif`/`else`; it builds
+  ## the same `when/then/otherwise` chain:
+  ##
+  ## .. code-block:: nim
+  ##   let size = choose:
+  ##     if col("w") < 150: "cub"
+  ##     elif col("w") < 500: "adult"
+  ##     else: "chonk"
+  ##
+  ## Without `else`, rows matching no condition are null.
+  var n = body
+  if n.kind == nnkStmtList and n.len == 1: n = n[0]
+  if n.kind notin {nnkIfStmt, nnkIfExpr}:
+    error("choose expects an if/elif/else expression", body)
+  proc value(x: NimNode): NimNode =
+    if x.kind == nnkStmtList and x.len == 1: x[0] else: x
+  var chain: NimNode = nil
+  for branch in n:
+    case branch.kind
+    of nnkElifBranch, nnkElifExpr:
+      let w = if chain.isNil: newCall(ident"when", branch[0])
+              else: newCall(ident"when", chain, branch[0])
+      chain = newCall(ident"then", w, value(branch[1]))
+    of nnkElse, nnkElseExpr:
+      return newCall(ident"otherwise", chain, value(branch[0]))
+    else:
+      error("choose expects an if/elif/else expression", branch)
+  result = newCall(ident"toExpr", chain)
+
+proc isIn*(e: Expr, other: Expr, nullsEqual = false): Expr =
+  ## True where the value is among the values of `other`.
+  wrap nq_expr_is_in(e.raw, other.raw, nullsEqual)
+proc isIn*[T: int | float | bool | string](e: Expr, values: openArray[T],
+                                           nullsEqual = false): Expr =
+  ## True where the value is one of `values`: `col("a").isIn([1, 3])`.
+  let s = series("", values)
+  e.isIn(wrap nq_expr_lit_series(s.raw), nullsEqual)
+
+proc isBetween*[A, B](e: Expr, lower: A, upper: B, closed = ClosedInterval.Both): Expr =
+  ## True where `lower <= value <= upper` (ends included as `closed` says).
+  let lo = lit(lower)
+  let hi = lit(upper)
+  wrap nq_expr_is_between(e.raw, lo.raw, hi.raw, NqClosedInterval(ord(closed)))
+
+proc quantile*(e: Expr, q: float, interpolation = QuantileMethod.Nearest): Expr =
+  ## The `q` quantile (0 to 1). `interpolation` is Python Polars' name for the method.
+  wrap nq_expr_quantile(e.raw, q, NqQuantileMethod(ord(interpolation)))
+
+proc round*(e: Expr, decimals = 0, mode = RoundMode.HalfToEven): Expr =
+  ## Rounds to `decimals` places; ties go to the even digit by default, as in Polars.
+  if decimals < 0: raise newException(ValueError, "round decimals must not be negative")
+  wrap nq_expr_round(e.raw, decimals.uint32, NqRoundMode(ord(mode)))
+
+proc fillNull*(e: Expr, strategy: FillNullStrategy, limit = none(int)): Expr =
+  ## Fills nulls with a strategy: `fillNull(Forward)`, `fillNull(Mean)`. `limit`
+  ## bounds how many consecutive nulls `Forward` and `Backward` fill.
+  if limit.isSome and limit.get < 0:
+    raise newException(ValueError, "fillNull limit must not be negative")
+  wrap nq_expr_fill_null_strategy(e.raw, NqFillNullStrategy(ord(strategy)), limit.isSome,
+                                  limit.get(0).uint32)
+proc fillNull*(e: Expr, strategy: FillNullStrategy, limit: int): Expr =
+  e.fillNull(strategy, some(limit))
+proc forwardFill*(e: Expr, limit = none(int)): Expr =
+  ## Fills each null with the last non-null value above it.
+  e.fillNull(FillNullStrategy.Forward, limit)
+proc forwardFill*(e: Expr, limit: int): Expr = e.forwardFill(some(limit))
+proc backwardFill*(e: Expr, limit = none(int)): Expr =
+  ## Fills each null with the next non-null value below it.
+  e.fillNull(FillNullStrategy.Backward, limit)
+proc backwardFill*(e: Expr, limit: int): Expr = e.backwardFill(some(limit))
+
+proc over*(e: Expr, partitionBy: openArray[Expr]): Expr =
+  ## Computes `e` per group of `partitionBy` and gives each row its group's value.
+  let b = raws(partitionBy)
+  wrap nq_expr_over(e.raw, b.firstOrNil, b.len.csize_t)
+proc over*(e: Expr, partitionBy: openArray[string]): Expr =
+  var keys: seq[Expr]
+  for n in partitionBy: keys.add col(n)
+  e.over(keys)
+proc over*(e: Expr, partitionBy: string): Expr = e.over([col(partitionBy)])
 
 # ---------------------------------------------------------------------------
 # Lazy API

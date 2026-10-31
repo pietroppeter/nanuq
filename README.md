@@ -160,7 +160,13 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `"i64"`), `dtypes`, `schema`, `lf.collectSchema`, and `cast` with a Nim type
   (`col("a").cast(int32)`, `df.cast(float64)`) or per column (`df.cast({"a": Int32})`),
   strict by default (`strict = false` turns failures into nulls)
-- Expressions: `col`, `lit`, `+ - * /`, comparisons, `and or not`, `sum mean min max count first last nUnique std`, `alias`
+- Expressions: `col`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`, `round`, comparisons,
+  `and or not`, `isIn`, `isBetween`, `sum mean median min max count len first last nUnique
+  std var quantile`, `alias`
+- Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
+  `if`/`elif`/`else` (strings in branches are values, not column names)
+- Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
+  and `over("group")` for per-group values on every row
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)
 - Frame verbs (lazy and eager): `drop("a")` or `drop(["a", "b"])`, `rename({"old": "new"})`,
@@ -183,6 +189,10 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   (where Rust has no enum, the name follows Python's strings). There are no string options.
 - Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
   Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
+- Operators keep Polars' meaning, not Nim's: `mod` and `div` round towards negative
+  infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit.
+- Polars names that are Nim keywords work after a dot (`e.cast(Int32)`, `e.var`,
+  `.when(c)`); as a first call they need backticks (`` `when`(c) ``).
 
 ## Next steps
 

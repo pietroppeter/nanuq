@@ -69,12 +69,12 @@ Polars' floor semantics.
 - **THEN** the results are 2.0 and 3.0
 
 ### Requirement: More aggregations
-`Expr` SHALL support `median`, `var(ddof = 1)`, `std(ddof = 1)`, `quantile(q, method =
+`Expr` SHALL support `median`, `var(ddof = 1)`, `std(ddof = 1)`, `quantile(q, interpolation =
 Nearest)` with a pure enum `QuantileMethod` (`Nearest`, `Lower`, `Higher`, `Midpoint`,
 `Linear`, `Equiprobable`), and `len`, which counts rows including nulls.
 
 #### Scenario: Median and quantile
-- **WHEN** `median` and `quantile(0.25, method = Linear)` are computed over 1, 2, 3 and 4
+- **WHEN** `median` and `quantile(0.25, interpolation = Linear)` are computed over 1, 2, 3 and 4
 - **THEN** the results are 2.5 and 1.75
 
 #### Scenario: len vs count
