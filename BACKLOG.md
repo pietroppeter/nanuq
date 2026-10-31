@@ -48,6 +48,8 @@ two), L (more).
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): `when/then/otherwise`, string functions, window functions
   (`over`).
+  *In progress* (conditionals and `over`) as OpenSpec change `add-expr-essentials`;
+  string functions stay here.
 
 ## Ecosystem
 
