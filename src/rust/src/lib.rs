@@ -15,7 +15,6 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
 use std::fs::File;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::PathBuf;
 use std::ptr;
 
 use polars::prelude::*;
@@ -257,37 +256,102 @@ pub unsafe extern "C" fn nq_df_new(series: *const *const Series, n: usize) -> *m
     }))
 }
 
-/// Reads a CSV with a header row. The `n` strings in `null_values` are read as
-/// null in every column; with `n == 0` only empty fields are.
+/// Lazily scans a CSV file or glob. `null_values` (n_nulls strings) are read as
+/// null in every column; `override_names`/`override_dtypes` (n_overrides each) set
+/// column dtypes. `n_rows < 0` reads all rows; `infer_schema_length < 0` infers
+/// from all rows.
 #[no_mangle]
-pub unsafe extern "C" fn nq_df_read_csv(
+pub unsafe extern "C" fn nq_lf_scan_csv(
     path: *const c_char,
+    separator: u8,
+    has_header: bool,
     null_values: *const *const c_char,
-    n: usize,
-) -> *mut DataFrame {
+    n_nulls: usize,
+    override_names: *const *const c_char,
+    override_dtypes: *const NqDtype,
+    n_overrides: usize,
+    skip_rows: usize,
+    n_rows: i64,
+    infer_schema_length: i64,
+    ignore_errors: bool,
+    decimal_comma: bool,
+) -> *mut LazyFrame {
     boxed(guard(|| {
-        let path = PathBuf::from(cstr(path)?);
-        let nulls = slice(null_values, n)?
-            .iter()
-            .map(|s| cstr(*s).map(PlSmallStr::from))
-            .collect::<Result<Vec<_>, _>>()?;
+        let path = cstr(path)?;
+        let nulls = names(null_values, n_nulls)?
+            .into_iter()
+            .map(PlSmallStr::from)
+            .collect::<Vec<_>>();
         let nulls = (!nulls.is_empty()).then(|| NullValues::AllColumns(nulls));
-        CsvReadOptions::default()
-            .with_has_header(true)
-            .map_parse_options(|o| o.with_null_values(nulls.clone()))
-            .try_into_reader_with_file_path(Some(path))
-            .map_err(pe)?
+        let onames = names(override_names, n_overrides)?;
+        let odtypes = slice(override_dtypes, n_overrides)?;
+        let overrides = if n_overrides == 0 {
+            None
+        } else {
+            let fields = onames
+                .iter()
+                .zip(odtypes)
+                .map(|(n, d)| Ok(Field::new((*n).into(), dtype_from_code(*d)?)))
+                .collect::<Result<Vec<_>, String>>()?;
+            Some(Arc::new(Schema::from_iter(fields)))
+        };
+        let opt = |v: i64| (v >= 0).then_some(v as usize);
+        LazyCsvReader::new(PlRefPath::from(path))
+            .with_separator(separator)
+            .with_has_header(has_header)
+            .with_null_values(nulls)
+            .with_dtype_overwrite(overrides)
+            .with_skip_rows(skip_rows)
+            .with_n_rows(opt(n_rows))
+            .with_infer_schema_length(opt(infer_schema_length))
+            .with_ignore_errors(ignore_errors)
+            .with_decimal_comma(decimal_comma)
             .finish()
             .map_err(pe)
     }))
 }
 
+/// Quote styles for `nq_df_write_csv`. Same order as Nim's `QuoteStyle`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqQuoteStyle {
+    Necessary = 0,
+    Always,
+    NonNumeric,
+    Never,
+}
+
+/// Writes a CSV file. `float_precision < 0` keeps full precision.
 #[no_mangle]
-pub unsafe extern "C" fn nq_df_write_csv(df: *const DataFrame, path: *const c_char) -> bool {
+pub unsafe extern "C" fn nq_df_write_csv(
+    df: *const DataFrame,
+    path: *const c_char,
+    separator: u8,
+    include_header: bool,
+    null_value: *const c_char,
+    quote_style: NqQuoteStyle,
+    float_precision: i32,
+    decimal_comma: bool,
+) -> bool {
     guard(|| {
         let mut df = borrow(df, "DataFrame")?.clone();
+        let null_value = cstr(null_value)?;
+        let quote_style = match quote_style {
+            NqQuoteStyle::Necessary => QuoteStyle::Necessary,
+            NqQuoteStyle::Always => QuoteStyle::Always,
+            NqQuoteStyle::NonNumeric => QuoteStyle::NonNumeric,
+            NqQuoteStyle::Never => QuoteStyle::Never,
+        };
         let mut file = File::create(cstr(path)?).map_err(|e| e.to_string())?;
-        CsvWriter::new(&mut file).finish(&mut df).map_err(pe)
+        CsvWriter::new(&mut file)
+            .with_separator(separator)
+            .include_header(include_header)
+            .with_null_value(null_value.into())
+            .with_quote_style(quote_style)
+            .with_float_precision((float_precision >= 0).then_some(float_precision as usize))
+            .with_decimal_comma(decimal_comma)
+            .finish(&mut df)
+            .map_err(pe)
     })
     .is_some()
 }
