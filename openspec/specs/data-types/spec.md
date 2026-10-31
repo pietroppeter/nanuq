@@ -7,13 +7,11 @@ columns and expressions.
 ## Requirements
 
 ### Requirement: DataType values
-The API SHALL provide a `DataType` value with a `kind` of type `DataTypeKind` covering
+The API SHALL provide a `DataType` value with a `kind` of type `DataTypeKind` (a pure
+enum, see `api-conventions`) covering
 Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64,
-String and Null, plus `dkOther` carrying Polars' name for any other dtype. It SHALL
-export constants with Polars' names (`Int64`, `String`, ...), `==`, `$` returning
-Polars' short name, and the predicates `isInteger`, `isSignedInteger`,
-`isUnsignedInteger`, `isFloat` and `isNumeric`. `dtype(df, col)` SHALL return a
-`DataType`.
+String and Null, plus `DataTypeKind.Other` carrying Polars' name for any other dtype.
+`dtype(df, col)` SHALL return a `DataType`.
 
 #### Scenario: Column dtype
 - **WHEN** a DataFrame is built from a Nim `seq[int]` column `a`
@@ -21,7 +19,12 @@ Polars' short name, and the predicates `isInteger`, `isSignedInteger`,
 
 #### Scenario: Unmodelled dtype
 - **WHEN** a column has a dtype Nanuq does not model
-- **THEN** its `kind` is `dkOther` and `$` returns Polars' name for it
+- **THEN** its `kind` is `DataTypeKind.Other` and `$` returns Polars' name for it
+
+### Requirement: DataType constants and predicates
+The API SHALL export `DataType` constants with Polars' names (`Int64`, `String`, ...),
+`==`, `$` returning Polars' short name, and the predicates `isInteger`,
+`isSignedInteger`, `isUnsignedInteger`, `isFloat` and `isNumeric`.
 
 #### Scenario: Predicates
 - **WHEN** `isNumeric` is called on `UInt8`, `Float32` and `String`
@@ -46,7 +49,7 @@ DataFrame or LazyFrame (`cast(target, strict = true)`), where `target` is a Nim 
 a `DataType`, and named columns (`cast({"a": Int32}, strict = true)`) with `DataType`
 values. A strict cast SHALL raise `NanuqError` (when the query
 runs) if a value cannot be converted; a non-strict cast SHALL turn such values into
-nulls. Casting to a `dkOther` dtype SHALL raise `NanuqError`.
+nulls. Casting to a `DataTypeKind.Other` dtype SHALL raise `NanuqError`.
 
 #### Scenario: Narrow an integer column
 - **WHEN** `df.cast({"a": Int32})` runs on an i64 column

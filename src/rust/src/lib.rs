@@ -966,3 +966,146 @@ pub unsafe extern "C" fn nq_lf_cast(
 pub unsafe extern "C" fn nq_lf_cast_all(lf_: *const LazyFrame, code: NqDtype, strict: bool) -> *mut LazyFrame {
     boxed(guard(|| Ok(lf(lf_)?.cast_all(dtype_from_code(code)?, strict))))
 }
+
+// ---------------------------------------------------------------------------
+// Joins and concatenation
+// ---------------------------------------------------------------------------
+
+/// Join types. Keep in sync with `NqJoinType` in nanuq/ffi.nim and
+/// `JoinType` in nanuq.nim (same order).
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NqJoinType {
+    Inner = 0,
+    Left,
+    Right,
+    Full,
+    Semi,
+    Anti,
+    Cross,
+}
+
+/// Join key checks. Keep in sync with `NqJoinValidation` / `JoinValidation`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqJoinValidation {
+    ManyToMany = 0,
+    ManyToOne,
+    OneToMany,
+    OneToOne,
+}
+
+/// Row order of a join. Keep in sync with `NqMaintainOrderJoin` /
+/// `MaintainOrderJoin`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqMaintainOrderJoin {
+    None = 0,
+    Left,
+    Right,
+    LeftRight,
+    RightLeft,
+}
+
+/// Concatenation methods. Keep in sync with `NqConcat` / `ConcatMethod`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqConcat {
+    Vertical = 0,
+    VerticalRelaxed,
+    Horizontal,
+    Diagonal,
+    DiagonalRelaxed,
+}
+
+/// Joins `left_` with `right_`. `coalesce` is -1 for Polars' per-join-type
+/// default, 0 to keep both key columns, 1 to coalesce them. A cross join takes
+/// no keys; every other join needs the same number of keys (at least one) on
+/// each side.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_join(
+    left_: *const LazyFrame,
+    right_: *const LazyFrame,
+    left_on: *const *const Expr,
+    n_left: usize,
+    right_on: *const *const Expr,
+    n_right: usize,
+    how: NqJoinType,
+    suffix: *const c_char,
+    validate: NqJoinValidation,
+    nulls_equal: bool,
+    coalesce: i32,
+    maintain_order: NqMaintainOrderJoin,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let left_on = exprs(left_on, n_left)?;
+        let right_on = exprs(right_on, n_right)?;
+        if how == NqJoinType::Cross {
+            if !left_on.is_empty() || !right_on.is_empty() {
+                return Err("a cross join takes no join keys".into());
+            }
+        } else if left_on.is_empty() || left_on.len() != right_on.len() {
+            return Err(format!(
+                "a {how:?} join needs the same number of keys on both sides (got {} and {})",
+                left_on.len(),
+                right_on.len()
+            ));
+        }
+        let mut args = JoinArgs::new(match how {
+            NqJoinType::Inner => JoinType::Inner,
+            NqJoinType::Left => JoinType::Left,
+            NqJoinType::Right => JoinType::Right,
+            NqJoinType::Full => JoinType::Full,
+            NqJoinType::Semi => JoinType::Semi,
+            NqJoinType::Anti => JoinType::Anti,
+            NqJoinType::Cross => JoinType::Cross,
+        });
+        args.suffix = Some(cstr(suffix)?.into());
+        args.validation = match validate {
+            NqJoinValidation::ManyToMany => JoinValidation::ManyToMany,
+            NqJoinValidation::ManyToOne => JoinValidation::ManyToOne,
+            NqJoinValidation::OneToMany => JoinValidation::OneToMany,
+            NqJoinValidation::OneToOne => JoinValidation::OneToOne,
+        };
+        args.nulls_equal = nulls_equal;
+        args.coalesce = match coalesce {
+            0 => JoinCoalesce::KeepColumns,
+            1 => JoinCoalesce::CoalesceColumns,
+            _ => JoinCoalesce::JoinSpecific,
+        };
+        args.maintain_order = match maintain_order {
+            NqMaintainOrderJoin::None => MaintainOrderJoin::None,
+            NqMaintainOrderJoin::Left => MaintainOrderJoin::Left,
+            NqMaintainOrderJoin::Right => MaintainOrderJoin::Right,
+            NqMaintainOrderJoin::LeftRight => MaintainOrderJoin::LeftRight,
+            NqMaintainOrderJoin::RightLeft => MaintainOrderJoin::RightLeft,
+        };
+        Ok(lf(left_)?.join(lf(right_)?, left_on, right_on, args))
+    }))
+}
+
+/// Concatenates `n` LazyFrames.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_concat(
+    lfs: *const *const LazyFrame,
+    n: usize,
+    how: NqConcat,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let lfs = slice(lfs, n)?
+            .iter()
+            .map(|p| lf(*p))
+            .collect::<Result<Vec<_>, _>>()?;
+        if lfs.is_empty() {
+            return Err("concat needs at least one frame".into());
+        }
+        let relaxed = matches!(how, NqConcat::VerticalRelaxed | NqConcat::DiagonalRelaxed);
+        let args = UnionArgs { to_supertypes: relaxed, ..Default::default() };
+        match how {
+            NqConcat::Vertical | NqConcat::VerticalRelaxed => concat(lfs, args),
+            NqConcat::Diagonal | NqConcat::DiagonalRelaxed => concat_lf_diagonal(lfs, args),
+            NqConcat::Horizontal => concat_lf_horizontal(lfs, HConcatOptions::default()),
+        }
+        .map_err(pe)
+    }))
+}

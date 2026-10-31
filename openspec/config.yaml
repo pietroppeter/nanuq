@@ -17,6 +17,8 @@ rules:
     - Include a "Differences from Polars" section listing every expected difference
       between the proposed Nim API and Polars' Rust and Python APIs (behavior and
       names), or saying there are none
+    - Name the API after Polars in camelCase, and spell option values as the
+      api-conventions spec says (pure enums with Rust Polars names, no strings)
 
 operations:
   archive:

@@ -10,7 +10,7 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16"] }
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat"] }
 
 [profile.release]
 opt-level = 3

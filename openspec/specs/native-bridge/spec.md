@@ -31,8 +31,10 @@ Every FFI function SHALL catch Polars errors and Rust panics, signal failure wit
 
 ### Requirement: Nim declarations mirror the C ABI
 `src/nanuq/ffi.nim` SHALL declare every exported function with matching signatures, and
-the enums `NqBinOp`, `NqUnary` and `NqDtype` SHALL keep the same order as in Rust.
-`NqDtype` SHALL also keep the order of `DataTypeKind` in the Nim API.
+the enums `NqBinOp`, `NqUnary`, `NqDtype`, `NqJoinType`, `NqJoinValidation`,
+`NqMaintainOrderJoin` and `NqConcat` SHALL keep the same order as in Rust. `NqDtype` SHALL also
+keep the order of `DataTypeKind`, and the join and concat enums the order of their Nim
+API enums.
 
 #### Scenario: ABI change
 - **WHEN** a function is added or changed in `rust/src/lib.rs`
