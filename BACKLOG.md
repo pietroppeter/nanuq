@@ -47,6 +47,11 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): string functions (conditionals and `over` landed in 0.2).
+- **`toSeq` clashes with `sequtils.toSeq`** (S). With `nanuq` imported,
+  `toSeq(walkFiles("*.csv"))` fails to compile ("attempting to call routine:
+  'walkFiles'"): overload resolution picks Nanuq's `toSeq(df, column, T)` proc over the
+  `sequtils` template. Found while writing the 0.2 explainer. Options: rename the column
+  reader (Polars calls it `to_list`), or check whether a different signature avoids the clash.
 
 ## Ecosystem
 
@@ -94,11 +99,6 @@ two), L (more).
   `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
-- **0.2 explainer post** (S-M). A dev-log post with a playful, non-trivial example of
-  the whole 0.2 release, written once 0.2 is out. A first draft covering only data
-  types and casts ("The great polar bear census": a messy ranger field log from four
-  Svalbard stations) was taken out of #26; the idea is to be reconsidered then, e.g.
-  extended with joins (station coordinates), frame verbs and conditional expressions.
 - **Official documentation** (L). A reference and guides, separate from the dev log.
 
 ## CI
