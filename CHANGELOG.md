@@ -12,17 +12,17 @@ its OpenSpec change is archived. Format based on
   a Nim type (`col("a").cast(int32)`) or `DataType` values (`df.cast({"a": Int32})`),
   strict by default. The wrapper crate is `0.2.0-dev` until `lib-v0.2.0`. (#26)
 - Joins: `join` on `on` or `leftOn`/`rightOn` keys (names or expressions) and cross
-  joins, with `how`, `suffix`, `validate`, `nullsEqual`, `coalesce` and `maintainOrder`. (#PR)
+  joins, with `how`, `suffix`, `validate`, `nullsEqual`, `coalesce` and `maintainOrder`. (#28)
 - Concatenation: `concat` of frames, vertical (strict or relaxed), horizontal or
-  diagonal. (#PR)
+  diagonal. (#28)
 - API conventions, written down in the README and the `api-conventions` spec: Polars
-  names in camelCase, option values as pure enums with Rust Polars names. (#PR)
+  names in camelCase, option values as pure enums with Rust Polars names. (#28)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
   the constants (`== Int64`); `$` gives the old string. (#26)
 - **Breaking:** `DataTypeKind` is a pure enum with Polars' names: `DataTypeKind.Int64`,
-  `DataTypeKind.Other` instead of `dkInt64`, `dkOther`. (#PR)
+  `DataTypeKind.Other` instead of `dkInt64`, `dkOther`. (#28)
 
 ## [0.1.0] - 2026-10-28
 
