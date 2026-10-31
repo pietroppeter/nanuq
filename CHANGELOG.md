@@ -11,6 +11,8 @@ its OpenSpec change is archived. Format based on
   `schema`, `collectSchema`, `dataType(T)`, and `cast` on expressions and frames, taking
   a Nim type (`col("a").cast(int32)`) or `DataType` values (`df.cast({"a": Int32})`),
   strict by default. The wrapper crate is `0.2.0-dev` until `lib-v0.2.0`. (#26)
+- Dev log post "The great polar bear census": cleaning a messy field log with data
+  types, schemas and casts. (#26)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
