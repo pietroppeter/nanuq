@@ -106,62 +106,63 @@ proc polarsWrapperVersion*(): string =
 # ---------------------------------------------------------------------------
 
 type
-  DataTypeKind* = enum
-    ## Same order as `NqDtype` in the C ABI.
-    dkBoolean, dkInt8, dkInt16, dkInt32, dkInt64, dkUInt8, dkUInt16, dkUInt32,
-    dkUInt64, dkFloat32, dkFloat64, dkString, dkNull, dkOther
+  DataTypeKind* {.pure.} = enum
+    ## Same order as `NqDtype` in the C ABI. `Other` is a dtype Nanuq does not
+    ## model yet.
+    Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
+    UInt64, Float32, Float64, String, Null, Other
 
   DataType* = object
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...).
-    ## Dtypes Nanuq does not model yet (dates, lists, ...) have kind `dkOther`
-    ## and keep Polars' name.
+    ## Dtypes Nanuq does not model yet (dates, lists, ...) have kind
+    ## `DataTypeKind.Other` and keep Polars' name.
     case kind*: DataTypeKind
-    of dkOther: name*: string
+    of DataTypeKind.Other: name*: string
     else: discard
 
   Schema* = OrderedTable[string, DataType]
     ## Column names and data types, in column order.
 
 const
-  Boolean* = DataType(kind: dkBoolean)
-  Int8* = DataType(kind: dkInt8)
-  Int16* = DataType(kind: dkInt16)
-  Int32* = DataType(kind: dkInt32)
-  Int64* = DataType(kind: dkInt64)
-  UInt8* = DataType(kind: dkUInt8)
-  UInt16* = DataType(kind: dkUInt16)
-  UInt32* = DataType(kind: dkUInt32)
-  UInt64* = DataType(kind: dkUInt64)
-  Float32* = DataType(kind: dkFloat32)
-  Float64* = DataType(kind: dkFloat64)
-  String* = DataType(kind: dkString)
-  Null* = DataType(kind: dkNull)
+  Boolean* = DataType(kind: DataTypeKind.Boolean)
+  Int8* = DataType(kind: DataTypeKind.Int8)
+  Int16* = DataType(kind: DataTypeKind.Int16)
+  Int32* = DataType(kind: DataTypeKind.Int32)
+  Int64* = DataType(kind: DataTypeKind.Int64)
+  UInt8* = DataType(kind: DataTypeKind.UInt8)
+  UInt16* = DataType(kind: DataTypeKind.UInt16)
+  UInt32* = DataType(kind: DataTypeKind.UInt32)
+  UInt64* = DataType(kind: DataTypeKind.UInt64)
+  Float32* = DataType(kind: DataTypeKind.Float32)
+  Float64* = DataType(kind: DataTypeKind.Float64)
+  String* = DataType(kind: DataTypeKind.String)
+  Null* = DataType(kind: DataTypeKind.Null)
 
 proc `==`*(a, b: DataType): bool =
-  a.kind == b.kind and (a.kind != dkOther or a.name == b.name)
+  a.kind == b.kind and (a.kind != DataTypeKind.Other or a.name == b.name)
 
 proc `$`*(t: DataType): string =
   ## Polars' short name, e.g. "i64", "str".
   case t.kind
-  of dkBoolean: "bool"
-  of dkInt8: "i8"
-  of dkInt16: "i16"
-  of dkInt32: "i32"
-  of dkInt64: "i64"
-  of dkUInt8: "u8"
-  of dkUInt16: "u16"
-  of dkUInt32: "u32"
-  of dkUInt64: "u64"
-  of dkFloat32: "f32"
-  of dkFloat64: "f64"
-  of dkString: "str"
-  of dkNull: "null"
-  of dkOther: t.name
+  of DataTypeKind.Boolean: "bool"
+  of DataTypeKind.Int8: "i8"
+  of DataTypeKind.Int16: "i16"
+  of DataTypeKind.Int32: "i32"
+  of DataTypeKind.Int64: "i64"
+  of DataTypeKind.UInt8: "u8"
+  of DataTypeKind.UInt16: "u16"
+  of DataTypeKind.UInt32: "u32"
+  of DataTypeKind.UInt64: "u64"
+  of DataTypeKind.Float32: "f32"
+  of DataTypeKind.Float64: "f64"
+  of DataTypeKind.String: "str"
+  of DataTypeKind.Null: "null"
+  of DataTypeKind.Other: t.name
 
-proc isSignedInteger*(t: DataType): bool = t.kind in {dkInt8 .. dkInt64}
-proc isUnsignedInteger*(t: DataType): bool = t.kind in {dkUInt8 .. dkUInt64}
+proc isSignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.Int8 .. DataTypeKind.Int64}
+proc isUnsignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.UInt8 .. DataTypeKind.UInt64}
 proc isInteger*(t: DataType): bool = t.isSignedInteger or t.isUnsignedInteger
-proc isFloat*(t: DataType): bool = t.kind in {dkFloat32, dkFloat64}
+proc isFloat*(t: DataType): bool = t.kind in {DataTypeKind.Float32, DataTypeKind.Float64}
 proc isNumeric*(t: DataType): bool = t.isInteger or t.isFloat
 
 proc dataType*(T: typedesc): DataType =
@@ -183,7 +184,7 @@ proc dataType*(T: typedesc): DataType =
   else: {.error: "nanuq: no Polars data type for " & $T.}
 
 proc code(t: DataType): NqDtype =
-  if t.kind == dkOther:
+  if t.kind == DataTypeKind.Other:
     raise newException(NanuqError, "cannot cast to " & t.name & ": Nanuq does not model this dtype yet")
   NqDtype(ord(t.kind))
 
@@ -279,8 +280,8 @@ proc dtype*(df: DataFrame, column: string): DataType =
   ## Data type of a column, e.g. `Int64`; `$` gives Polars' name ("i64").
   let k = nq_df_column_dtype_kind(df.raw, column.cstring)
   if k < 0: raiseLast()
-  if k == ord(dkOther):
-    DataType(kind: dkOther, name: takeString nq_df_column_dtype(df.raw, column.cstring))
+  if k == ord(DataTypeKind.Other):
+    DataType(kind: DataTypeKind.Other, name: takeString nq_df_column_dtype(df.raw, column.cstring))
   else:
     DataType(kind: DataTypeKind(k))
 
@@ -591,6 +592,80 @@ proc `cast`*(lf: LazyFrame, T: typedesc, strict = true): LazyFrame =
   ## Casts every column to the data type of a Nim type: `lf.cast(float64)`.
   lf.cast(dataType(T), strict)
 
+# ---------------------------------------------------------------------------
+# Joins and concatenation
+# ---------------------------------------------------------------------------
+
+type
+  JoinType* {.pure.} = enum
+    ## How rows are matched (Polars' `JoinType`). Same order as `NqJoinType`.
+    Inner, Left, Right, Full, Semi, Anti, Cross
+  JoinValidation* {.pure.} = enum
+    ## Which side's keys must be unique (Polars' `JoinValidation`).
+    ManyToMany, ManyToOne, OneToMany, OneToOne
+  MaintainOrderJoin* {.pure.} = enum
+    ## Row order of the result (Polars' `MaintainOrderJoin`). With `None`,
+    ## the order is not guaranteed.
+    None, Left, Right, LeftRight, RightLeft
+  ConcatMethod* {.pure.} = enum
+    ## How frames are concatenated (Python Polars' `how` in `pl.concat`).
+    Vertical, VerticalRelaxed, Horizontal, Diagonal, DiagonalRelaxed
+
+proc joinImpl(lf, other: LazyFrame, leftOn, rightOn: openArray[Expr], how: JoinType,
+              suffix: string, validate: JoinValidation, nullsEqual: bool,
+              coalesce: Option[bool], maintainOrder: MaintainOrderJoin): LazyFrame =
+  let l = raws(leftOn)
+  let r = raws(rightOn)
+  let c = if coalesce.isNone: -1'i32 elif coalesce.get: 1'i32 else: 0'i32
+  wrap nq_lf_join(lf.raw, other.raw, l.firstOrNil, l.len.csize_t, r.firstOrNil, r.len.csize_t,
+                  NqJoinType(ord(how)), suffix.cstring, NqJoinValidation(ord(validate)),
+                  nullsEqual, c, NqMaintainOrderJoin(ord(maintainOrder)))
+
+proc cols(names: openArray[string]): seq[Expr] =
+  for n in names: result.add col(n)
+
+proc join*(lf, other: LazyFrame, on: openArray[Expr], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): LazyFrame =
+  ## Joins on key expressions that have the same name on both sides.
+  ## `coalesce`: `none` for Polars' default per join type. Row order is not
+  ## guaranteed unless `maintainOrder` says so.
+  joinImpl(lf, other, on, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder)
+
+proc join*(lf, other: LazyFrame, on: openArray[string], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): LazyFrame =
+  ## Joins on columns with the same name on both sides: `a.join(b, on = ["k"], how = Left)`.
+  let k = cols(on)
+  joinImpl(lf, other, k, k, how, suffix, validate, nullsEqual, coalesce, maintainOrder)
+
+proc join*(lf, other: LazyFrame, leftOn, rightOn: openArray[Expr], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): LazyFrame =
+  ## Joins on different key expressions on each side.
+  joinImpl(lf, other, leftOn, rightOn, how, suffix, validate, nullsEqual, coalesce, maintainOrder)
+
+proc join*(lf, other: LazyFrame, leftOn, rightOn: openArray[string], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): LazyFrame =
+  ## Joins on differently named columns: `leftOn = ["id"], rightOn = ["station_id"]`.
+  joinImpl(lf, other, cols(leftOn), cols(rightOn), how, suffix, validate, nullsEqual,
+           coalesce, maintainOrder)
+
+proc join*(lf, other: LazyFrame, how: JoinType, suffix = "_right",
+           maintainOrder = MaintainOrderJoin.None): LazyFrame =
+  ## A join without keys: only `how = Cross` (every pair of rows) is valid.
+  joinImpl(lf, other, [], [], how, suffix, JoinValidation.ManyToMany, false, none(bool),
+           maintainOrder)
+
+proc concat*(frames: openArray[LazyFrame], how = ConcatMethod.Vertical): LazyFrame =
+  ## Concatenates frames: `Vertical` (same columns), `VerticalRelaxed` (common
+  ## supertypes), `Horizontal` (side by side), `Diagonal` (union of columns,
+  ## missing ones null) or `DiagonalRelaxed`.
+  var r = newSeq[ptr NqLazyFrame](frames.len)
+  for i, f in frames: r[i] = f.raw
+  wrap nq_lf_concat(r.firstOrNil, r.len.csize_t, NqConcat(ord(how)))
+
 proc limit*(lf: LazyFrame, n: int): LazyFrame = wrap nq_lf_limit(lf.raw, n.uint32)
 
 proc explain*(lf: LazyFrame): string =
@@ -608,3 +683,29 @@ proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true
   df.lazy.cast(dtypes, strict).collect
 proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collect
 proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collect
+
+proc join*(df, other: DataFrame, on: openArray[string], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+proc join*(df, other: DataFrame, on: openArray[Expr], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+proc join*(df, other: DataFrame, leftOn, rightOn: openArray[string], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
+  df.lazy.join(other.lazy, leftOn, rightOn, how, suffix, validate, nullsEqual, coalesce,
+               maintainOrder).collect
+proc join*(df, other: DataFrame, leftOn, rightOn: openArray[Expr], how = JoinType.Inner,
+           suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
+           coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
+  df.lazy.join(other.lazy, leftOn, rightOn, how, suffix, validate, nullsEqual, coalesce,
+               maintainOrder).collect
+proc join*(df, other: DataFrame, how: JoinType, suffix = "_right",
+           maintainOrder = MaintainOrderJoin.None): DataFrame =
+  df.lazy.join(other.lazy, how, suffix, maintainOrder).collect
+proc concat*(frames: openArray[DataFrame], how = ConcatMethod.Vertical): DataFrame =
+  var lfs: seq[LazyFrame]
+  for f in frames: lfs.add f.lazy
+  concat(lfs, how).collect

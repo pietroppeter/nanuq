@@ -163,6 +163,21 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 - Expressions: `col`, `lit`, `+ - * /`, comparisons, `and or not`, `sum mean min max count first last nUnique std`, `alias`
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)
+- Joins: `a.join(b, on = ["id"], how = Left)`, `leftOn`/`rightOn` (names or expressions),
+  `a.join(b, how = Cross)`, with `suffix`, `validate`, `nullsEqual`, `coalesce` and
+  `maintainOrder`. As in Polars, the row order of a join is not guaranteed unless you
+  pass `maintainOrder`
+- Concatenation: `concat([a, b])`, with `how = VerticalRelaxed`, `Horizontal`, `Diagonal`
+  or `DiagonalRelaxed`
+
+## Conventions
+
+- Names follow Polars, in camelCase: `withColumns`, `groupBy`, `nullCount`.
+- Option values that come from a closed set are pure enums named after Rust Polars'
+  types and variants: `JoinType.Left`, `MaintainOrderJoin.Left`, `ConcatMethod.Diagonal`
+  (where Rust has no enum, the name follows Python's strings). There are no string options.
+- Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
+  Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
 
 ## Next steps
 

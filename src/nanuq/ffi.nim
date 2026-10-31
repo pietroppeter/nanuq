@@ -207,6 +207,15 @@ type
     nqUInt8, nqUInt16, nqUInt32, nqUInt64,
     nqFloat32, nqFloat64, nqString, nqNull, nqOther
 
+  NqJoinType* {.size: sizeof(cint).} = enum
+    nqjInner, nqjLeft, nqjRight, nqjFull, nqjSemi, nqjAnti, nqjCross
+  NqJoinValidation* {.size: sizeof(cint).} = enum
+    nqvManyToMany, nqvManyToOne, nqvOneToMany, nqvOneToOne
+  NqMaintainOrderJoin* {.size: sizeof(cint).} = enum
+    nqoNone, nqoLeft, nqoRight, nqoLeftRight, nqoRightLeft
+  NqConcat* {.size: sizeof(cint).} = enum
+    nqcVertical, nqcVerticalRelaxed, nqcHorizontal, nqcDiagonal, nqcDiagonalRelaxed
+
 {.push importc, cdecl.}
 
 # errors and strings
@@ -287,6 +296,11 @@ proc nq_lf_collect_schema*(lf: ptr NqLazyFrame): ptr NqDataFrame
 proc nq_lf_cast*(lf: ptr NqLazyFrame, names: ptr cstring, codes: ptr NqDtype, n: csize_t,
                  strict: bool): ptr NqLazyFrame
 proc nq_lf_cast_all*(lf: ptr NqLazyFrame, code: NqDtype, strict: bool): ptr NqLazyFrame
+proc nq_lf_join*(left, right: ptr NqLazyFrame, leftOn: ptr ptr NqExpr, nLeft: csize_t,
+                 rightOn: ptr ptr NqExpr, nRight: csize_t, how: NqJoinType, suffix: cstring,
+                 validate: NqJoinValidation, nullsEqual: bool, coalesce: int32,
+                 maintainOrder: NqMaintainOrderJoin): ptr NqLazyFrame
+proc nq_lf_concat*(lfs: ptr ptr NqLazyFrame, n: csize_t, how: NqConcat): ptr NqLazyFrame
 
 {.pop.}
 

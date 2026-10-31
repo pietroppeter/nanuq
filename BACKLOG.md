@@ -45,8 +45,6 @@ two), L (more).
 ## API
 
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
-- **Joins** (M): inner, left, outer, cross.
-  *In progress* as OpenSpec change `add-joins-and-concat` (with concatenation).
 - **More dtypes** (M): dates and datetimes, categoricals.
 - **More expressions** (M): `when/then/otherwise`, string functions, window functions
   (`over`).

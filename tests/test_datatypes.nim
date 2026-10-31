@@ -13,8 +13,8 @@ suite "data types":
     check Int8.isSignedInteger and not Int8.isUnsignedInteger
     check UInt64.isUnsignedInteger and UInt64.isInteger
     check Float64.isFloat and not Int64.isFloat
-    check DataType(kind: dkOther, name: "date") == DataType(kind: dkOther, name: "date")
-    check DataType(kind: dkOther, name: "date") != DataType(kind: dkOther, name: "time")
+    check DataType(kind: DataTypeKind.Other, name: "date") == DataType(kind: DataTypeKind.Other, name: "date")
+    check DataType(kind: DataTypeKind.Other, name: "date") != DataType(kind: DataTypeKind.Other, name: "time")
 
   test "dataType of Nim types":
     check dataType(int) == Int64
@@ -72,4 +72,4 @@ suite "data types":
     check r2.nullCount("s") == 1
 
   test "unmodelled dtypes cannot be cast to":
-    expect NanuqError: discard col("a").cast(DataType(kind: dkOther, name: "date"))
+    expect NanuqError: discard col("a").cast(DataType(kind: DataTypeKind.Other, name: "date"))

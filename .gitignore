@@ -4,6 +4,7 @@ nimcache/
 /tests/test_basic
 /tests/test_nulls
 /tests/test_datatypes
+/tests/test_combining
 *.out
 /docs/**/*.html
 /docs/**/*.png
