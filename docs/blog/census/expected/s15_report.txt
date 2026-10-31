@@ -1,0 +1,26 @@
+shape: (19, 7)
+┌──────┬──────────────┬────────┬───────┬───────────┬───────────┬─────────┐
+│ week ┆ station      ┆ ranger ┆ bears ┆ weight_kg ┆ size      ┆ seal_eq │
+│ ---  ┆ ---          ┆ ---    ┆ ---   ┆ ---       ┆ ---       ┆ ---     │
+│ i64  ┆ str          ┆ str    ┆ i64   ┆ f64       ┆ str       ┆ i64     │
+╞══════╪══════════════╪════════╪═══════╪═══════════╪═══════════╪═════════╡
+│ 4    ┆ Hornsund     ┆ Kari   ┆ 2     ┆ 641.9     ┆ chonk     ┆ 18      │
+│ 2    ┆ Hornsund     ┆ Kari   ┆ null  ┆ 622.0     ┆ chonk     ┆ 27      │
+│ 3    ┆ Hornsund     ┆ Kari   ┆ 2     ┆ 588.3     ┆ chonk     ┆ 16      │
+│ 1    ┆ Hornsund     ┆ Kari   ┆ 3     ┆ 515.0     ┆ chonk     ┆ 15      │
+│ 2    ┆ Ny-Alesund   ┆ Ola    ┆ 3     ┆ 451.2     ┆ chonk     ┆ 14      │
+│ 2    ┆ Longyearbyen ┆ Ingrid ┆ 2     ┆ 412.5     ┆ solid     ┆ 3       │
+│ 2    ┆ Barentsburg  ┆ Sasha  ┆ 2     ┆ 402.8     ┆ solid     ┆ 4       │
+│ 1    ┆ Ny-Alesund   ┆ Ola    ┆ 1     ┆ 389.0     ┆ solid     ┆ 2       │
+│ 3    ┆ Longyearbyen ┆ Ingrid ┆ 1     ┆ 367.4     ┆ solid     ┆ 1       │
+│ 4    ┆ Ny-Alesund   ┆ Ola    ┆ 1     ┆ 295.0     ┆ solid     ┆ 2       │
+│ 3    ┆ Hopen        ┆ Magnus ┆ 5     ┆ 241.7     ┆ solid     ┆ 15      │
+│ 2    ┆ Hopen        ┆ Magnus ┆ 4     ┆ 233.0     ┆ solid     ┆ 6       │
+│ 4    ┆ Hopen        ┆ Magnus ┆ 6     ┆ 226.3     ┆ solid     ┆ 24      │
+│ 3    ┆ Barentsburg  ┆ Sasha  ┆ 1     ┆ 198.6     ┆ slim      ┆ 2       │
+│ 4    ┆ Barentsburg  ┆ Sasha  ┆ 3     ┆ 175.2     ┆ slim      ┆ 13      │
+│ 1    ┆ Longyearbyen ┆ Ingrid ┆ null  ┆ null      ┆ unweighed ┆ 3       │
+│ 1    ┆ Barentsburg  ┆ Sasha  ┆ 0     ┆ null      ┆ unweighed ┆ 0       │
+│ 3    ┆ Ny-Alesund   ┆ Ola    ┆ 2     ┆ null      ┆ unweighed ┆ 3       │
+│ 4    ┆ Longyearbyen ┆ Ingrid ┆ 0     ┆ null      ┆ unweighed ┆ 0       │
+└──────┴──────────────┴────────┴───────┴───────────┴───────────┴─────────┘
