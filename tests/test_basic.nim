@@ -1,4 +1,4 @@
-import std/[os, unittest, strutils, math]
+import std/[os, unittest, strutils, math, sequtils]
 import nanuq
 from nanuq/ffi import lacksModernCpu
 
@@ -15,7 +15,7 @@ suite "dataframe construction":
     check df.dtype("c") == Float64
     check df.dtype("d") == Boolean
     check df["b", 1, string] == "y"
-    check df.toSeq("a", int) == @[1, 2, 3]
+    check df.toList("a", int) == @[1, 2, 3]
     check "shape: (3, 4)" in $df
 
   test "length mismatch raises":
@@ -54,11 +54,11 @@ suite "expressions and queries":
 
   test "filter":
     let r = df.filter(col("x") >= 3 and col("g") == "a")
-    check r.toSeq("x", int) == @[3, 5]
+    check r.toList("x", int) == @[3, 5]
 
   test "with columns arithmetic":
     let r = df.withColumns((col("x") * 2 + col("y")).alias("z"))
-    check r.toSeq("z", float) == @[12.0, 24.0, 36.0, 48.0, 60.0]
+    check r.toList("z", float) == @[12.0, 24.0, 36.0, 48.0, 60.0]
 
   test "select aggregations":
     let r = df.select(col("x").sum.alias("s"), col("y").mean.alias("m"),
@@ -73,13 +73,13 @@ suite "expressions and queries":
     let r = df.lazy.groupBy(col("g"))
               .agg(col("x").sum.alias("sx"), col("y").std.alias("sd"))
               .sort("g").collect
-    check r.toSeq("g", string) == @["a", "b"]
-    check r.toSeq("sx", int) == @[9, 6]
+    check r.toList("g", string) == @["a", "b"]
+    check r.toList("sx", int) == @[9, 6]
     check almostEqual(r["sd", 0, float], 20.0)
 
   test "sort and limit":
     let r = df.lazy.sort("x", descending = true).limit(2).collect
-    check r.toSeq("x", int) == @[5, 4]
+    check r.toList("x", int) == @[5, 4]
 
   test "expression display":
     check "col(\"x\")" in $(col("x") + 1)
@@ -101,3 +101,44 @@ suite "library":
   test "CPU detection picks the legacy build without AVX2":
     check not lacksModernCpu("flags\t\t: fpu sse2 avx avx2 bmi1 bmi2 fma f16c movbe\n")
     check lacksModernCpu("flags\t\t: fpu sse2 avx\n")
+
+suite "0.3 conveniences":
+  test "toSeq from sequtils still works":
+    let files = toSeq(walkFiles(dataDir / "*.csv"))
+    check files.len >= 1
+
+  test "block syntax":
+    let a = newDataFrame:
+      rider: ["Pogačar", "Seixas"]
+      wins: [22, nil]
+      "win %": [0.31, 0.12]
+      ok: [true, false]
+    check a.columns == @["rider", "wins", "win %", "ok"]
+    check a.dtype("wins") == Int64
+    check a.toList("wins", Option[int]) == @[some(22), none(int)]
+    let b = newDataFrame(series("rider", ["Pogačar", "Seixas"]),
+                         series("wins", [some(22), none(int)]),
+                         series("win %", [0.31, 0.12]), series("ok", [true, false]))
+    check $a == $b
+    check newDataFrame().shape == (0, 0)
+    let cols = @[series("x", [1])]
+    check newDataFrame(cols).shape == (1, 1)
+    template onlyNil(): untyped =
+      newDataFrame:
+        wins: [nil, nil]
+    check not compiles(onlyNil())
+    let strs = newDataFrame:
+      s: ["a", nil]
+    check strs.toList("s", Option[string]) == @[some("a"), none(string)]
+
+  test "col shorthand":
+    check $col.race == $col("race")
+    check $col.len == $col("len")
+    check $col.min == $col("min")
+    check $col.end == $col("end")
+    let df = newDataFrame:
+      a: [1, 2]
+      b: [1.5, 2.5]
+    check df.select(col("a", "b")).width == 2
+    check df.select(col(SomeFloat)).columns == @["b"]
+    check df.select(col(float, int)).width == 2

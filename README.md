@@ -156,7 +156,9 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 
 ## What is there
 
-- Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
+- Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, or a
+  block with one `name: [values]` line per column (`nil` is a missing value, names that
+  aren't identifiers are strings), `readCsv`, `writeCsv`
 - CSV: `scanCsv("logs/*.csv")` reads lazily, globs included (same columns in every
   file). `readCsv` (which is `scanCsv(...).collect`) takes the same named options with
   Polars' defaults: `separator = ';'`, `hasHeader`, `nullValues = ["NA"]`,
@@ -165,19 +167,19 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
   `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
-  `toSeq(df, "col", float)` (one FFI call per column)
-- Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,
+  `toList(df, "col", float)` (one FFI call per column)
+- Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
   `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
   `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
-  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toSeq(df, "col", int)`
+  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toList(df, "col", int)`
   raises on a column with nulls.
 - Data types: `dtype(df, "col") == Int64` (constants named as in Polars, `$` gives
   `"i64"`), `dtypes`, `schema`, `lf.collectSchema`, and `cast` with a Nim type
   (`col("a").cast(int32)`, `df.cast(float64)`) or per column (`df.cast({"a": Int32})`),
   strict by default (`strict = false` turns failures into nulls)
-- Expressions: `col`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`, `round`, comparisons,
-  `and or not`, `isIn`, `isBetween`, `sum mean median min max count len first last nUnique
-  std var quantile`, `alias`
+- Expressions: `col("a")` or `col.a`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`,
+  `round`, comparisons, `and or not`, `isIn`, `isBetween`, `sum mean median min max count
+  len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,
@@ -208,7 +210,8 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 - Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
   Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
 - Operators keep Polars' meaning, not Nim's: `mod` and `div` round towards negative
-  infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit.
+  infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit. `/` is true
+  division (`7 / 2 == 3.5`), as in Python Polars and in Nim.
 - Polars names that are Nim keywords work after a dot (`e.cast(Int32)`, `e.var`,
   `.when(c)`); as a first call they need backticks (`` `when`(c) ``).
 

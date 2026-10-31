@@ -199,7 +199,7 @@ nbCode:
   let top = summary["species", 0, string]
   let topMean = summary["mean_body_mass_g", 0, float]
   echo "heaviest species: ", top, " (mean body mass ", topMean.round(0), " g)"
-  echo "counts: ", summary.toSeq("n", int)
+  echo "counts: ", summary.toList("n", int)
 
 nbText: """
 ## As an HTML table

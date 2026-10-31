@@ -10,6 +10,17 @@ its OpenSpec change is archived. Format based on
 - Runnable examples in the OpenSpec specs: every API requirement shows a Nim example and
   the table it prints, checked against the code by `nimble specexamples` in CI; specview
   shows them (add-spec-examples, #41, #43)
+- `col.name` shorthand (`col.race` is `col("race")`, like Python's `pl.col.race`), a
+  block syntax for `newDataFrame` (`name: [values]` lines, `nil` for missing values),
+  `Expr.nullCount`, and `rank` with a `RankMethod` (`rank(Min, descending = true)`).
+  The wrapper crate is `0.3.0-dev`. (add-api-polish, #PR)
+
+### Changed
+- **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
+  divide to f64, and a division by zero gives `inf` or `NaN`. `div` stays floor
+  division. (add-api-polish, #PR)
+- **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so
+  `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #PR)
 
 ## [0.2.0] - 2026-10-31
 

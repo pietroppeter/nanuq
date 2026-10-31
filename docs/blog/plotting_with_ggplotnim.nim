@@ -54,7 +54,7 @@ nbText: """
 ## From Nanuq to Datamancer
 
 `toDatamancer` copies every column, keeping names, order and types: integers become
-`int` columns, floats `float`, strings `string`. Underneath it is one `toSeq` per
+`int` columns, floats `float`, strings `string`. Underneath it is one `toList` per
 column, each a single call across the C ABI.
 
 Two penguins have no measurements. A column with nulls would arrive as a Datamancer

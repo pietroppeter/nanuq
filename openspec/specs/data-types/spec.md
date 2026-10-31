@@ -106,7 +106,7 @@ shape: (2, 1)
 
 #### Scenario: Narrow an integer column
 - **WHEN** `df.cast({"a": Int32})` runs on an i64 column
-- **THEN** `dtype("a") == Int32` and `toSeq(df, "a", int)` returns the same values
+- **THEN** `dtype("a") == Int32` and `toList(df, "a", int)` returns the same values
 
 #### Scenario: Nim type as target
 - **WHEN** `col("a").cast(float32)` is selected from an i64 column

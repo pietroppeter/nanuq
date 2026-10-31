@@ -15,18 +15,18 @@
 ## Both libraries define `DataFrame`, so qualify it when you name the type.
 
 import std/options
-import pkg/datamancer as dmc except toSeq
+import pkg/datamancer as dmc
 import ../nanuq
 
 proc column[T](df: nanuq.DataFrame, name: string, _: typedesc[T]): Column =
   ## A typed column, or an object column with `null` entries if it has nulls.
   if df.hasNulls(name):
     var values = newSeq[Value]()
-    for v in df.toSeq(name, Option[T]):
+    for v in df.toList(name, Option[T]):
       values.add(if v.isSome: %~ v.get else: null())
     toColumn(values)
   else:
-    toColumn(df.toSeq(name, T))
+    toColumn(df.toList(name, T))
 
 proc toDatamancer*(df: nanuq.DataFrame): dmc.DataFrame =
   ## Copies every column, in order: integers become `int` columns, floats

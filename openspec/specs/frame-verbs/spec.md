@@ -46,10 +46,10 @@ reverse the row order.
 
 ```nim
 let df = newDataFrame(series("n", [1, 2, 3, 4, 5]))
-echo df.tail(2).toSeq("n", int)
-echo df.slice(-3, 2).toSeq("n", int)       # negative offset counts from the end
-echo df.slice(1).toSeq("n", int)           # to the end
-echo df.reverse.toSeq("n", int)
+echo df.tail(2).toList("n", int)
+echo df.slice(-3, 2).toList("n", int)       # negative offset counts from the end
+echo df.slice(1).toList("n", int)           # to the end
+echo df.reverse.toList("n", int)
 ```
 
 ```text

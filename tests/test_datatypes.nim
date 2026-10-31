@@ -53,21 +53,21 @@ suite "data types":
     let df = newDataFrame(series("a", [1, 2]), series("b", [1, 0]))
     let c = df.cast({"a": Int32, "b": Boolean})
     check c.dtype("a") == Int32
-    check c.toSeq("a", int) == @[1, 2]
-    check c.toSeq("b", bool) == @[true, false]
+    check c.toList("a", int) == @[1, 2]
+    check c.toList("b", bool) == @[true, false]
 
   test "cast with a Nim type":
     let df = newDataFrame(series("a", [1, 2]))
     check df.select(col("a").cast(float32)).dtype("a") == Float32
     check df.select(`cast`(col("a"), uint8)).dtype("a") == UInt8
-    check df.cast(float64).toSeq("a", float) == @[1.0, 2.0]
-    check df.cast(String).toSeq("a", string) == @["1", "2"]
+    check df.cast(float64).toList("a", float) == @[1.0, 2.0]
+    check df.cast(String).toList("a", string) == @["1", "2"]
 
   test "strict and non-strict casts":
     let df = newDataFrame(series("s", ["1", "x"]))
     expect NanuqError: discard df.select(col("s").cast(int))
     let r = df.select(col("s").cast(int, strict = false))
-    check r.toSeq("s", Option[int]) == @[some(1), none(int)]
+    check r.toList("s", Option[int]) == @[some(1), none(int)]
     let r2 = df.cast({"s": Int64}, strict = false)
     check r2.nullCount("s") == 1
 

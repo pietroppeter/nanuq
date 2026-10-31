@@ -19,9 +19,12 @@
 ##
 ## .. code-block:: nim
 ##   let df = newDataFrame(series("a", [some(1), none(int), some(3)]))
-##   echo df.toSeq("a", Option[int])   # @[some(1), none(int), some(3)]
+##   echo df.toList("a", Option[int])  # @[some(1), none(int), some(3)]
 ##   echo df.nullCount("a")            # 1
-##   df.toSeq("a", int)                # raises NanuqError: column has nulls
+##   df.toList("a", int)               # raises NanuqError: column has nulls
+
+{.experimental: "callOperator".}   # `col("a")` on the `col` constant
+{.experimental: "dotOperators".}   # `col.a`
 
 import std/[macros, options, tables]
 import nanuq/ffi
@@ -243,14 +246,59 @@ proc series*(name: string, data: openArray[Option[string]]): Series =
       valid[i] = true
   wrap nq_series_new_str_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
 
-proc newDataFrame*(columns: varargs[Series]): DataFrame =
-  ## Builds a DataFrame from columns of equal length.
-  ##
-  ## .. code-block:: nim
-  ##   let df = newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))
+proc newDataFrameOf(columns: varargs[Series]): DataFrame =
   var buf = newSeq[ptr NqSeries](columns.len)
   for i, c in columns: buf[i] = c.raw
   wrap nq_df_new(buf.firstOrNil, buf.len.csize_t)
+
+proc blockColumn(line: NimNode): NimNode =
+  ## `name: [values]` (or `"name": [...]`) to `series("name", values)`; a `nil`
+  ## value makes the bracket a bracket of `Option`s typed from the other values.
+  if line.kind != nnkCall or line.len != 2:
+    error("newDataFrame expects lines of the form `name: [values]`", line)
+  let key = line[0]
+  let name =
+    case key.kind
+    of nnkIdent, nnkSym: newLit(key.strVal)
+    of nnkStrLit, nnkRStrLit, nnkTripleStrLit: key
+    else:
+      error("a column name is an identifier or a string literal", key)
+  var vals = line[1]
+  if vals.kind == nnkStmtList and vals.len == 1: vals = vals[0]
+  var sample: NimNode = nil
+  var hasNil = false
+  if vals.kind == nnkBracket:
+    for v in vals:
+      if v.kind == nnkNilLit: hasNil = true
+      elif sample.isNil: sample = v
+  if hasNil:
+    if sample.isNil:
+      error("column " & name.strVal & " holds only nil: there is no type to infer", vals)
+    let opts = newNimNode(nnkBracket, vals)
+    for v in vals:
+      opts.add(if v.kind == nnkNilLit:
+                 newCall(nnkBracketExpr.newTree(bindSym"none", newCall(ident"typeof", sample)))
+               else: newCall(bindSym"some", v))
+    vals = opts
+  newCall(bindSym"series", name, vals)
+
+macro newDataFrame*(columns: varargs[untyped]): untyped =
+  ## Builds a DataFrame from columns of equal length, given as series or as a
+  ## block with one `name: [values]` line per column. In the block, a name that
+  ## is not a Nim identifier is a string, and `nil` is a missing value:
+  ##
+  ## .. code-block:: nim
+  ##   let a = newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))
+  ##   let b = newDataFrame:
+  ##     rider: ["Pogačar", "Seixas"]
+  ##     wins: [22, nil]
+  ##     "win %": [0.31, 0.12]
+  if columns.len == 1 and columns[0].kind == nnkStmtList:
+    result = newCall(bindSym"newDataFrameOf")
+    for line in columns[0]: result.add blockColumn(line)
+  else:
+    result = newCall(bindSym"newDataFrameOf")
+    for c in columns: result.add c
 
 # ---------------------------------------------------------------------------
 # DataFrame inspection
@@ -437,7 +485,7 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
     (vals, valid)
 
-proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
+proc toList*[T: int | float | bool | string](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
   ## Copies a whole column into a Nim seq. Raises `NanuqError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
   ##
@@ -452,8 +500,8 @@ proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string, _: ty
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
-proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string,
-                                            _: typedesc[Option[T]]): seq[Option[T]] =
+proc toList*[T: int | float | bool | string](df: DataFrame, column: string,
+                                             _: typedesc[Option[T]]): seq[Option[T]] =
   ## Copies a whole column into a Nim seq, with `none` for nulls.
   let (vals, valid) = readColumn(df, column, T)
   result = newSeq[Option[T]](vals.len)
@@ -464,7 +512,22 @@ proc toSeq*[T: int | float | bool | string](df: DataFrame, column: string,
 # Expressions
 # ---------------------------------------------------------------------------
 
-proc col*(name: string): Expr = wrap nq_expr_col(name.cstring)
+type
+  ColNs* = object
+    ## The type of `col`: call it with names or types, or write `col.name`.
+
+const col* = ColNs()
+  ## Columns by name or type: `col("a")`, `col.a` (the same), `col("a", "b")`,
+  ## `col(SomeNumber)`. `col.name` works for any name that is a Nim identifier
+  ## and not taken by Nim first (`type`, `repr`, `sizeof`): use `col("type")`.
+
+proc `()`*(c: ColNs, name: string): Expr =
+  ## The column `name`.
+  wrap nq_expr_col(name.cstring)
+
+template `.`*(c: ColNs, name: untyped): Expr =
+  ## `col.race` is `col("race")`.
+  c(astToStr(name))
 
 proc lit*(v: int): Expr = wrap nq_expr_lit_i64(v.int64)
 proc lit*(v: float): Expr = wrap nq_expr_lit_f64(v)
@@ -484,7 +547,7 @@ template defBinOp(name, op) =
 defBinOp(`+`, nqAdd)
 defBinOp(`-`, nqSub)
 defBinOp(`*`, nqMul)
-defBinOp(`/`, nqDiv)
+defBinOp(`/`, nqDiv)    # true division, as in Python Polars and Nim
 defBinOp(`==`, nqEq)
 defBinOp(`!=`, nqNotEq)
 defBinOp(`<`, nqLt)
@@ -522,6 +585,8 @@ proc len*(e: Expr): Expr = unary(e, nqLen)
 proc abs*(e: Expr): Expr = unary(e, nqAbs)
 proc `-`*(e: Expr): Expr = unary(e, nqNeg)
 
+proc nullCount*(e: Expr): Expr = unary(e, nqNullCount)
+  ## Number of nulls, as an aggregation (u32).
 proc isNull*(e: Expr): Expr = unary(e, nqIsNull)
 proc isNotNull*(e: Expr): Expr = unary(e, nqIsNotNull)
 
@@ -559,6 +624,9 @@ type
   RoundMode* {.pure.} = enum
     ## How `round` breaks ties (Polars' `RoundMode`).
     HalfToEven, HalfAwayFromZero, ToZero
+  RankMethod* {.pure.} = enum
+    ## How `rank` treats ties (Polars' `RankMethod`).
+    Average, Min, Max, Dense, Ordinal, Random
 
   When* = object
     ## A conditional chain waiting for `then`.
@@ -664,6 +732,18 @@ proc backwardFill*(e: Expr, limit = none(int)): Expr =
   e.fillNull(FillNullStrategy.Backward, limit)
 proc backwardFill*(e: Expr, limit: int): Expr = e.backwardFill(some(limit))
 
+proc rank*(e: Expr, rankMethod = RankMethod.Average, descending = false,
+           seed = none(int)): Expr =
+  ## Rank of each value, from 1: `rank(Min, descending = true)` gives tied
+  ## values the same place. `Average` gives f64, the other methods u32. `seed`
+  ## makes `Random` repeatable. Python's `method` is a Nim keyword, so the
+  ## method is passed by position.
+  if seed.isSome and seed.get < 0: raise newException(ValueError, "rank seed must not be negative")
+  wrap nq_expr_rank(e.raw, NqRankMethod(ord(rankMethod)), descending, seed.isSome,
+                    seed.get(0).uint64)
+proc rank*(e: Expr, rankMethod: RankMethod, descending = false, seed: int): Expr =
+  e.rank(rankMethod, descending, some(seed))
+
 proc over*(e: Expr, partitionBy: openArray[Expr]): Expr =
   ## Computes `e` per group of `partitionBy` and gives each row its group's value.
   let b = raws(partitionBy)
@@ -712,7 +792,7 @@ proc union(a, b: Selector): Selector =
   Selector(names: a.names & b.names, dtypes: a.dtypes & b.dtypes, classes: a.classes + b.classes,
            wildcard: a.wildcard or b.wildcard, excluded: a.excluded & b.excluded)
 
-macro col*(T: typedesc, more: varargs[typed]): untyped =
+macro `()`*(c: ColNs, T: typedesc, more: varargs[typed]): untyped =
   ## Columns by Nim type: a typeclass selects a Polars dtype category
   ## (`col(SomeNumber)`, `SomeInteger`, `SomeSignedInt`, `SomeUnsignedInt`,
   ## `SomeFloat`), a concrete type selects its dtype (`col(int)` is i64), and
@@ -734,7 +814,7 @@ proc nameList(a, b: string, more: openArray[string]): seq[string] =
   result = @[a, b]
   for m in more: result.add m
 
-proc col*(a, b: string, more: varargs[string]): Selector =
+proc `()`*(c: ColNs, a, b: string, more: varargs[string]): Selector =
   ## Several columns by name, in this order: `col("a", "b")`.
   Selector(names: nameList(a, b, more))
 

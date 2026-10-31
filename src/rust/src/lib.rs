@@ -810,7 +810,7 @@ pub unsafe extern "C" fn nq_expr_binary(a: *const Expr, op: NqBinOp, b: *const E
             NqBinOp::Add => a + b,
             NqBinOp::Sub => a - b,
             NqBinOp::Mul => a * b,
-            NqBinOp::Div => a / b,
+            NqBinOp::Div => a.true_div(b),
             NqBinOp::Eq => a.eq(b),
             NqBinOp::NotEq => a.neq(b),
             NqBinOp::Lt => a.lt(b),
@@ -847,6 +847,7 @@ pub enum NqUnary {
     Median,
     Len,
     Neg,
+    NullCount,
 }
 
 #[no_mangle]
@@ -870,6 +871,7 @@ pub unsafe extern "C" fn nq_expr_unary(e: *const Expr, op: NqUnary) -> *mut Expr
             NqUnary::Median => e.median(),
             NqUnary::Len => e.len(),
             NqUnary::Neg => -e,
+            NqUnary::NullCount => e.null_count(),
         })
     }))
 }
@@ -1618,5 +1620,46 @@ pub unsafe extern "C" fn nq_expr_name_affix(
         let e = borrow(e, "expression")?.clone();
         let a = cstr(affix)?;
         Ok(if prefix { e.name().prefix(a) } else { e.name().suffix(a) })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Ranking
+// ---------------------------------------------------------------------------
+
+/// Rank methods. Keep in sync with `NqRankMethod` in nanuq/ffi.nim and
+/// `RankMethod` in nanuq.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqRankMethod {
+    Average = 0,
+    Min,
+    Max,
+    Dense,
+    Ordinal,
+    Random,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_rank(
+    e: *const Expr,
+    method: NqRankMethod,
+    descending: bool,
+    has_seed: bool,
+    seed: u64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let method = match method {
+            NqRankMethod::Average => RankMethod::Average,
+            NqRankMethod::Min => RankMethod::Min,
+            NqRankMethod::Max => RankMethod::Max,
+            NqRankMethod::Dense => RankMethod::Dense,
+            NqRankMethod::Ordinal => RankMethod::Ordinal,
+            NqRankMethod::Random => RankMethod::Random,
+        };
+        let opts = RankOptions { method, descending };
+        Ok(borrow(e, "expression")?
+            .clone()
+            .rank(opts, if has_seed { Some(seed) } else { None }))
     }))
 }

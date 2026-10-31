@@ -201,7 +201,7 @@ type
     nqNot, nqSum, nqMean, nqMin, nqMax, nqCount,
     nqFirst, nqLast, nqNUnique, nqStd,
     nqIsNull, nqIsNotNull,
-    nqAbs, nqMedian, nqLen, nqNeg
+    nqAbs, nqMedian, nqLen, nqNeg, nqNullCount
 
   NqDtype* {.size: sizeof(cint).} = enum
     ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
@@ -231,6 +231,8 @@ type
     nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
   NqQuoteStyle* {.size: sizeof(cint).} = enum
     nqsNecessary, nqsAlways, nqsNonNumeric, nqsNever
+  NqRankMethod* {.size: sizeof(cint).} = enum
+    nqkAverage, nqkMin, nqkMax, nqkDense, nqkOrdinal, nqkRandom
 
 {.push importc, cdecl.}
 
@@ -357,6 +359,10 @@ proc nq_expr_selector*(names: ptr cstring, nNames: csize_t, dtypes: ptr NqDtype,
                        classes: uint32, wildcard: bool, excluded: ptr cstring,
                        nExcluded: csize_t): ptr NqExpr
 proc nq_expr_name_affix*(e: ptr NqExpr, affix: cstring, prefix: bool): ptr NqExpr
+
+# ranking
+proc nq_expr_rank*(e: ptr NqExpr, meth: NqRankMethod, descending, hasSeed: bool,
+                   seed: uint64): ptr NqExpr
 
 {.pop.}
 

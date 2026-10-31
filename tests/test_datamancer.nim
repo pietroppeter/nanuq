@@ -1,6 +1,6 @@
 ## Needs Datamancer: `nimble install datamancer`.
 import std/[unittest, options]
-import pkg/datamancer except toSeq
+import pkg/datamancer
 import nanuq, nanuq/[datasets, datamancer]
 
 suite "datamancer interop":
@@ -46,15 +46,15 @@ suite "datamancer interop":
     for c in ["i", "f", "b", "s"]:
       check back.dtype(c) == df.dtype(c)
       check back.nullCount(c) == df.nullCount(c)
-    check back.toSeq("i", Option[int]) == @[some 1, none int, some 3]
-    check back.toSeq("s", Option[string]) == @[some "x", some "y", none string]
+    check back.toList("i", Option[int]) == @[some 1, none int, some 3]
+    check back.toList("s", Option[string]) == @[some "x", some "y", none string]
 
   test "Datamancer frames built in Nim":
     var dm = toDf({"x": @[1, 2, 3], "y": @["a", "b", "c"]})
     dm["k"] = 7
     let df = dm.fromDatamancer
     check df.shape == (3, 3)
-    check df.toSeq("k", int) == @[7, 7, 7]
+    check df.toList("k", int) == @[7, 7, 7]
 
   test "mixed object column raises":
     let dm = toDf({"m": @[%~ 1, %~ "a"]})
