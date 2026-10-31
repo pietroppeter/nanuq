@@ -19,12 +19,12 @@ its OpenSpec change is archived. Format based on
   names in camelCase, option values as pure enums with Rust Polars names. (#28)
 - Frame verbs on LazyFrame and DataFrame: `drop`, `rename`, `head` (lazy), `tail`,
   `slice`, `reverse`, `withRowIndex`, and `unique` with `keep` (`UniqueKeepStrategy`)
-  and `maintainOrder`. (#PR)
+  and `maintainOrder`. (#30)
 - Sorting by several keys (names or expressions) with per-key `descending` and
   `nullsLast`, and `maintainOrder`; the one-column `sort` gains `nullsLast` and
-  `maintainOrder`. (#PR)
+  `maintainOrder`. (#30)
 - `sample` on DataFrame, by `n` or `fraction`, with `withReplacement`, `shuffle` and
-  `seed`. (#PR)
+  `seed`. (#30)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
