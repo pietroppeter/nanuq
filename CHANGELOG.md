@@ -32,6 +32,9 @@ its OpenSpec change is archived. Format based on
   `quantile` (`QuantileMethod`), `len`, and `ddof` on `std`. (#33)
 - Null fill strategies (`fillNull(Forward)`, `FillNullStrategy`, `forwardFill`,
   `backwardFill`) and window expressions (`over`). (#33)
+- Column selectors: `col(SomeNumber)` and the other Nim typeclasses, `col(int)`,
+  `col(float, string)`, `col("a", "b")`, `all()`, `exclude`, and `name.suffix` /
+  `name.prefix` for the output names. (#PR)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with

@@ -7,6 +7,7 @@ nimcache/
 /tests/test_combining
 /tests/test_verbs
 /tests/test_expressions
+/tests/test_selectors
 *.out
 /docs/**/*.html
 /docs/**/*.png

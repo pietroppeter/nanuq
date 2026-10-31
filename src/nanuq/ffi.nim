@@ -227,6 +227,8 @@ type
     nqfForward, nqfBackward, nqfMean, nqfMin, nqfMax, nqfZero, nqfOne
   NqRoundMode* {.size: sizeof(cint).} = enum
     nqrHalfToEven, nqrHalfAwayFromZero, nqrToZero
+  NqDtypeClass* {.size: sizeof(cint).} = enum
+    nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
 
 {.push importc, cdecl.}
 
@@ -341,6 +343,12 @@ proc nq_expr_fill_null_strategy*(e: ptr NqExpr, strategy: NqFillNullStrategy, ha
                                  limit: uint32): ptr NqExpr
 proc nq_expr_round*(e: ptr NqExpr, decimals: uint32, mode: NqRoundMode): ptr NqExpr
 proc nq_expr_over*(e: ptr NqExpr, by: ptr ptr NqExpr, n: csize_t): ptr NqExpr
+
+# column selectors
+proc nq_expr_selector*(names: ptr cstring, nNames: csize_t, dtypes: ptr NqDtype, nDtypes: csize_t,
+                       classes: uint32, wildcard: bool, excluded: ptr cstring,
+                       nExcluded: csize_t): ptr NqExpr
+proc nq_expr_name_affix*(e: ptr NqExpr, affix: cstring, prefix: bool): ptr NqExpr
 
 {.pop.}
 

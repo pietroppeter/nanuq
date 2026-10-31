@@ -94,6 +94,10 @@ proc takeString(s: cstring): string =
 proc raws(xs: openArray[Expr]): seq[ptr NqExpr] =
   for x in xs: result.add x.raw
 
+proc cstrings(xs: openArray[string]): seq[cstring] =
+  result = newSeq[cstring](xs.len)
+  for i, x in xs: result[i] = x.cstring
+
 template firstOrNil[T](s: seq[T]): ptr T =
   (if s.len == 0: nil else: s[0].unsafeAddr)
 
@@ -681,6 +685,88 @@ proc over*(e: Expr, partitionBy: openArray[string]): Expr =
 proc over*(e: Expr, partitionBy: string): Expr = e.over([col(partitionBy)])
 
 # ---------------------------------------------------------------------------
+# Column selectors
+# ---------------------------------------------------------------------------
+
+type
+  DtypeClass {.pure.} = enum
+    ## Same order as `NqDtypeClass` in lib.rs.
+    Numeric, Integer, SignedInteger, UnsignedInteger, Float
+  Selector* = object
+    ## Several columns at once: by Nim type (`col(SomeNumber)`, `col(float, int)`),
+    ## by name (`col("a", "b")`, `all()`), minus `exclude`d names. Converts to
+    ## `Expr`, which Polars expands to one column per selected column.
+    names: seq[string]
+    dtypes: seq[DataType]
+    classes: set[DtypeClass]
+    wildcard: bool
+    excluded: seq[string]
+  ExprName* = object
+    ## `e.name`, for `suffix` and `prefix`.
+    e: Expr
+
+converter toExpr*(s: Selector): Expr =
+  let n = cstrings(s.names)
+  var d = newSeq[NqDtype](s.dtypes.len)
+  for i, t in s.dtypes: d[i] = t.code
+  var bits = 0'u32
+  for c in s.classes: bits = bits or (1'u32 shl ord(c))
+  let x = cstrings(s.excluded)
+  wrap nq_expr_selector(n.firstOrNil, n.len.csize_t, d.firstOrNil, d.len.csize_t, bits,
+                        s.wildcard, x.firstOrNil, x.len.csize_t)
+proc `$`*(s: Selector): string = $toExpr(s)
+
+proc classSelector(c: DtypeClass): Selector = Selector(classes: {c})
+proc dtypeSelector(t: DataType): Selector = Selector(dtypes: @[t])
+proc union(a, b: Selector): Selector =
+  Selector(names: a.names & b.names, dtypes: a.dtypes & b.dtypes, classes: a.classes + b.classes,
+           wildcard: a.wildcard or b.wildcard, excluded: a.excluded & b.excluded)
+
+macro col*(T: typedesc, more: varargs[typed]): untyped =
+  ## Columns by Nim type: a typeclass selects a Polars dtype category
+  ## (`col(SomeNumber)`, `SomeInteger`, `SomeSignedInt`, `SomeUnsignedInt`,
+  ## `SomeFloat`), a concrete type selects its dtype (`col(int)` is i64), and
+  ## several types select their union (`col(float, int)`).
+  proc one(t: NimNode): NimNode =
+    let classes = {"SomeNumber": "Numeric", "SomeInteger": "Integer",
+                   "SomeSignedInt": "SignedInteger", "SomeUnsignedInt": "UnsignedInteger",
+                   "SomeFloat": "Float"}
+    if t.kind == nnkSym:
+      for (tc, cls) in classes:
+        if t.strVal == tc:
+          return newCall(bindSym"classSelector",
+                         newDotExpr(bindSym"DtypeClass", ident(cls)))
+    newCall(bindSym"dtypeSelector", newCall(bindSym"dataType", t))
+  result = one(T)
+  for m in more: result = newCall(bindSym"union", result, one(m))
+
+proc nameList(a, b: string, more: openArray[string]): seq[string] =
+  result = @[a, b]
+  for m in more: result.add m
+
+proc col*(a, b: string, more: varargs[string]): Selector =
+  ## Several columns by name, in this order: `col("a", "b")`.
+  Selector(names: nameList(a, b, more))
+
+proc all*(): Selector =
+  ## Every column: `all().exclude("id")`.
+  Selector(wildcard: true)
+
+proc exclude*(s: Selector, names: varargs[string]): Selector =
+  ## The selection without the named columns.
+  result = s
+  for n in names: result.excluded.add n
+
+proc name*(e: Expr): ExprName = ExprName(e: e)
+proc suffix*(n: ExprName, s: string): Expr =
+  ## Appends `s` to the name of every column the expression produces:
+  ## `col(SomeNumber).mean.name.suffix("_mean")`.
+  wrap nq_expr_name_affix(n.e.raw, s.cstring, false)
+proc prefix*(n: ExprName, s: string): Expr =
+  ## Prepends `s` to the name of every column the expression produces.
+  wrap nq_expr_name_affix(n.e.raw, s.cstring, true)
+
+# ---------------------------------------------------------------------------
 # Lazy API
 # ---------------------------------------------------------------------------
 
@@ -841,10 +927,6 @@ type
     ## Which row of a group of duplicates `unique` keeps (Polars'
     ## `UniqueKeepStrategy`). `Any` lets Polars pick, which is fastest.
     First, Last, None, Any
-
-proc cstrings(xs: openArray[string]): seq[cstring] =
-  result = newSeq[cstring](xs.len)
-  for i, x in xs: result[i] = x.cstring
 
 proc drop*(lf: LazyFrame, columns: openArray[string], strict = true): LazyFrame =
   ## Removes columns: `drop(["a", "b"])`. With `strict`, a missing column raises
