@@ -237,6 +237,12 @@ type
     nqeStructFieldNotFound, nqeSql
   NqRankMethod* {.size: sizeof(cint).} = enum
     nqkAverage, nqkMin, nqkMax, nqkDense, nqkOrdinal, nqkRandom
+  NqStrOp* {.size: sizeof(cint).} = enum
+    nqtLenChars, nqtLenBytes, nqtToUppercase, nqtToLowercase, nqtStripChars,
+    nqtStripCharsStart, nqtStripCharsEnd, nqtStripPrefix, nqtStripSuffix, nqtStartsWith,
+    nqtEndsWith, nqtContains, nqtFind, nqtCountMatches, nqtExtract, nqtReplace,
+    nqtReplaceAll, nqtSlice, nqtHead, nqtTail, nqtPadStart, nqtPadEnd, nqtZfill,
+    nqtReverse, nqtJoin
 
 {.push importc, cdecl.}
 
@@ -364,6 +370,12 @@ proc nq_expr_selector*(names: ptr cstring, nNames: csize_t, dtypes: ptr NqDtype,
                        classes: uint32, wildcard: bool, excluded: ptr cstring,
                        nExcluded: csize_t): ptr NqExpr
 proc nq_expr_name_affix*(e: ptr NqExpr, affix: cstring, prefix: bool): ptr NqExpr
+
+# strings
+proc nq_expr_str*(e: ptr NqExpr, op: NqStrOp, a, b: ptr NqExpr, flag1, flag2: bool, n: int64,
+                  ch: uint32, s: cstring): ptr NqExpr
+proc nq_expr_concat_str*(es: ptr ptr NqExpr, n: csize_t, separator: cstring,
+                         ignoreNulls: bool): ptr NqExpr
 
 # ranking
 proc nq_expr_rank*(e: ptr NqExpr, meth: NqRankMethod, descending, hasSeed: bool,

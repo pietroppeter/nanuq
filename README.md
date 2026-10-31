@@ -184,6 +184,10 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 - Expressions: `col("a")` or `col.a`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`,
   `round`, comparisons, `and or not`, `isIn`, `isBetween`, `sum mean median min max count
   len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`
+- Strings: `col.race.str.replaceAll("–", "-", literal = true)`, `str.contains`,
+  `str.extract(r"(\d+)'")`, `str.toUppercase`, `str.stripChars`, `str.slice`,
+  `str.zfill`, `str.join(", ")` in `agg`, `format("{} ({})", col.rider, col.nat)`,
+  `concatStr`
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,

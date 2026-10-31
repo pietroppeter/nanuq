@@ -18,6 +18,10 @@ its OpenSpec change is archived. Format based on
   (summary statistics with `percentiles`), and display config: `setTblRows`,
   `setTblCols`, `setTblWidthChars`, `setFmtStrLengths`, `setConfig(...)`,
   `resetConfig()` and the scoped `withConfig(...): body`. (add-inspection-and-config, #47)
+- String expressions: the `str` namespace (`lenChars`, `toUppercase`, `stripChars`,
+  `startsWith`, `contains(pattern, literal)`, `extract`, `replace`, `replaceAll`,
+  `slice`, `padStart`, `zfill`, the `join` aggregation, and more), plus `concatStr` and
+  `format("{} ({})", ...)`. Patterns are Rust regexes. (add-string-expressions, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns

@@ -10,7 +10,7 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank"] }
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array"] }
 # Only for polars_core::random::set_global_random_seed, which polars does not re-export.
 polars-core = { version = "0.55", default-features = false }
 

@@ -1723,3 +1723,113 @@ pub unsafe extern "C" fn nq_expr_rank(
             .rank(opts, if has_seed { Some(seed) } else { None }))
     }))
 }
+
+// ---------------------------------------------------------------------------
+// String namespace
+// ---------------------------------------------------------------------------
+
+/// String functions. Keep in sync with `NqStrOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqStrOp {
+    LenChars = 0,
+    LenBytes,
+    ToUppercase,
+    ToLowercase,
+    StripChars,
+    StripCharsStart,
+    StripCharsEnd,
+    StripPrefix,
+    StripSuffix,
+    StartsWith,
+    EndsWith,
+    Contains,
+    Find,
+    CountMatches,
+    Extract,
+    Replace,
+    ReplaceAll,
+    Slice,
+    Head,
+    Tail,
+    PadStart,
+    PadEnd,
+    Zfill,
+    Reverse,
+    Join,
+}
+
+fn opt_expr(p: *const Expr) -> Result<Expr, String> {
+    Ok(match unsafe { p.as_ref() } {
+        Some(e) => e.clone(),
+        None => Null {}.lit(),
+    })
+}
+
+/// One entry point for the `str` namespace. `a` and `b` are the expression
+/// arguments (NULL: a null literal), `flag1`/`flag2` the boolean options
+/// (`literal`/`strict`, `ignore_nulls`), `n` a count or group index, `ch` a
+/// fill character and `s` a string option (the `join` delimiter).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_str(
+    e: *const Expr,
+    op: NqStrOp,
+    a: *const Expr,
+    b: *const Expr,
+    flag1: bool,
+    flag2: bool,
+    n: i64,
+    ch: u32,
+    s: *const c_char,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ns = borrow(e, "expression")?.clone().str();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        let fill = || char::from_u32(ch).ok_or_else(|| "invalid fill character".to_string());
+        Ok(match op {
+            NqStrOp::LenChars => ns.len_chars(),
+            NqStrOp::LenBytes => ns.len_bytes(),
+            NqStrOp::ToUppercase => ns.to_uppercase(),
+            NqStrOp::ToLowercase => ns.to_lowercase(),
+            NqStrOp::StripChars => ns.strip_chars(a),
+            NqStrOp::StripCharsStart => ns.strip_chars_start(a),
+            NqStrOp::StripCharsEnd => ns.strip_chars_end(a),
+            NqStrOp::StripPrefix => ns.strip_prefix(a),
+            NqStrOp::StripSuffix => ns.strip_suffix(a),
+            NqStrOp::StartsWith => ns.starts_with(a),
+            NqStrOp::EndsWith => ns.ends_with(a),
+            NqStrOp::Contains => {
+                if flag1 { ns.contains_literal(a) } else { ns.contains(a, flag2) }
+            }
+            NqStrOp::Find => {
+                if flag1 { ns.find_literal(a) } else { ns.find(a, flag2) }
+            }
+            NqStrOp::CountMatches => ns.count_matches(a, flag1),
+            NqStrOp::Extract => {
+                ns.extract(a, usize::try_from(n).map_err(|_| "negative group index")?)
+            }
+            NqStrOp::Replace => ns.replace_n(a, b, flag1, n),
+            NqStrOp::ReplaceAll => ns.replace_all(a, b, flag1),
+            NqStrOp::Slice => ns.slice(a, b),
+            NqStrOp::Head => ns.head(a),
+            NqStrOp::Tail => ns.tail(a),
+            NqStrOp::PadStart => ns.pad_start(a, fill()?),
+            NqStrOp::PadEnd => ns.pad_end(a, fill()?),
+            NqStrOp::Zfill => ns.zfill(a),
+            NqStrOp::Reverse => ns.reverse(),
+            NqStrOp::Join => ns.join(cstr(s)?, flag1),
+        })
+    }))
+}
+
+/// Horizontal string concatenation (`concat_str`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_concat_str(
+    es: *const *const Expr,
+    len: usize,
+    separator: *const c_char,
+    ignore_nulls: bool,
+) -> *mut Expr {
+    boxed(guard(|| Ok(concat_str(exprs(es, len)?, cstr(separator)?, ignore_nulls))))
+}

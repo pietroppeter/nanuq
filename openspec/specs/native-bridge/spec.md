@@ -39,7 +39,7 @@ Every FFI function SHALL catch Polars errors and Rust panics, signal failure wit
 the enums `NqBinOp`, `NqUnary`, `NqDtype`, `NqDtypeClass`, `NqJoinType`,
 `NqJoinValidation`, `NqMaintainOrderJoin`, `NqConcat`, `NqUniqueKeepStrategy`,
 `NqClosedInterval`, `NqQuantileMethod`, `NqFillNullStrategy`, `NqRoundMode`,
-`NqQuoteStyle`, `NqRankMethod` and `NqErrorKind` SHALL keep the same order as in Rust. `NqDtype` SHALL also keep the order
+`NqQuoteStyle`, `NqRankMethod`, `NqErrorKind` and `NqStrOp` SHALL keep the same order as in Rust. `NqDtype` SHALL also keep the order
 of `DataTypeKind`, and the option enums the order of their Nim API enums.
 
 #### Scenario: ABI change

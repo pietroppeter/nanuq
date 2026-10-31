@@ -46,7 +46,6 @@ two), L (more).
 
 - **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
 - **More dtypes** (M): dates and datetimes, categoricals.
-- **More expressions** (M): string functions (conditionals and `over` landed in 0.2).
 
 ## Ecosystem
 

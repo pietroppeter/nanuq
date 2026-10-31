@@ -1429,3 +1429,124 @@ macro withConfig*(args: varargs[untyped]): untyped =
         `body`
       finally:
         restoreConfig(`saved`)
+
+# ---------------------------------------------------------------------------
+# The str namespace
+# ---------------------------------------------------------------------------
+
+type
+  StrNameSpace* = distinct Expr
+    ## `e.str`: string functions, as Polars' `Expr.str`.
+
+proc str*(e: Expr): StrNameSpace = StrNameSpace(e)
+  ## String functions: `col.rider.str.toUppercase`.
+
+proc strOp(s: StrNameSpace, op: NqStrOp, a: Expr = nil, b: Expr = nil, flag1 = false,
+           flag2 = false, n = 0, ch = ' ', sep = ""): Expr =
+  let e = Expr(s)
+  wrap nq_expr_str(e.raw, op, (if a.isNil: nil else: a.raw), (if b.isNil: nil else: b.raw),
+                   flag1, flag2, n.int64, ch.uint32, sep.cstring)
+
+type StrArg = string | Expr
+
+proc lenChars*(s: StrNameSpace): Expr = strOp(s, nqtLenChars)
+  ## Number of characters (u32).
+proc lenBytes*(s: StrNameSpace): Expr = strOp(s, nqtLenBytes)
+  ## Number of bytes (u32).
+proc toUppercase*(s: StrNameSpace): Expr = strOp(s, nqtToUppercase)
+proc toLowercase*(s: StrNameSpace): Expr = strOp(s, nqtToLowercase)
+
+proc stripChars*(s: StrNameSpace): Expr = strOp(s, nqtStripChars)
+  ## Removes leading and trailing whitespace.
+proc stripChars*(s: StrNameSpace, characters: StrArg): Expr =
+  ## Removes leading and trailing characters that are in `characters`.
+  strOp(s, nqtStripChars, lit(characters))
+proc stripCharsStart*(s: StrNameSpace): Expr = strOp(s, nqtStripCharsStart)
+proc stripCharsStart*(s: StrNameSpace, characters: StrArg): Expr =
+  strOp(s, nqtStripCharsStart, lit(characters))
+proc stripCharsEnd*(s: StrNameSpace): Expr = strOp(s, nqtStripCharsEnd)
+proc stripCharsEnd*(s: StrNameSpace, characters: StrArg): Expr =
+  strOp(s, nqtStripCharsEnd, lit(characters))
+proc stripPrefix*(s: StrNameSpace, prefix: StrArg): Expr = strOp(s, nqtStripPrefix, lit(prefix))
+proc stripSuffix*(s: StrNameSpace, suffix: StrArg): Expr = strOp(s, nqtStripSuffix, lit(suffix))
+
+proc startsWith*(s: StrNameSpace, prefix: StrArg): Expr = strOp(s, nqtStartsWith, lit(prefix))
+proc endsWith*(s: StrNameSpace, suffix: StrArg): Expr = strOp(s, nqtEndsWith, lit(suffix))
+
+proc contains*(s: StrNameSpace, pattern: StrArg, literal = false, strict = true): Expr =
+  ## True where the value matches the regex `pattern` (Rust regex syntax), or
+  ## contains it as plain text with `literal = true`. With `strict`, an invalid
+  ## regex raises; otherwise it gives null.
+  strOp(s, nqtContains, lit(pattern), flag1 = literal, flag2 = strict)
+proc find*(s: StrNameSpace, pattern: StrArg, literal = false, strict = true): Expr =
+  ## Character index of the first match (u32), null where there is none.
+  strOp(s, nqtFind, lit(pattern), flag1 = literal, flag2 = strict)
+proc countMatches*(s: StrNameSpace, pattern: StrArg, literal = false): Expr =
+  ## Number of non-overlapping matches (u32).
+  strOp(s, nqtCountMatches, lit(pattern), flag1 = literal)
+proc extract*(s: StrNameSpace, pattern: StrArg, groupIndex = 1): Expr =
+  ## The `groupIndex` capture group of the first match (0: the whole match),
+  ## null where there is no match.
+  if groupIndex < 0: raise newException(ValueError, "extract groupIndex must not be negative")
+  strOp(s, nqtExtract, lit(pattern), n = groupIndex)
+proc replace*(s: StrNameSpace, pattern: StrArg, value: StrArg, literal = false, n = 1): Expr =
+  ## Replaces the first `n` matches of `pattern` with `value` (`$1` refers to a
+  ## capture group unless `literal`).
+  strOp(s, nqtReplace, lit(pattern), lit(value), flag1 = literal, n = n)
+proc replaceAll*(s: StrNameSpace, pattern: StrArg, value: StrArg, literal = false): Expr =
+  ## Replaces every match of `pattern` with `value`.
+  strOp(s, nqtReplaceAll, lit(pattern), lit(value), flag1 = literal)
+
+proc slice*(s: StrNameSpace, offset: int | Expr): Expr =
+  ## The characters from `offset` (negative: from the end) to the end.
+  strOp(s, nqtSlice, lit(offset))
+proc slice*(s: StrNameSpace, offset: int | Expr, length: int | Expr): Expr =
+  ## `length` characters from `offset` (negative: from the end).
+  strOp(s, nqtSlice, lit(offset), lit(length))
+proc head*(s: StrNameSpace, n: int | Expr): Expr = strOp(s, nqtHead, lit(n))
+  ## The first `n` characters (negative: all but the last `-n`).
+proc tail*(s: StrNameSpace, n: int | Expr): Expr = strOp(s, nqtTail, lit(n))
+  ## The last `n` characters (negative: all but the first `-n`).
+
+proc padStart*(s: StrNameSpace, length: int | Expr, fillChar = ' '): Expr =
+  ## Pads on the left with `fillChar` to `length` characters.
+  strOp(s, nqtPadStart, lit(length), ch = fillChar)
+proc padEnd*(s: StrNameSpace, length: int | Expr, fillChar = ' '): Expr =
+  ## Pads on the right with `fillChar` to `length` characters.
+  strOp(s, nqtPadEnd, lit(length), ch = fillChar)
+proc zfill*(s: StrNameSpace, length: int | Expr): Expr =
+  ## Pads with zeros on the left (after a sign) to `length` characters.
+  strOp(s, nqtZfill, lit(length))
+proc reverse*(s: StrNameSpace): Expr = strOp(s, nqtReverse)
+
+proc join*(s: StrNameSpace, delimiter = "", ignoreNulls = true): Expr =
+  ## Joins all values into one string, as an aggregation:
+  ## `groupBy(col.rider).agg(col.race.str.join(", "))`.
+  strOp(s, nqtJoin, flag1 = ignoreNulls, sep = delimiter)
+
+proc concatStr*(exprs: openArray[Expr], separator = "", ignoreNulls = false): Expr =
+  ## Concatenates expressions row by row into one string column. With
+  ## `ignoreNulls = false`, a null anywhere gives null.
+  let r = raws(exprs)
+  wrap nq_expr_concat_str(r.firstOrNil, r.len.csize_t, separator.cstring, ignoreNulls)
+
+proc format*(fstring: string, args: varargs[Expr]): Expr =
+  ## Builds a string column from a template with `{}` placeholders, as Polars'
+  ## `format`: `format("{} ({})", col.rider, col.nat)`.
+  var parts: seq[Expr]
+  var rest = fstring
+  var used = 0
+  while true:
+    let i = rest.find("{}")
+    if i < 0: break
+    if used >= args.len:
+      raise newException(ValueError, "format: more placeholders than arguments")
+    if i > 0: parts.add lit(rest[0 ..< i])
+    parts.add args[used]
+    inc used
+    rest = rest[i + 2 .. ^1]
+  if used != args.len:
+    raise newException(ValueError, "format: " & $args.len & " arguments for " & $used &
+                       " placeholders")
+  if rest.len > 0: parts.add lit(rest)
+  concatStr(parts)
