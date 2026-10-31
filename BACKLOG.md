@@ -47,9 +47,8 @@ two), L (more).
 - **More IO** (M): Parquet, JSON, lazy `scanCsv` / `scanParquet`.
 - **Joins** (M): inner, left, outer, cross.
 - **More dtypes** (M): dates and datetimes, categoricals.
-- **More expressions** (M): `when/then/otherwise`, string functions, casting, window
-  functions (`over`).
-  *Casting: in progress* as OpenSpec change `add-datatype-and-cast`.
+- **More expressions** (M): `when/then/otherwise`, string functions, window functions
+  (`over`).
 
 ## Ecosystem
 
@@ -97,6 +96,11 @@ two), L (more).
   `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
+- **0.2 explainer post** (S-M). A dev-log post with a playful, non-trivial example of
+  the whole 0.2 release, written once 0.2 is out. A first draft covering only data
+  types and casts ("The great polar bear census": a messy ranger field log from four
+  Svalbard stations) was taken out of #26; the idea is to be reconsidered then, e.g.
+  extended with joins (station coordinates), frame verbs and conditional expressions.
 - **Official documentation** (L). A reference and guides, separate from the dev log.
 
 ## CI

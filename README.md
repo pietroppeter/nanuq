@@ -156,6 +156,10 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
   and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toSeq(df, "col", int)`
   raises on a column with nulls.
+- Data types: `dtype(df, "col") == Int64` (constants named as in Polars, `$` gives
+  `"i64"`), `dtypes`, `schema`, `lf.collectSchema`, and `cast` with a Nim type
+  (`col("a").cast(int32)`, `df.cast(float64)`) or per column (`df.cast({"a": Int32})`),
+  strict by default (`strict = false` turns failures into nulls)
 - Expressions: `col`, `lit`, `+ - * /`, comparisons, `and or not`, `sum mean min max count first last nUnique std`, `alias`
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)

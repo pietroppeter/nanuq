@@ -3,6 +3,7 @@ nimcache/
 /examples/basic
 /tests/test_basic
 /tests/test_nulls
+/tests/test_datatypes
 *.out
 /docs/**/*.html
 /docs/**/*.png
