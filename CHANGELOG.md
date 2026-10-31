@@ -43,7 +43,7 @@ its OpenSpec change is archived. Format based on
   `scanCsv(...).collect`. (#37)
 - Dev log post "The great polar bear census": every 0.2 feature on a season of messy
   ranger logs. Its outputs were computed with py-polars before 0.2 existed, and the
-  page build now fails if Nanuq's outputs differ. (#PR)
+  page build now fails if Nanuq's outputs differ. (#38)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with
