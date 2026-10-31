@@ -1471,3 +1471,88 @@ pub unsafe extern "C" fn nq_expr_over(
         borrow(e, "expression")?.clone().over(by).map_err(pe)
     }))
 }
+
+// ---------------------------------------------------------------------------
+// Column selectors
+// ---------------------------------------------------------------------------
+
+/// Dtype categories a selector can ask for, as bits of `classes` in
+/// `nq_expr_selector`. Same order as Nim's `DtypeClass`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqDtypeClass {
+    Numeric,
+    Integer,
+    SignedInteger,
+    UnsignedInteger,
+    Float,
+}
+
+/// The union of the named columns, the dtypes (codes), the dtype classes (bit
+/// set of `NqDtypeClass`) and, with `wildcard`, every column, minus the
+/// excluded names, as an expression.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_selector(
+    names_: *const *const c_char,
+    n_names: usize,
+    dtypes: *const NqDtype,
+    n_dtypes: usize,
+    classes: u32,
+    wildcard: bool,
+    excluded: *const *const c_char,
+    n_excluded: usize,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let mut parts: Vec<Selector> = Vec::new();
+        if wildcard {
+            parts.push(Selector::Wildcard);
+        }
+        let ns = names(names_, n_names)?;
+        if !ns.is_empty() {
+            parts.push(by_name(ns, true, true));
+        }
+        let dts = slice(dtypes, n_dtypes)?
+            .iter()
+            .map(|c| dtype_from_code(*c))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !dts.is_empty() {
+            parts.push(Selector::ByDType(DataTypeSelector::AnyOf(dts.into())));
+        }
+        let all_classes = [
+            (NqDtypeClass::Numeric, DataTypeSelector::Numeric),
+            (NqDtypeClass::Integer, DataTypeSelector::Integer),
+            (NqDtypeClass::SignedInteger, DataTypeSelector::SignedInteger),
+            (NqDtypeClass::UnsignedInteger, DataTypeSelector::UnsignedInteger),
+            (NqDtypeClass::Float, DataTypeSelector::Float),
+        ];
+        for (c, d) in all_classes {
+            if classes & (1u32 << (c as u32)) != 0 {
+                parts.push(Selector::ByDType(d));
+            }
+        }
+        let mut it = parts.into_iter();
+        let mut sel = it.next().ok_or("a selector needs names, types or all()")?;
+        for p in it {
+            sel = sel | p;
+        }
+        let ex = names(excluded, n_excluded)?;
+        if !ex.is_empty() {
+            sel = sel.exclude_cols(ex.into_iter().map(PlSmallStr::from).collect::<Vec<_>>());
+        }
+        Ok(sel.as_expr())
+    }))
+}
+
+/// Appends (`prefix == false`) or prepends `affix` to every output name of `e`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_name_affix(
+    e: *const Expr,
+    affix: *const c_char,
+    prefix: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let a = cstr(affix)?;
+        Ok(if prefix { e.name().prefix(a) } else { e.name().suffix(a) })
+    }))
+}

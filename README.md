@@ -165,6 +165,9 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   std var quantile`, `alias`
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
+- Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,
+  `col(float, string)`, `col("a", "b")`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
+  used like any expression (`agg(col(SomeNumber).mean.name.suffix("_mean"))`)
 - Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
   and `over("group")` for per-group values on every row
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
