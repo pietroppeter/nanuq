@@ -242,6 +242,10 @@ type
     nqcNumeric, nqcInteger, nqcSignedInteger, nqcUnsignedInteger, nqcFloat
   NqQuoteStyle* {.size: sizeof(cint).} = enum
     nqsNecessary, nqsAlways, nqsNonNumeric, nqsNever
+  NqParquetCompression* {.size: sizeof(cint).} = enum
+    nqpLz4, nqpUncompressed, nqpSnappy, nqpGzip, nqpBrotli, nqpZstd
+  NqIpcCompression* {.size: sizeof(cint).} = enum
+    nqiUncompressed, nqiLz4, nqiZstd
   NqErrorKind* {.size: sizeof(cint).} = enum
     nqeGeneric, nqeColumnNotFound, nqeCompute, nqeDuplicate, nqeInvalidOperation, nqeIo,
     nqeNoData, nqeOutOfBounds, nqeSchema, nqeSchemaFieldNotFound, nqeShape,
@@ -284,7 +288,8 @@ proc nq_series_new_str_opt*(name: cstring, data: ptr cstring, valid: ptr bool, l
 # dataframe
 proc nq_df_free*(df: ptr NqDataFrame)
 proc nq_df_new*(series: ptr ptr NqSeries, n: csize_t): ptr NqDataFrame
-proc nq_lf_scan_csv*(path: cstring, separator: uint8, hasHeader: bool,
+proc nq_lf_scan_csv*(path: cstring, data: ptr uint8, dataLen: csize_t,
+                     separator: uint8, hasHeader: bool,
                      nullValues: ptr cstring, nNulls: csize_t,
                      overrideNames: ptr cstring, overrideDtypes: ptr NqDtypeSpec,
                      nOverrides: csize_t, skipRows: csize_t, nRows: int64,
@@ -293,6 +298,16 @@ proc nq_lf_scan_csv*(path: cstring, separator: uint8, hasHeader: bool,
 proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring, separator: uint8,
                       includeHeader: bool, nullValue: cstring, quoteStyle: NqQuoteStyle,
                       floatPrecision: int32, decimalComma: bool): bool
+proc nq_lf_scan_parquet*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
+                         rowIndexName: cstring, rowIndexOffset: uint32,
+                         lowMemory: bool): ptr NqLazyFrame
+proc nq_lf_scan_ipc*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
+                     rowIndexName: cstring, rowIndexOffset: uint32): ptr NqLazyFrame
+proc nq_df_write_parquet*(df: ptr NqDataFrame, path: cstring,
+                          compression: NqParquetCompression, level: int32,
+                          statistics: bool, rowGroupSize: int64): bool
+proc nq_df_write_ipc*(df: ptr NqDataFrame, path: cstring,
+                      compression: NqIpcCompression): bool
 proc nq_df_height*(df: ptr NqDataFrame): int64
 proc nq_df_width*(df: ptr NqDataFrame): int64
 proc nq_df_to_string*(df: ptr NqDataFrame): cstring

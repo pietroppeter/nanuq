@@ -319,10 +319,13 @@ pub unsafe extern "C" fn nq_df_new(series: *const *const Series, n: usize) -> *m
 /// Lazily scans a CSV file or glob. `null_values` (n_nulls strings) are read as
 /// null in every column; `override_names`/`override_dtypes` (n_overrides each) set
 /// column dtypes. `n_rows < 0` reads all rows; `infer_schema_length < 0` infers
-/// from all rows.
+/// from all rows. When `data` is not NULL, its `data_len` bytes are read instead
+/// of `path`.
 #[no_mangle]
 pub unsafe extern "C" fn nq_lf_scan_csv(
     path: *const c_char,
+    data: *const u8,
+    data_len: usize,
     separator: u8,
     has_header: bool,
     null_values: *const *const c_char,
@@ -338,7 +341,7 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
     try_parse_dates: bool,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
-        let path = cstr(path)?;
+        let sources = scan_sources(path, data, data_len)?;
         let nulls = names(null_values, n_nulls)?
             .into_iter()
             .map(PlSmallStr::from)
@@ -357,7 +360,7 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             Some(Arc::new(Schema::from_iter(fields)))
         };
         let opt = |v: i64| (v >= 0).then_some(v as usize);
-        LazyCsvReader::new(PlRefPath::from(path))
+        LazyCsvReader::new_with_sources(sources)
             .with_separator(separator)
             .with_has_header(has_header)
             .with_null_values(nulls)
@@ -371,6 +374,182 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             .finish()
             .map_err(pe)
     }))
+}
+
+use polars::polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
+use polars::polars_utils::slice_enum::Slice;
+
+/// The sources of a scan: the file or glob `path`, or `data_len` bytes at `data`
+/// when `data` is not NULL (the bytes are copied).
+unsafe fn scan_sources(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+) -> Result<ScanSources, String> {
+    if data.is_null() {
+        let path = cstr(path)?;
+        Ok(ScanSources::Paths(std::iter::once(PlRefPath::from(path)).collect()))
+    } else {
+        let bytes = std::slice::from_raw_parts(data, data_len).to_vec();
+        Ok(ScanSources::Buffers(Arc::from(vec![bytes.into()])))
+    }
+}
+
+/// Hive partitioning detected automatically, as Python's `hive_partitioning =
+/// None`, except for in-memory bytes, where Polars does not implement it.
+fn no_hive_for_buffers(sources: &ScanSources) -> HiveOptions {
+    if matches!(sources, ScanSources::Buffers(_)) {
+        HiveOptions::new_disabled()
+    } else {
+        HiveOptions { enabled: None, ..HiveOptions::new_enabled() }
+    }
+}
+
+unsafe fn row_index(name: *const c_char, offset: u32) -> Result<Option<RowIndex>, String> {
+    if name.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(RowIndex { name: cstr(name)?.into(), offset: offset as IdxSize }))
+}
+
+/// Lazily scans a Parquet file or glob, or `data_len` bytes at `data`. `n_rows < 0`
+/// reads all rows; a NULL `row_index_name` adds no row index.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_scan_parquet(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    n_rows: i64,
+    row_index_name: *const c_char,
+    row_index_offset: u32,
+    low_memory: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let sources = scan_sources(path, data, data_len)?;
+        let hive_options = no_hive_for_buffers(&sources);
+        let args = ScanArgsParquet {
+            hive_options,
+            n_rows: (n_rows >= 0).then_some(n_rows as usize),
+            row_index: row_index(row_index_name, row_index_offset)?,
+            low_memory,
+            ..Default::default()
+        };
+        LazyFrame::scan_parquet_sources(sources, args).map_err(pe)
+    }))
+}
+
+/// Lazily scans an Arrow IPC (Feather v2) file or glob, or `data_len` bytes at
+/// `data`. Same conventions as `nq_lf_scan_parquet`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_scan_ipc(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    n_rows: i64,
+    row_index_name: *const c_char,
+    row_index_offset: u32,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let sources = scan_sources(path, data, data_len)?;
+        let hive_options = no_hive_for_buffers(&sources);
+        let args = UnifiedScanArgs {
+            hive_options,
+            pre_slice: (n_rows >= 0).then(|| Slice::Positive { offset: 0, len: n_rows as usize }),
+            row_index: row_index(row_index_name, row_index_offset)?,
+            ..Default::default()
+        };
+        LazyFrame::scan_ipc_sources(sources, Default::default(), args).map_err(pe)
+    }))
+}
+
+/// Parquet compressions for `nq_df_write_parquet`. Same order as Nim's
+/// `ParquetCompression`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqParquetCompression {
+    Lz4 = 0,
+    Uncompressed,
+    Snappy,
+    Gzip,
+    Brotli,
+    Zstd,
+}
+
+/// Writes a Parquet file. `level < 0` uses the codec's default level;
+/// `row_group_size <= 0` uses Polars' default.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_write_parquet(
+    df: *const DataFrame,
+    path: *const c_char,
+    compression: NqParquetCompression,
+    level: i32,
+    statistics: bool,
+    row_group_size: i64,
+) -> bool {
+    guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let lvl = (level >= 0).then_some(level);
+        let compression = match compression {
+            NqParquetCompression::Lz4 => ParquetCompression::Lz4Raw,
+            NqParquetCompression::Uncompressed => ParquetCompression::Uncompressed,
+            NqParquetCompression::Snappy => ParquetCompression::Snappy,
+            NqParquetCompression::Gzip => ParquetCompression::Gzip(
+                lvl.map(|l| GzipLevel::try_new(l as u8)).transpose().map_err(|e| pe(e.into()))?,
+            ),
+            NqParquetCompression::Brotli => ParquetCompression::Brotli(
+                lvl.map(|l| BrotliLevel::try_new(l as u32)).transpose().map_err(|e| pe(e.into()))?,
+            ),
+            NqParquetCompression::Zstd => ParquetCompression::Zstd(
+                lvl.map(ZstdLevel::try_new).transpose().map_err(|e| pe(e.into()))?,
+            ),
+        };
+        let stats = if statistics {
+            StatisticsOptions::default()
+        } else {
+            StatisticsOptions::empty()
+        };
+        let file = File::create(cstr(path)?).map_err(ioe)?;
+        ParquetWriter::new(file)
+            .with_compression(compression)
+            .with_statistics(stats)
+            .with_row_group_size((row_group_size > 0).then_some(row_group_size as usize))
+            .finish(&mut df)
+            .map_err(pe)?;
+        Ok(())
+    })
+    .is_some()
+}
+
+/// IPC compressions for `nq_df_write_ipc`. Same order as Nim's `IpcCompression`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqIpcCompression {
+    Uncompressed = 0,
+    Lz4,
+    Zstd,
+}
+
+/// Writes an Arrow IPC (Feather v2) file.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_write_ipc(
+    df: *const DataFrame,
+    path: *const c_char,
+    compression: NqIpcCompression,
+) -> bool {
+    guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let compression = match compression {
+            NqIpcCompression::Uncompressed => None,
+            NqIpcCompression::Lz4 => Some(IpcCompression::LZ4),
+            NqIpcCompression::Zstd => Some(IpcCompression::ZSTD(Default::default())),
+        };
+        let file = File::create(cstr(path)?).map_err(ioe)?;
+        IpcWriter::new(file)
+            .with_compression(compression)
+            .finish(&mut df)
+            .map_err(pe)
+    })
+    .is_some()
 }
 
 /// Quote styles for `nq_df_write_csv`. Same order as Nim's `QuoteStyle`.

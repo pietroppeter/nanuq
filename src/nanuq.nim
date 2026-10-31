@@ -26,7 +26,7 @@
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
 
-import std/[macros, options, tables, os, strutils, math, times]
+import std/[macros, options, tables, os, strutils, math, times, streams]
 from std/unicode import runeLen, runeSubStr
 import nanuq/ffi
 
@@ -1325,6 +1325,40 @@ proc toOpt(x: int): Option[int] = some(x)
 proc toOpt(x: Option[int]): Option[int] = x
 proc toC(x: Option[int]): int64 = (if x.isSome: x.get.int64 else: -1'i64)
 
+proc dataArg(data: ptr string): (ptr uint8, csize_t) =
+  ## The bytes of an in-memory source, or (nil, 0) to read a path.
+  if data == nil: (nil, 0.csize_t)
+  elif data[].len == 0: (cast[ptr uint8](cstring("")), 0.csize_t)
+  else: (cast[ptr uint8](addr data[][0]), data[].len.csize_t)
+
+proc selectColumns(lf: LazyFrame, columns: openArray[string]): LazyFrame =
+  if columns.len == 0: return lf
+  var sel = newSeq[Expr](columns.len)
+  for i, c in columns: sel[i] = col(c)
+  lf.select(sel)
+
+proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: bool,
+                 nullValues: openArray[string],
+                 schemaOverrides: openArray[(string, DataType)],
+                 skipRows: int, nRows: Option[int], columns: openArray[string],
+                 inferSchemaLength: Option[int],
+                 ignoreErrors, decimalComma, tryParseDates: bool): LazyFrame =
+  let nulls = cstrings(nullValues)
+  var names = newSeq[cstring](schemaOverrides.len)
+  var ts = newSeq[DataType](schemaOverrides.len)
+  for i, (n, t) in schemaOverrides:
+    names[i] = n.cstring
+    ts[i] = t
+  let sp = toSpecs(ts)
+  let (dp, dl) = dataArg(data)
+  result = wrap nq_lf_scan_csv(path.cstring, dp, dl, separator.uint8, hasHeader,
+                               nulls.firstOrNil, nulls.len.csize_t,
+                               names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
+                               skipRows.csize_t, nRows.toC,
+                               inferSchemaLength.toC, ignoreErrors, decimalComma,
+                               tryParseDates)
+  result = result.selectColumns(columns)
+
 proc scanCsv*(path: string, separator = ',', hasHeader = true,
               nullValues: openArray[string] = [],
               schemaOverrides: openArray[(string, DataType)] = [],
@@ -1343,23 +1377,9 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## those columns, in that order. With `tryParseDates`, string columns that look
   ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
   ## columns.
-  let nulls = cstrings(nullValues)
-  var names = newSeq[cstring](schemaOverrides.len)
-  var ts = newSeq[DataType](schemaOverrides.len)
-  for i, (n, t) in schemaOverrides:
-    names[i] = n.cstring
-    ts[i] = t
-  let sp = toSpecs(ts)
-  result = wrap nq_lf_scan_csv(path.cstring, separator.uint8, hasHeader,
-                               nulls.firstOrNil, nulls.len.csize_t,
-                               names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
-                               skipRows.csize_t, toOpt(nRows).toC,
-                               toOpt(inferSchemaLength).toC, ignoreErrors, decimalComma,
-                               tryParseDates)
-  if columns.len > 0:
-    var sel = newSeq[Expr](columns.len)
-    for i, c in columns: sel[i] = col(c)
-    result = result.select(sel)
+  scanCsvImpl(path, nil, separator, hasHeader, nullValues, schemaOverrides, skipRows,
+              toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
+              tryParseDates)
 
 proc readCsv*(path: string, separator = ',', hasHeader = true,
               nullValues: openArray[string] = [],
@@ -1385,6 +1405,122 @@ proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = tru
   if not nq_df_write_csv(df.raw, path.cstring, separator.uint8, includeHeader,
                          nullValue.cstring, NqQuoteStyle(ord(quoteStyle)),
                          (if p.isSome: p.get.int32 else: -1'i32), decimalComma):
+    raiseLast()
+
+proc readCsv*(source: Stream, separator = ',', hasHeader = true,
+              nullValues: openArray[string] = [],
+              schemaOverrides: openArray[(string, DataType)] = [],
+              skipRows = 0, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [],
+              inferSchemaLength: int | Option[int] = some(100),
+              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
+  ## Reads CSV from a stream (all of it, now), with the same options as reading
+  ## a file: `readCsv(newStringStream("a,b\n1,2\n"))`.
+  var data = source.readAll
+  scanCsvImpl("", addr data, separator, hasHeader, nullValues, schemaOverrides, skipRows,
+              toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
+              tryParseDates).collect
+
+# ---------------------------------------------------------------------------
+# Parquet and IPC
+# ---------------------------------------------------------------------------
+
+type
+  ParquetCompression* {.pure.} = enum
+    ## Codec for `writeParquet` (Polars' `compression`). `Lz4` is Parquet's
+    ## LZ4_RAW.
+    Lz4, Uncompressed, Snappy, Gzip, Brotli, Zstd
+  IpcCompression* {.pure.} = enum
+    ## Codec for `writeIpc`.
+    Uncompressed, Lz4, Zstd
+
+proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
+
+proc withRowIndex(columns: openArray[string], rowIndexName: string): seq[string] =
+  ## `columns` keeps the row index, as in Polars.
+  result = @columns
+  if columns.len > 0 and rowIndexName.len > 0: result.insert(rowIndexName, 0)
+
+proc scanParquetImpl(path: string, data: ptr string, nRows: Option[int],
+                     columns: openArray[string], rowIndexName: string,
+                     rowIndexOffset: int, lowMemory: bool): LazyFrame =
+  let (dp, dl) = dataArg(data)
+  result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                                   rowIndexOffset.uint32, lowMemory)
+  result = result.selectColumns(withRowIndex(columns, rowIndexName))
+
+proc scanParquet*(path: string, nRows: int | Option[int] = none(int),
+                  columns: openArray[string] = [], rowIndexName = "",
+                  rowIndexOffset = 0, lowMemory = false): LazyFrame =
+  ## Lazily reads a Parquet file, or a glob of files with the same columns.
+  ## `nRows` limits the rows read, `columns` keeps only those columns, and a
+  ## `rowIndexName` adds a row number column first, counting from `rowIndexOffset`.
+  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, lowMemory)
+
+proc readParquet*(path: string, nRows: int | Option[int] = none(int),
+                  columns: openArray[string] = [], rowIndexName = "",
+                  rowIndexOffset = 0, lowMemory = false): DataFrame =
+  ## Reads a Parquet file now: `scanParquet(...).collect`.
+  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
+                  lowMemory).collect
+
+proc readParquet*(source: Stream, nRows: int | Option[int] = none(int),
+                  columns: openArray[string] = [], rowIndexName = "",
+                  rowIndexOffset = 0, lowMemory = false): DataFrame =
+  ## Reads Parquet bytes from a stream.
+  var data = source.readAll
+  scanParquetImpl("", addr data, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
+                  lowMemory).collect
+
+proc writeParquet*(df: DataFrame, path: string, compression = ParquetCompression.Zstd,
+                   compressionLevel: int | Option[int] = none(int), statistics = true,
+                   rowGroupSize: int | Option[int] = none(int)) =
+  ## Writes `df` as a Parquet file. `compressionLevel` applies to `Gzip` (0-9),
+  ## `Brotli` (0-11) and `Zstd` (1-22); `none(int)` uses the codec's default.
+  ## `statistics` writes min, max and null counts per row group, which let scans
+  ## skip row groups.
+  let lvl = toOpt(compressionLevel)
+  let rg = toOpt(rowGroupSize)
+  if lvl.isSome and compression notin {ParquetCompression.Gzip, ParquetCompression.Brotli,
+                                       ParquetCompression.Zstd}:
+    raise newException(ValueError, "compressionLevel needs Gzip, Brotli or Zstd, not " &
+                       $compression)
+  if not nq_df_write_parquet(df.raw, path.cstring, NqParquetCompression(ord(compression)),
+                             (if lvl.isSome: lvl.get.int32 else: -1'i32), statistics,
+                             (if rg.isSome: rg.get.int64 else: 0'i64)):
+    raiseLast()
+
+proc scanIpcImpl(path: string, data: ptr string, nRows: Option[int],
+                 columns: openArray[string], rowIndexName: string,
+                 rowIndexOffset: int): LazyFrame =
+  let (dp, dl) = dataArg(data)
+  result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                               rowIndexOffset.uint32)
+  result = result.selectColumns(withRowIndex(columns, rowIndexName))
+
+proc scanIpc*(path: string, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [], rowIndexName = "",
+              rowIndexOffset = 0): LazyFrame =
+  ## Lazily reads an Arrow IPC file (Feather v2), or a glob of them. Options as
+  ## in `scanParquet`.
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset)
+
+proc readIpc*(path: string, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [], rowIndexName = "",
+              rowIndexOffset = 0): DataFrame =
+  ## Reads an Arrow IPC file now: `scanIpc(...).collect`.
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
+
+proc readIpc*(source: Stream, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [], rowIndexName = "",
+              rowIndexOffset = 0): DataFrame =
+  ## Reads Arrow IPC bytes from a stream.
+  var data = source.readAll
+  scanIpcImpl("", addr data, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
+
+proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed) =
+  ## Writes `df` as an Arrow IPC file (Feather v2).
+  if not nq_df_write_ipc(df.raw, path.cstring, NqIpcCompression(ord(compression))):
     raiseLast()
 
 # Eager shortcuts: run a single lazy step and collect.

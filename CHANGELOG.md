@@ -29,6 +29,10 @@ its OpenSpec change is archived. Format based on
   `str.toTime`, `str.strptime`) and `tryParseDates` for CSV; the `dt` namespace with
   parts, formatting, truncation, offsets, time zones, `combine` and duration totals.
   (add-temporal-types, #47)
+- Parquet and Arrow IPC: `scanParquet`, `readParquet`, `writeParquet` (with
+  `ParquetCompression`, `compressionLevel`, `statistics`, `rowGroupSize`), `scanIpc`,
+  `readIpc`, `writeIpc` (with `IpcCompression`), and reading CSV, Parquet and IPC from a
+  Nim `Stream` (`readCsv(newStringStream(text))`). (add-parquet-ipc, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns

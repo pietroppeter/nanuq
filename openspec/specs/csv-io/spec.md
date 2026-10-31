@@ -127,3 +127,33 @@ echo readFile(path)
 #### Scenario: Null marker and precision
 - **WHEN** a frame with a null and 3.14159 is written with `nullValue = "NA", floatPrecision = 2`
 - **THEN** the file holds `NA` and `3.14`
+
+### Requirement: Reading CSV from a stream
+`readCsv` SHALL also take a Nim `Stream` instead of a path, read all of it when called,
+and take every CSV read option.
+
+```nim
+import std/streams
+let text = "station;bears\nNorth;3\nSouth;NA\n"
+echo readCsv(newStringStream(text), separator = ';', nullValues = ["NA"])
+```
+
+```text
+shape: (2, 2)
+┌─────────┬───────┐
+│ station ┆ bears │
+│ ---     ┆ ---   │
+│ str     ┆ i64   │
+╞═════════╪═══════╡
+│ North   ┆ 3     │
+│ South   ┆ null  │
+└─────────┴───────┘
+```
+
+#### Scenario: Same options
+- **WHEN** CSV text with `;` separators and "NA" is read from a stream with `separator = ';', nullValues = ["NA"]`
+- **THEN** the result equals reading the same text from a file with those options
+
+#### Scenario: Empty stream
+- **WHEN** an empty stream is read
+- **THEN** `NoDataError` is raised

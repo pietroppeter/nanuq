@@ -166,6 +166,10 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `inferSchemaLength` (`none(int)` for all rows), `ignoreErrors`, `decimalComma`.
   `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
   `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
+- Parquet and Arrow IPC: `scanParquet`, `readParquet(path, columns = [...], nRows = 10)`,
+  `writeParquet(path, compression = ParquetCompression.Zstd, compressionLevel = 19)`,
+  and the same for IPC (`scanIpc`, `readIpc`, `writeIpc`). `readCsv`, `readParquet` and
+  `readIpc` also read a Nim `Stream` (`readCsv(newStringStream(text))`)
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
   `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
   column), `describe` (summary statistics)

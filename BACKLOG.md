@@ -44,7 +44,8 @@ two), L (more).
 
 ## API
 
-- **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
+- **More IO** (M): NDJSON, Excel, writing to streams, sink functions (streaming writes),
+  cloud storage. (CSV, Parquet, IPC and reading streams are done.)
 - **More dtypes** (M): categoricals, lists, structs, decimals.
 
 ## Ecosystem
@@ -81,9 +82,6 @@ two), L (more).
   early development. Once Nanuq matures, drop the data from the library and vendor it
   from elsewhere (a separate package, or download and cache, like seaborn's
   `load_dataset`).
-- **CSV from a string or bytes** (S). Like Python's `pl.read_csv(io.StringIO(...))`.
-  Would also let datasets be embedded with `staticRead` for self-contained binaries.
-  Needs a new bridge function (Cursor over the bytes).
 
 ## Docs
 

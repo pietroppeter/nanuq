@@ -17,3 +17,4 @@ nimcache/
 /tests/test_inspection
 /tests/test_strings
 /tests/test_temporal
+/tests/test_io
