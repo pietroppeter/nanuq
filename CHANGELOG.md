@@ -24,7 +24,7 @@ its OpenSpec change is archived. Format based on
   `nullsLast`, and `maintainOrder`; the one-column `sort` gains `nullsLast` and
   `maintainOrder`. (#30)
 - `sample` on DataFrame, by `n` or `fraction`, with `withReplacement`, `shuffle` and
-  `seed`. (#30)
+  `seed`. (#30) `setRandomSeed` for Polars' global generator, and `seed = 42` as a plain int. (#31)
 
 ### Changed
 - **Breaking:** `dtype(df, col)` returns a `DataType` instead of a string. Compare with

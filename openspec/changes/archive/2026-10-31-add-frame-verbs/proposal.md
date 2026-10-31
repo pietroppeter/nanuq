@@ -31,7 +31,9 @@ verbs"). It has no BACKLOG.md entry.
   value in `descending` or `nullsLast` applies to every key. The one-column
   `sort(by, descending)` gains `nullsLast` and `maintainOrder`.
 - `sample` on DataFrame: `sample(n, withReplacement = false, shuffle = false,
-  seed = none(int))`, and `sample(fraction = 0.1, ...)`.
+  seed = none(int))`, and `sample(fraction = 0.1, ...)`. `seed = 42` works too, and
+  `setRandomSeed(42)` seeds Polars' global generator (added during implementation, after
+  Pietro picked this option for the 0.2 explainer).
 - New pure enum `UniqueKeepStrategy`, following the `api-conventions` spec.
 - Polars feature `random` is compiled in (for `sample`). The ABI stays `0.2.0-dev`.
 
@@ -60,7 +62,8 @@ Expected differences from Polars' Rust and Python APIs:
 - **`sample` is DataFrame only**, as in Python (LazyFrame has no `sample`). `n` and
   `fraction` are two overloads, chosen by the argument name (`fraction = 0.1`) or type,
   and one of them is required (Python defaults to one row when both are missing).
-  `seed` is an `Option[int]`.
+  `seed` is an `Option[int]` or a plain `int`. `setRandomSeed` is Python's
+  `pl.set_random_seed`.
 - **`rename` takes pairs only.** Python also accepts a function from old to new name.
   That form is left for later.
 - **`drop` takes one name or a list**, not Python's `*columns`: Nim `varargs` followed by

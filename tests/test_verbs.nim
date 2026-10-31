@@ -115,6 +115,15 @@ suite "sample":
     check a.height == 3
     check a.toSeq("x", int) == b.toSeq("x", int)
 
+  test "plain int seed and the global seed":
+    check ten().sample(3, seed = 7).toSeq("x", int) == ten().sample(3, seed = some(7)).toSeq("x", int)
+    check ten().sample(fraction = 0.5, seed = 7).height == 5
+    setRandomSeed(42)
+    let a = ten().sample(4).toSeq("x", int)
+    setRandomSeed(42)
+    check ten().sample(4).toSeq("x", int) == a
+    expect ValueError: setRandomSeed(-1)
+
   test "fraction":
     check ten().sample(fraction = 0.5).height == 5
     check ten().sample(fraction = 2.0, withReplacement = true).height == 20

@@ -167,7 +167,7 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `head`, `tail`, `slice(offset, length)`, `reverse`, `withRowIndex`,
   `unique("k", keep = First)`, and sorting by several keys
   (`sort(["g", "v"], descending = [false, true], nullsLast = [true])`). On DataFrame:
-  `sample(3, seed = some(42))` or `sample(fraction = 0.1)`
+  `sample(3, seed = 42)` or `sample(fraction = 0.1)`, and `setRandomSeed(42)`
 - Joins: `a.join(b, on = ["id"], how = Left)`, `leftOn`/`rightOn` (names or expressions),
   `a.join(b, how = Cross)`, with `suffix`, `validate`, `nullsEqual`, `coalesce` and
   `maintainOrder`. As in Polars, the row order of a join is not guaranteed unless you

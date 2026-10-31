@@ -825,13 +825,28 @@ proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacem
   wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, shuffle,
                     seed.isSome, seed.get(0).uint64)
 
+proc setRandomSeed*(seed: int) =
+  ## Seeds Polars' global random generator: random operations without a `seed`
+  ## of their own (such as `sample`) repeat from here on, like `randomize(seed)`.
+  if seed < 0: raise newException(ValueError, "random seed must not be negative")
+  nq_set_random_seed(seed.uint64)
+
 proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
              seed = none(int)): DataFrame =
-  ## `n` random rows. The same `seed` gives the same rows.
+  ## `n` random rows. Random unless `seed` is given (or `setRandomSeed` was called).
   if n < 0: raise newException(ValueError, "sample size must not be negative")
   sampleImpl(df, n, 0.0, false, withReplacement, shuffle, seed)
+
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+             seed: int): DataFrame =
+  ## `n` random rows; the same `seed` gives the same rows: `df.sample(3, seed = 42)`.
+  df.sample(n, withReplacement, shuffle, some(seed))
 
 proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
              seed = none(int)): DataFrame =
   ## A random `fraction` of the rows: `df.sample(fraction = 0.1)`.
   sampleImpl(df, 0, fraction, true, withReplacement, shuffle, seed)
+
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+             seed: int): DataFrame =
+  df.sample(fraction, withReplacement, shuffle, some(seed))
