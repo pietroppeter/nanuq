@@ -1,0 +1,37 @@
+editions: 113 (1903-2026), starters rows: 16438, flagged DNS: 6, distinct riders: 5726
+starters per edition: min 60 (1905), max 210 (1986), median 140
+sources: {'list': 4643, 'missing': 953, 'page': 10842}
+
+decade   editions  starters  with_born  share  min-max field
+1900s         7       666        320  48.0%  60-150
+1910s         6       677        370  54.7%  67-145
+1920s        10      1368       1104  80.7%  113-162
+1930s        10       857        834  97.3%  60-100
+1940s         3       340        340 100.0%  100-120
+1950s        10      1203       1202  99.9%  110-130
+1960s        10      1302       1300  99.8%  110-150
+1970s        10      1304       1299  99.6%  100-150
+1980s        10      1753       1752  99.9%  130-210
+1990s        10      1917       1915  99.9%  180-198
+2000s        10      1859       1857  99.9%  176-198
+2010s        10      1936       1936 100.0%  176-198
+2020s         7      1256       1256 100.0%  176-184
+
+15 youngest starters (age on the Tour's first day):
+1904 #90   Camille Fily                     b. 1887-05-13  17y  50d  list
+1924 #230  Joseph Cassini                   b. 1906-11-01  17y 234d  page
+1925 #115  Gaston Morlet                    b. 1907-09-30  17y 264d  page
+1914 #121  André Coutte                     b. 1896-08-31  17y 301d  page
+1907 #109  René Fleury                      b. 1889-05-24  18y  45d  page
+1905 #3    Camille Fily                     b. 1887-05-13  18y  57d  page
+1907 #5    Constant Ménager                 b. 1889-04-15  18y  84d  page
+1907 #48   Marceau Narcy                    b. 1889-03-31  18y  99d  page
+1906 #81   Albert Chartier (cyclist)        b. 1888-03-20  18y 106d  page
+1913 #147  Ali Neffati                      b. 1895-01-22  18y 158d  page
+1904 #41   Eugène Ventresque                b. 1886-01-24  18y 160d  list
+1903 #103  Paul Armbruster                  b. 1885-01-01  18y 181d  page
+1925 #168  Joseph Cassini                   b. 1906-11-01  18y 232d  page
+1912 #188  Ugo Agostoni                     b. 1893-07-27  18y 339d  page
+1913 #195  Joseph Verdickt                  b. 1894-06-30  18y 364d  page
+
+under-20 starters: 49; by decade: {1900: 29, 1910: 10, 1920: 4, 1930: 4, 2010: 1, 2020: 1}
