@@ -19,12 +19,13 @@ The rest of that entry stays in the backlog. It is the first change of the 0.2 r
   String and Null. Dtypes Nanuq does not model yet (Date, List, Categorical, ...) come
   back as kind `dkOther` and keep Polars' name.
 - Constants named as in Polars: `Boolean`, `Int8` ... `UInt64`, `Float32`, `Float64`,
-  `String`, `Null`. `$` gives Polars' short name ("i64"), as today.
+  `String`, `Null`. `$` gives the Nim type name (`int64`, `uint8`, `float32`, `bool`,
+  `string`), `null` for Null, and Polars' name for `dkOther`.
 - Predicates `isInteger`, `isSignedInteger`, `isUnsignedInteger`, `isFloat`,
   `isNumeric`.
 - **BREAKING:** `dtype(df, col)` returns a `DataType` instead of a string. Code that
   compares with strings (`df.dtype("a") == "i64"`) must compare with constants
-  (`== Int64`) or use `$`.
+  (`== Int64`), and `$df.dtype("a")` is now `"int64"`.
 - New `schema(df)` and `collectSchema(lf)`: the column names and types, in order, as a
   `Schema` (an `OrderedTable[string, DataType]`). New `dtypes(df)`.
 - New `cast`, `strict = true` by default. The target is a Nim type where one is enough:
@@ -63,8 +64,10 @@ Expected differences from Polars' Rust and Python APIs:
   yet to `dkOther` with Polars' name, and refuses to `cast` to them.
 - **No 128-bit integers, no Decimal.** `Int128`, `UInt128` and `Decimal` are left out
   (they need extra Polars features); they would read as `dkOther`.
-- **`$` is Polars' short name.** Python prints `Int64`; Rust's `Display` prints `i64`.
-  Nanuq follows Rust, which is also what the table header shows in both.
+- **`$` is the Nim type name.** Python prints `Int64` and Rust's `Display` prints `i64`;
+  Nanuq prints `int64`, the Nim type you would read the column as. Polars' own table
+  output (`$df`) and the HTML table header keep Polars' short names (`i64`), so tables
+  look the same as in Python.
 - **Schema type.** Python's `pl.Schema` is an ordered mapping; Nanuq uses Nim's
   `OrderedTable[string, DataType]`. Python's `df.schema` is a property; in Nim it is a
   proc, `df.schema` reads the same.
@@ -93,8 +96,9 @@ Expected differences from Polars' Rust and Python APIs:
   takes about 10 minutes.
 - `src/nanuq/ffi.nim`, `src/nanuq.nim`: the matching declarations and API; imports
   `std/tables`.
-- `src/nanuq/datamancer.nim` and the HTML table switch from dtype strings to `DataType`.
+- `src/nanuq/datamancer.nim` switches from dtype strings to `DataType`. The HTML table
+  keeps Polars' short name in its header (from `nq_df_column_dtype`).
 - `tests/`: dtype string comparisons become constant comparisons; new tests for
-  schemas and casts. The dev-log post "How Nanuq works" still prints `dtype` with
-  `echo`, so its output is unchanged.
+  schemas and casts. The dev-log post "How Nanuq works" prints `dtype` with `echo`, so
+  its output changes from `i64` to `int64`.
 - `README.md`: the API list mentions `schema` and `cast`.
