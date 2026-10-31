@@ -1949,6 +1949,15 @@ pub unsafe extern "C" fn nq_expr_over(
     }))
 }
 
+/// Keeps the values of `e` where `predicate` is true (Polars' `Expr.filter`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_filter(e: *const Expr, predicate: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let p = borrow(predicate, "predicate")?.clone();
+        Ok(borrow(e, "expression")?.clone().filter(p))
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Column selectors
 // ---------------------------------------------------------------------------

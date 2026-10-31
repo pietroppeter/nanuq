@@ -420,6 +420,7 @@ proc nq_df_column_time_zone*(df: ptr NqDataFrame, name: cstring): cstring
 proc nq_df_column_n_categories*(df: ptr NqDataFrame, name: cstring): int64
 proc nq_df_column_category*(df: ptr NqDataFrame, name: cstring, i: csize_t): cstring
 proc nq_series_cast*(s: ptr NqSeries, dtype: ptr NqDtypeSpec): ptr NqSeries
+proc nq_expr_filter*(e, predicate: ptr NqExpr): ptr NqExpr
 proc nq_expr_cat*(e: ptr NqExpr, op: NqCatOp, s: cstring, offset, length: int64): ptr NqExpr
 proc nq_df_column_physical*(df: ptr NqDataFrame, name: cstring, output: ptr int64, valid: ptr bool,
                             n: csize_t): bool

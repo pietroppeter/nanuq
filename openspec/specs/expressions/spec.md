@@ -311,3 +311,32 @@ shape: (5, 4)
 #### Scenario: Average
 - **WHEN** `rank()` runs over 9, 9, 7
 - **THEN** the result is 2.5, 2.5, 1.0 with dtype f64
+
+### Requirement: Filtering inside expressions
+`e.filter(predicate)` SHALL keep the values of `e` where `predicate` is true, so that an
+aggregation can run over part of each group.
+
+```nim
+let df = newDataFrame:
+  rider: ["Pogačar", "Pogačar", "Vingegaard", "Vingegaard"]
+  stage: ["TT", "road", "TT", "road"]
+  secs: [3120, 15400, 3150, 15390]
+echo df.groupBy(col.rider).agg(col.secs.filter(col.stage == "TT").sum.alias("tt_secs"))
+  .sort("rider").collect
+```
+
+```text
+shape: (2, 2)
+┌────────────┬─────────┐
+│ rider      ┆ tt_secs │
+│ ---        ┆ ---     │
+│ str        ┆ i64     │
+╞════════════╪═════════╡
+│ Pogačar    ┆ 3120    │
+│ Vingegaard ┆ 3150    │
+└────────────┴─────────┘
+```
+
+#### Scenario: Conditional sum
+- **WHEN** `col.secs.filter(col.stage == "TT").sum` is aggregated per rider
+- **THEN** each rider's sum counts only the TT rows

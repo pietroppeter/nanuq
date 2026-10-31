@@ -66,3 +66,10 @@ suite "selectors as expressions":
 
   test "$ shows the selector":
     check ($col(SomeNumber)).len > 0
+
+suite "col from a list":
+  test "names from a seq":
+    let df = newDataFrame(series("a", [1]), series("b", [2]), series("c", [3]))
+    let names = @["c", "a"]
+    check df.select(col(names)).columns == @["c", "a"]
+    check df.select(col(["b"])).columns == @["b"]

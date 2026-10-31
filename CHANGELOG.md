@@ -37,6 +37,8 @@ its OpenSpec change is archived. Format based on
   Polars Enums (`cast(Monument)`, `series("m", [Gold, Silver])`, `toList(df, "m",
   Medal)`, `col.medal == Gold`); the `cat` namespace (`getCategories`, `lenChars`,
   `startsWith`, `slice`, ...) and `Expr.toPhysical`. (add-categoricals, #47)
+- `Expr.filter(predicate)` for conditional aggregations, and `col(names)` with a list or
+  seq of names. (add-expr-filter, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns

@@ -187,7 +187,8 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   strict by default (`strict = false` turns failures into nulls)
 - Expressions: `col("a")` or `col.a`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`,
   `round`, comparisons, `and or not`, `isIn`, `isBetween`, `sum mean median min max count
-  len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`
+  len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`,
+  `filter` inside an aggregation (`col.pts.filter(col.kind == "TT").sum`)
 - Strings: `col.race.str.replaceAll("–", "-", literal = true)`, `str.contains`,
   `str.extract(r"(\d+)'")`, `str.toUppercase`, `str.stripChars`, `str.slice`,
   `str.zfill`, `str.join(", ")` in `agg`, `format("{} ({})", col.rider, col.nat)`,
@@ -207,7 +208,7 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,
-  `col(float, string)`, `col("a", "b")`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
+  `col(float, string)`, `col("a", "b")`, `col(someSeq)`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
   used like any expression (`agg(col(SomeNumber).mean.name.suffix("_mean"))`)
 - Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
   and `over("group")` for per-group values on every row

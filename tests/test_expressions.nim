@@ -168,3 +168,15 @@ suite "nullCount and rank":
   test "rank keeps nulls":
     let df = newDataFrame(series("a", [some(2), none(int), some(1)]))
     check df.select(col.a.rank(Min)).toList("a", Option[int]) == @[some(2), none(int), some(1)]
+
+suite "filter inside expressions":
+  test "conditional aggregation":
+    let df = newDataFrame:
+      rider: ["a", "a", "b", "b"]
+      kind: ["TT", "road", "TT", "TT"]
+      pts: [10, 5, 3, 4]
+    let r = df.groupBy(col.rider).agg(col.pts.filter(col.kind == "TT").sum.alias("tt"),
+                                      col.pts.sum.alias("all")).sort("rider").collect
+    check r.toList("tt", int) == @[10, 7]
+    check r.toList("all", int) == @[15, 7]
+    check df.select(col.pts.filter(col.pts > 4)).toList("pts", int) == @[10, 5]

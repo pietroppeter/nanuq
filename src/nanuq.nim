@@ -1084,6 +1084,12 @@ proc rank*(e: Expr, rankMethod = RankMethod.Average, descending = false,
 proc rank*(e: Expr, rankMethod: RankMethod, descending = false, seed: int): Expr =
   e.rank(rankMethod, descending, some(seed))
 
+proc filter*(e: Expr, predicate: Expr): Expr =
+  ## The values of `e` where `predicate` is true, usually inside `agg`:
+  ## `agg(col.points.filter(col.stage == "TT").sum)`. The result is shorter
+  ## than the frame, so use it in an aggregation or alone in a `select`.
+  wrap nq_expr_filter(e.raw, predicate.raw)
+
 proc over*(e: Expr, partitionBy: openArray[Expr]): Expr =
   ## Computes `e` per group of `partitionBy` and gives each row its group's value.
   let b = raws(partitionBy)
@@ -1152,6 +1158,11 @@ macro `()`*(c: ColNs, T: typedesc, more: varargs[typed]): untyped =
 proc nameList(a, b: string, more: openArray[string]): seq[string] =
   result = @[a, b]
   for m in more: result.add m
+
+proc `()`*(c: ColNs, names: openArray[string]): Selector =
+  ## Columns by name from a list, in this order: `col(["a", "b"])` or
+  ## `col(someSeq)`, as Python's `pl.col(list)`.
+  Selector(names: @names)
 
 proc `()`*(c: ColNs, a, b: string, more: varargs[string]): Selector =
   ## Several columns by name, in this order: `col("a", "b")`.
