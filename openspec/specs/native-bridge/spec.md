@@ -39,8 +39,11 @@ Every FFI function SHALL catch Polars errors and Rust panics, signal failure wit
 the enums `NqBinOp`, `NqUnary`, `NqDtype`, `NqDtypeClass`, `NqJoinType`,
 `NqJoinValidation`, `NqMaintainOrderJoin`, `NqConcat`, `NqUniqueKeepStrategy`,
 `NqClosedInterval`, `NqQuantileMethod`, `NqFillNullStrategy`, `NqRoundMode`,
-`NqQuoteStyle`, `NqRankMethod`, `NqErrorKind` and `NqStrOp` SHALL keep the same order as in Rust. `NqDtype` SHALL also keep the order
-of `DataTypeKind`, and the option enums the order of their Nim API enums.
+`NqQuoteStyle`, `NqRankMethod`, `NqErrorKind`, `NqStrOp`, `NqTimeUnit`,
+`NqClosedWindow` and `NqDtOp` SHALL keep the same order as in Rust. `NqDtype` SHALL also
+keep the order of `DataTypeKind`, and the option enums the order of their Nim API enums.
+Data types SHALL cross the ABI as an `NqDtypeSpec` struct (code, time unit, time zone,
+categories) with the same field order on both sides.
 
 #### Scenario: ABI change
 - **WHEN** a function is added or changed in `rust/src/lib.rs`

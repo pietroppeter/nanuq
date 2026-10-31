@@ -16,3 +16,4 @@ nimcache/
 /tools/specview
 /tests/test_inspection
 /tests/test_strings
+/tests/test_temporal

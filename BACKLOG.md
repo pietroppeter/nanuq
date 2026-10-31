@@ -45,7 +45,7 @@ two), L (more).
 ## API
 
 - **More IO** (M): Parquet, JSON, lazy `scanParquet`. (`scanCsv` and CSV options are done.)
-- **More dtypes** (M): dates and datetimes, categoricals.
+- **More dtypes** (M): categoricals, lists, structs, decimals.
 
 ## Ecosystem
 

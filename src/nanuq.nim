@@ -26,12 +26,13 @@
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
 
-import std/[macros, options, tables, os, strutils, math]
+import std/[macros, options, tables, os, strutils, math, times]
 from std/unicode import runeLen, runeSubStr
 import nanuq/ffi
 
 export options  # some/none/Option, for null-aware reads and series
 export tables   # Schema is an OrderedTable
+export times    # DateTime, Duration and TimeInterval are temporal values
 export nanuqLibVersion  # version of the Rust wrapper crate these bindings expect
 
 type
@@ -146,18 +147,31 @@ type
     ## Same order as `NqDtype` in the C ABI. `Other` is a dtype Nanuq does not
     ## model yet.
     Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
-    UInt64, Float32, Float64, String, Null, Other
+    UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Other
 
   DataType* = object
-    ## A Polars data type. Compare with the constants (`Int64`, `String`, ...).
-    ## Dtypes Nanuq does not model yet (dates, lists, ...) have kind
-    ## `DataTypeKind.Other` and keep Polars' name.
+    ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
+    ## with a Nim type (`dtype == Date`, `dtype == DateTime`). Dtypes Nanuq does
+    ## not model yet (lists, ...) have kind `DataTypeKind.Other` and keep
+    ## Polars' name.
     case kind*: DataTypeKind
     of DataTypeKind.Other: name*: string
+    of DataTypeKind.Datetime, DataTypeKind.Duration:
+      timeUnit*: TimeUnit   ## std/times' `TimeUnit`: Nanoseconds, Microseconds or Milliseconds
+      timeZone*: string     ## IANA name, "" for none; always "" for Duration
     else: discard
 
   Schema* = OrderedTable[string, DataType]
     ## Column names and data types, in column order.
+
+  Date* = distinct int32
+    ## A calendar date, as Polars' `Date`: days since 1970-01-01. std/times has
+    ## no date without a time and a zone. Build one with `date(2026, 7, 4)`.
+
+  TimeOfDay* = object
+    ## A time of day, as Polars' `Time` (std/times' `Time` is an instant).
+    ## Build one with `timeOfDay(14, 3)`.
+    nanos: int64
 
 const
   Boolean* = DataType(kind: DataTypeKind.Boolean)
@@ -175,10 +189,28 @@ const
   Null* = DataType(kind: DataTypeKind.Null)
 
 proc `==`*(a, b: DataType): bool =
-  a.kind == b.kind and (a.kind != DataTypeKind.Other or a.name == b.name)
+  if a.kind != b.kind: return false
+  case a.kind
+  of DataTypeKind.Other: a.name == b.name
+  of DataTypeKind.Datetime, DataTypeKind.Duration:
+    a.timeUnit == b.timeUnit and a.timeZone == b.timeZone
+  else: true
+
+proc polarsName(u: TimeUnit): string =
+  ## Polars' short name: "ns", "μs", "ms".
+  case u
+  of Nanoseconds: "ns"
+  of Microseconds: "μs"
+  of Milliseconds: "ms"
+  else: $u
+
+proc checkUnit(u: TimeUnit) =
+  if u notin {Nanoseconds, Microseconds, Milliseconds}:
+    raise newException(ValueError, "Polars time units are Nanoseconds, Microseconds and " &
+                       "Milliseconds, not " & $u)
 
 proc `$`*(t: DataType): string =
-  ## Polars' short name, e.g. "i64", "str".
+  ## Polars' short name, e.g. "i64", "str", "datetime[μs, Europe/Rome]".
   case t.kind
   of DataTypeKind.Boolean: "bool"
   of DataTypeKind.Int8: "i8"
@@ -193,6 +225,11 @@ proc `$`*(t: DataType): string =
   of DataTypeKind.Float64: "f64"
   of DataTypeKind.String: "str"
   of DataTypeKind.Null: "null"
+  of DataTypeKind.Date: "date"
+  of DataTypeKind.Datetime:
+    "datetime[" & polarsName(t.timeUnit) & (if t.timeZone.len > 0: ", " & t.timeZone else: "") & "]"
+  of DataTypeKind.Duration: "duration[" & polarsName(t.timeUnit) & "]"
+  of DataTypeKind.Time: "time"
   of DataTypeKind.Other: t.name
 
 proc isSignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.Int8 .. DataTypeKind.Int64}
@@ -200,11 +237,14 @@ proc isUnsignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.UInt8 .. Da
 proc isInteger*(t: DataType): bool = t.isSignedInteger or t.isUnsignedInteger
 proc isFloat*(t: DataType): bool = t.kind in {DataTypeKind.Float32, DataTypeKind.Float64}
 proc isNumeric*(t: DataType): bool = t.isInteger or t.isFloat
+proc isTemporal*(t: DataType): bool = t.kind in {DataTypeKind.Date .. DataTypeKind.Time}
 
-proc dataType*(T: typedesc): DataType =
+proc dataType*(T: typedesc, timeUnit = TimeUnit.Microseconds, timeZone = ""): DataType =
   ## The data type of a Nim type: `int8` .. `int64`, `uint8` .. `uint64`,
-  ## `float32`, `float64`, `bool`, `string`. `int` and `float` give `Int64`
-  ## and `Float64`, as `series` builds them. Other types do not compile.
+  ## `float32`, `float64`, `bool`, `string`, `Date`, `DateTime` (Datetime,
+  ## with `timeUnit` and `timeZone`), `Duration` (with `timeUnit`) and
+  ## `TimeOfDay` (Time). `int` and `float` give `Int64` and `Float64`, as
+  ## `series` builds them. Other types do not compile.
   when T is int8: Int8
   elif T is int16: Int16
   elif T is int32: Int32
@@ -217,12 +257,130 @@ proc dataType*(T: typedesc): DataType =
   elif T is float64: Float64
   elif T is bool: Boolean
   elif T is string: String
+  elif T is Date: DataType(kind: DataTypeKind.Date)
+  elif T is DateTime: DataType(kind: DataTypeKind.Datetime, timeUnit: timeUnit, timeZone: timeZone)
+  elif T is times.Duration: DataType(kind: DataTypeKind.Duration, timeUnit: timeUnit)
+  elif T is TimeOfDay: DataType(kind: DataTypeKind.Time)
   else: {.error: "nanuq: no Polars data type for " & $T.}
 
-proc code(t: DataType): NqDtype =
-  if t.kind == DataTypeKind.Other:
-    raise newException(InvalidOperationError, "cannot cast to " & t.name & ": Nanuq does not model this dtype yet")
-  NqDtype(ord(t.kind))
+proc `==`*(t: DataType, T: typedesc): bool =
+  ## `schema["born"] == Date`. `DateTime` and `Duration` match any time unit
+  ## and time zone.
+  when T is DateTime: t.kind == DataTypeKind.Datetime
+  elif T is times.Duration: t.kind == DataTypeKind.Duration
+  else: t == dataType(T)
+
+type DtypeSpecs = object
+  ## Specs for the C ABI, with the strings they point to kept alive.
+  specs: seq[NqDtypeSpec]
+  zones: seq[string]
+
+proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
+  result.specs = newSeq[NqDtypeSpec](ts.len)
+  result.zones = newSeq[string](ts.len)
+  for i, t in ts:
+    if t.kind == DataTypeKind.Other:
+      raise newException(InvalidOperationError, "cannot cast to " & t.name &
+                         ": Nanuq does not model this dtype yet")
+    result.specs[i].code = NqDtype(ord(t.kind))
+    if t.kind in {DataTypeKind.Datetime, DataTypeKind.Duration}:
+      checkUnit(t.timeUnit)
+      result.specs[i].timeUnit = NqTimeUnit(ord(t.timeUnit))
+      result.zones[i] = t.timeZone
+  for i in 0 ..< ts.len:
+    result.specs[i].timeZone = result.zones[i].cstring
+
+# ---------------------------------------------------------------------------
+# Temporal values: Date and TimeOfDay, and conversions to Polars' physical values
+# ---------------------------------------------------------------------------
+
+proc `==`*(a, b: Date): bool {.borrow.}
+proc `<`*(a, b: Date): bool {.borrow.}
+proc `<=`*(a, b: Date): bool {.borrow.}
+proc `+`*(d: Date, days: int): Date = Date(d.int32 + days.int32)
+  ## The date `days` days later.
+proc `-`*(d: Date, days: int): Date = Date(d.int32 - days.int32)
+proc `-`*(a, b: Date): int = a.int32 - b.int32
+  ## Days from `b` to `a`.
+
+proc date*(year: int, month: int | Month, day: int): Date =
+  ## A calendar date: `date(2026, 7, 4)` or `date(2026, mJul, 4)`.
+  let t = dateTime(year, Month(month), MonthdayRange(day), zone = utc()).toTime
+  Date(floorDiv(t.toUnix, 86400).int32)
+
+proc toDateTime*(d: Date): DateTime =
+  ## Midnight UTC of `d`.
+  fromUnix(d.int32.int64 * 86400).utc
+
+proc toDate*(dt: DateTime): Date =
+  ## The calendar date of `dt`, in its own zone.
+  date(dt.year, dt.month, dt.monthday)
+
+proc year*(d: Date): int = d.toDateTime.year
+proc month*(d: Date): Month = d.toDateTime.month
+proc monthday*(d: Date): MonthdayRange = d.toDateTime.monthday
+proc `$`*(d: Date): string = d.toDateTime.format("yyyy-MM-dd")
+  ## ISO 8601, as Polars prints dates: "2026-07-04".
+
+const nanosPerDay = 86_400_000_000_000'i64
+
+proc timeOfDay*(hour: int, minute = 0, second = 0, nanosecond = 0): TimeOfDay =
+  ## A time of day: `timeOfDay(14, 3)`.
+  if hour notin 0..23 or minute notin 0..59 or second notin 0..59 or
+     nanosecond notin 0 ..< 1_000_000_000:
+    raise newException(ValueError, "invalid time of day")
+  TimeOfDay(nanos: ((hour * 60 + minute) * 60 + second).int64 * 1_000_000_000 + nanosecond)
+
+proc hour*(t: TimeOfDay): int = int(t.nanos div 3_600_000_000_000)
+proc minute*(t: TimeOfDay): int = int(t.nanos div 60_000_000_000 mod 60)
+proc second*(t: TimeOfDay): int = int(t.nanos div 1_000_000_000 mod 60)
+proc nanosecond*(t: TimeOfDay): int = int(t.nanos mod 1_000_000_000)
+proc `==`*(a, b: TimeOfDay): bool = a.nanos == b.nanos
+proc `<`*(a, b: TimeOfDay): bool = a.nanos < b.nanos
+proc `<=`*(a, b: TimeOfDay): bool = a.nanos <= b.nanos
+
+proc `$`*(t: TimeOfDay): string =
+  ## As Polars prints times: "14:03:00", with a fraction when there is one.
+  result = align($t.hour, 2, '0') & ":" & align($t.minute, 2, '0') & ":" &
+           align($t.second, 2, '0')
+  if t.nanosecond != 0:
+    result.add "." & align($t.nanosecond, 9, '0').strip(leading = false, chars = {'0'})
+
+proc toTimeOfDay*(dt: DateTime): TimeOfDay =
+  ## The time of day of `dt`, in its own zone.
+  timeOfDay(dt.hour, dt.minute, dt.second, dt.nanosecond)
+
+proc unitScale(u: TimeUnit): int64 =
+  ## Nanoseconds per unit.
+  checkUnit(u)
+  case u
+  of Nanoseconds: 1
+  of Microseconds: 1_000
+  else: 1_000_000
+
+proc toPhysical(d: Date): int64 = d.int32.int64
+proc toPhysical(t: TimeOfDay): int64 = t.nanos
+proc toPhysical(dt: DateTime, u: TimeUnit): int64 =
+  let t = dt.toTime
+  t.toUnix * (1_000_000_000 div unitScale(u)) + floorDiv(t.nanosecond.int64, unitScale(u))
+proc toPhysical(d: times.Duration, u: TimeUnit): int64 =
+  floorDiv(d.inNanoseconds, unitScale(u))
+
+proc fromPhysical(v: int64, _: typedesc[Date], u: TimeUnit): Date = Date(v.int32)
+proc fromPhysical(v: int64, _: typedesc[TimeOfDay], u: TimeUnit): TimeOfDay = TimeOfDay(nanos: v)
+proc fromPhysical(v: int64, _: typedesc[DateTime], u: TimeUnit): DateTime =
+  let perSec = 1_000_000_000 div unitScale(u)
+  initTime(floorDiv(v, perSec), floorMod(v, perSec) * unitScale(u)).utc
+proc fromPhysical(v: int64, _: typedesc[times.Duration], u: TimeUnit): times.Duration =
+  initDuration(nanoseconds = v * unitScale(u))
+
+type TemporalValue = Date | DateTime | times.Duration | TimeOfDay
+
+proc temporalType(T: typedesc, timeUnit: TimeUnit, timeZone: string): DataType =
+  dataType(T, timeUnit, timeZone)
+
+proc physical[T](v: T, u: TimeUnit): int64 =
+  when T is Date or T is TimeOfDay: toPhysical(v) else: toPhysical(v, u)
 
 # ---------------------------------------------------------------------------
 # Series and DataFrame construction
@@ -275,6 +433,34 @@ proc series*(name: string, data: openArray[Option[string]]): Series =
       valid[i] = true
   wrap nq_series_new_str_opt(name.cstring, buf.firstOrNil, valid.firstOrNil, buf.len.csize_t)
 
+proc temporalSeries(name: string, vals: seq[int64], valid: seq[bool], t: DataType): Series =
+  let sp = toSpecs([t])
+  wrap nq_series_new_temporal(name.cstring, vals.firstOrNil, valid.firstOrNil, vals.len.csize_t,
+                              sp.specs[0].unsafeAddr)
+
+proc series*[T: TemporalValue](name: string, data: openArray[T],
+                               timeUnit = TimeUnit.Microseconds, timeZone = ""): Series =
+  ## A temporal column: `Date` gives Polars' Date, `DateTime` Datetime (UTC
+  ## instants; naive unless `timeZone` is given), `Duration` Duration and
+  ## `TimeOfDay` Time. `timeUnit` applies to DateTime and Duration.
+  var vals = newSeq[int64](data.len)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    vals[i] = physical(x, timeUnit)
+    valid[i] = true
+  temporalSeries(name, vals, valid, temporalType(T, timeUnit, timeZone))
+
+proc series*[T: TemporalValue](name: string, data: openArray[Option[T]],
+                               timeUnit = TimeUnit.Microseconds, timeZone = ""): Series =
+  ## A temporal column with nulls where `data` is `none`.
+  var vals = newSeq[int64](data.len)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      vals[i] = physical(x.get, timeUnit)
+      valid[i] = true
+  temporalSeries(name, vals, valid, temporalType(T, timeUnit, timeZone))
+
 proc newDataFrameOf(columns: varargs[Series]): DataFrame =
   var buf = newSeq[ptr NqSeries](columns.len)
   for i, c in columns: buf[i] = c.raw
@@ -309,7 +495,7 @@ proc blockColumn(line: NimNode): NimNode =
                  newCall(nnkBracketExpr.newTree(bindSym"none", newCall(ident"typeof", sample)))
                else: newCall(bindSym"some", v))
     vals = opts
-  newCall(bindSym"series", name, vals)
+  newCall(bindSym("series", brOpen), name, vals)
 
 macro newDataFrame*(columns: varargs[untyped]): untyped =
   ## Builds a DataFrame from columns of equal length, given as series or as a
@@ -351,8 +537,18 @@ proc dtype*(df: DataFrame, column: string): DataType =
   ## Data type of a column, e.g. `Int64`; `$` gives Polars' name ("i64").
   let k = nq_df_column_dtype_kind(df.raw, column.cstring)
   if k < 0: raiseLast()
-  if k == ord(DataTypeKind.Other):
+  case DataTypeKind(k)
+  of DataTypeKind.Other:
     DataType(kind: DataTypeKind.Other, name: takeString nq_df_column_dtype(df.raw, column.cstring))
+  of DataTypeKind.Datetime, DataTypeKind.Duration:
+    let code = nq_df_column_time_unit(df.raw, column.cstring)
+    if code < 0: raiseLast()
+    let u = TimeUnit(code)
+    if DataTypeKind(k) == DataTypeKind.Datetime:
+      DataType(kind: DataTypeKind.Datetime, timeUnit: u,
+               timeZone: takeString nq_df_column_time_zone(df.raw, column.cstring))
+    else:
+      DataType(kind: DataTypeKind.Duration, timeUnit: u)
   else:
     DataType(kind: DataTypeKind(k))
 
@@ -482,7 +678,21 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
   ## Values and validity mask of a whole column, in one FFI call (two for strings).
   let n = df.height
   var valid = newSeq[bool](n)
-  when T is int:
+  when T is TemporalValue:
+    let dt = df.dtype(column)
+    if dt != T:
+      raise newException(InvalidOperationError, "column '" & column & "' is " & $dt &
+                         ", not " & $T)
+    var buf = newSeq[int64](n)
+    if not nq_df_column_physical(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    let u = (if dt.kind in {DataTypeKind.Datetime, DataTypeKind.Duration}: dt.timeUnit
+             else: TimeUnit.Nanoseconds)
+    var vals = newSeq[T](n)
+    for i, x in buf:
+      if valid[i]: vals[i] = fromPhysical(x, T, u)
+    (vals, valid)
+  elif T is int:
     var buf = newSeq[int64](n)
     if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
@@ -514,7 +724,8 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
     (vals, valid)
 
-proc toList*[T: int | float | bool | string](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
+proc toList*[T: int | float | bool | string | TemporalValue](df: DataFrame, column: string,
+                                                            _: typedesc[T]): seq[T] =
   ## Copies a whole column into a Nim seq. Raises `InvalidOperationError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
   ##
@@ -529,8 +740,8 @@ proc toList*[T: int | float | bool | string](df: DataFrame, column: string, _: t
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
-proc toList*[T: int | float | bool | string](df: DataFrame, column: string,
-                                             _: typedesc[Option[T]]): seq[Option[T]] =
+proc toList*[T: int | float | bool | string | TemporalValue](df: DataFrame, column: string,
+                                                            _: typedesc[Option[T]]): seq[Option[T]] =
   ## Copies a whole column into a Nim seq, with `none` for nulls.
   let (vals, valid) = readColumn(df, column, T)
   result = newSeq[Option[T]](vals.len)
@@ -564,14 +775,29 @@ proc lit*(v: bool): Expr = wrap nq_expr_lit_bool(v)
 proc lit*(v: string): Expr = wrap nq_expr_lit_str(v.cstring)
 proc lit*(v: Expr): Expr = v
 
+proc litTemporal(v: int64, t: DataType): Expr =
+  let sp = toSpecs([t])
+  wrap nq_expr_lit_temporal(v, sp.specs[0].unsafeAddr)
+
+proc lit*(v: Date): Expr = litTemporal(v.toPhysical, dataType(Date))
+  ## A Date literal: `lit(date(2026, 7, 4))`.
+proc lit*(v: TimeOfDay): Expr = litTemporal(v.toPhysical, dataType(TimeOfDay))
+proc lit*(v: DateTime, timeUnit = TimeUnit.Microseconds, timeZone = ""): Expr =
+  ## A Datetime literal holding the UTC instant of `v`: naive, unless
+  ## `timeZone` is given.
+  litTemporal(v.toPhysical(timeUnit), dataType(DateTime, timeUnit, timeZone))
+proc lit*(v: times.Duration, timeUnit = TimeUnit.Microseconds): Expr =
+  ## A Duration literal: `lit(initDuration(minutes = 4))`.
+  litTemporal(v.toPhysical(timeUnit), dataType(times.Duration, timeUnit))
+
 proc `$`*(e: Expr): string = takeString nq_expr_to_string(e.raw)
 
 proc binary(a: Expr, op: NqBinOp, b: Expr): Expr = wrap nq_expr_binary(a.raw, op, b.raw)
 
 template defBinOp(name, op) =
   proc name*(a, b: Expr): Expr = binary(a, op, b)
-  proc name*[T: SomeNumber | string | bool](a: Expr, b: T): Expr = binary(a, op, lit(b))
-  proc name*[T: SomeNumber | string | bool](a: T, b: Expr): Expr = binary(lit(a), op, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue](a: Expr, b: T): Expr = binary(a, op, lit(b))
+  proc name*[T: SomeNumber | string | bool | TemporalValue](a: T, b: Expr): Expr = binary(lit(a), op, b)
 
 defBinOp(`+`, nqAdd)
 defBinOp(`-`, nqSub)
@@ -622,7 +848,8 @@ proc isNotNull*(e: Expr): Expr = unary(e, nqIsNotNull)
 proc fillNull*(e: Expr, value: Expr): Expr =
   ## Replaces nulls with `value` (an expression, or a literal below).
   wrap nq_expr_fill_null(e.raw, value.raw)
-proc fillNull*[T: SomeNumber | string | bool](e: Expr, value: T): Expr = e.fillNull(lit(value))
+proc fillNull*[T: SomeNumber | string | bool | TemporalValue](e: Expr, value: T): Expr =
+  e.fillNull(lit(value))
 
 proc alias*(e: Expr, name: string): Expr = wrap nq_expr_alias(e.raw, name.cstring)
 
@@ -630,11 +857,14 @@ proc `cast`*(e: Expr, dtype: DataType, strict = true): Expr =
   ## Converts to `dtype`. A strict cast fails (when the query runs) on values
   ## that can't be converted; with `strict = false` they become nulls.
   ## `cast` is a Nim keyword: write `e.cast(Int32)`, or `` `cast`(e, Int32) ``.
-  wrap nq_expr_cast(e.raw, dtype.code, strict)
+  let sp = toSpecs([dtype])
+  wrap nq_expr_cast(e.raw, sp.specs[0].unsafeAddr, strict)
 
-proc `cast`*(e: Expr, T: typedesc, strict = true): Expr =
-  ## Converts to the data type of a Nim type: `col("a").cast(int32)`.
-  e.cast(dataType(T), strict)
+proc `cast`*(e: Expr, T: typedesc, strict = true, timeUnit = TimeUnit.Microseconds,
+             timeZone = ""): Expr =
+  ## Converts to the data type of a Nim type: `col("a").cast(int32)`,
+  ## `cast(Date)`, `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`.
+  e.cast(dataType(T, timeUnit, timeZone), strict)
 
 # ---------------------------------------------------------------------------
 # More expressions: conditionals, membership, rounding, fill strategies, windows
@@ -806,8 +1036,7 @@ type
 
 converter toExpr*(s: Selector): Expr =
   let n = cstrings(s.names)
-  var d = newSeq[NqDtype](s.dtypes.len)
-  for i, t in s.dtypes: d[i] = t.code
+  let d = toSpecs(s.dtypes).specs
   var bits = 0'u32
   for c in s.classes: bits = bits or (1'u32 shl ord(c))
   let x = cstrings(s.excluded)
@@ -927,15 +1156,17 @@ proc collectSchema*(lf: LazyFrame): Schema =
 proc `cast`*(lf: LazyFrame, dtypes: openArray[(string, DataType)], strict = true): LazyFrame =
   ## Casts the named columns: `lf.cast({"a": Int32, "b": Float32})`.
   var names = newSeq[cstring](dtypes.len)
-  var codes = newSeq[NqDtype](dtypes.len)
+  var ts = newSeq[DataType](dtypes.len)
   for i, (name, t) in dtypes:
     names[i] = name.cstring
-    codes[i] = t.code
-  wrap nq_lf_cast(lf.raw, names.firstOrNil, codes.firstOrNil, names.len.csize_t, strict)
+    ts[i] = t
+  let sp = toSpecs(ts)
+  wrap nq_lf_cast(lf.raw, names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t, strict)
 
 proc `cast`*(lf: LazyFrame, dtype: DataType, strict = true): LazyFrame =
   ## Casts every column to `dtype`.
-  wrap nq_lf_cast_all(lf.raw, dtype.code, strict)
+  let sp = toSpecs([dtype])
+  wrap nq_lf_cast_all(lf.raw, sp.specs[0].unsafeAddr, strict)
 
 proc `cast`*(lf: LazyFrame, T: typedesc, strict = true): LazyFrame =
   ## Casts every column to the data type of a Nim type: `lf.cast(float64)`.
@@ -1100,7 +1331,7 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false): LazyFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false): LazyFrame =
   ## Lazily reads a CSV file; nothing is read until the query runs. `path` may be
   ## a glob such as `"logs/*.csv"` when every file has the same columns.
   ##
@@ -1109,18 +1340,22 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## (`{"bears": Int64}`), the rest are inferred from the first
   ## `inferSchemaLength` rows (`none(int)`: all rows). `skipRows` skips lines
   ## before the header, `nRows` limits the rows read and `columns` keeps only
-  ## those columns, in that order.
+  ## those columns, in that order. With `tryParseDates`, string columns that look
+  ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
+  ## columns.
   let nulls = cstrings(nullValues)
   var names = newSeq[cstring](schemaOverrides.len)
-  var codes = newSeq[NqDtype](schemaOverrides.len)
+  var ts = newSeq[DataType](schemaOverrides.len)
   for i, (n, t) in schemaOverrides:
     names[i] = n.cstring
-    codes[i] = t.code
+    ts[i] = t
+  let sp = toSpecs(ts)
   result = wrap nq_lf_scan_csv(path.cstring, separator.uint8, hasHeader,
                                nulls.firstOrNil, nulls.len.csize_t,
-                               names.firstOrNil, codes.firstOrNil, names.len.csize_t,
+                               names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
                                skipRows.csize_t, toOpt(nRows).toC,
-                               toOpt(inferSchemaLength).toC, ignoreErrors, decimalComma)
+                               toOpt(inferSchemaLength).toC, ignoreErrors, decimalComma,
+                               tryParseDates)
   if columns.len > 0:
     var sel = newSeq[Expr](columns.len)
     for i, c in columns: sel[i] = col(c)
@@ -1132,14 +1367,14 @@ proc readCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false): DataFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
   ## Reads a CSV file now: `scanCsv(...).collect`, with the same options.
   ##
   ## .. code-block:: nim
   ##   let df = readCsv("data.csv", separator = ';', nullValues = ["NA"],
   ##                    schemaOverrides = {"bears": Int64})
   scanCsv(path, separator, hasHeader, nullValues, schemaOverrides, skipRows, nRows,
-          columns, inferSchemaLength, ignoreErrors, decimalComma).collect
+          columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates).collect
 
 proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = true,
                nullValue = "", quoteStyle = QuoteStyle.Necessary,
@@ -1284,6 +1519,13 @@ proc glimpse*(df: DataFrame, maxItemsPerColumn = 10, maxColnameLength = 50): str
       if v.isNone: vals.add "null"
       elif dt == String: vals.add pyRepr(v.get)
       elif dt == Boolean: vals.add(if v.get == "true": "True" else: "False")
+      elif dt.kind == DataTypeKind.Datetime:   # as Python's str(datetime)
+        var x = v.get
+        for zeros in [".000000000", ".000000", ".000"]:
+          if x.endsWith(zeros):
+            x.setLen(x.len - zeros.len)
+            break
+        vals.add x
       else: vals.add v.get
     rows.add (shown, "<" & $dt & ">", vals.join(", "))
   var wName, wType = 0
@@ -1323,15 +1565,26 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
     var have: seq[bool]
     proc add(e: Expr, ok: bool, metric: string) =
       have.add ok
-      if ok: exprs.add e.cast(target).alias(metric & ":" & name)
+      if ok:
+        let v =
+          if dt.kind == DataTypeKind.Duration and metric notin ["count", "null_count"]:
+            # Polars can't cast durations to str
+            wrap nq_expr_dt(e.raw, nqdToString, nil, "polars", false, nquMicroseconds, 0)
+          else: e.cast(target)
+        exprs.add v.alias(metric & ":" & name)
     let c = col(name)
     add(c.count, true, "count")
     add(c.nullCount, true, "null_count")
-    add(c.mean, numeric or dt == Boolean, "mean")
+    let temporal = dt.isTemporal
+    add(c.mean, numeric or temporal or dt == Boolean, "mean")
     add(c.std, numeric, "std")
     add(c.min, minMax, "min")
     for q in percentiles:
-      add(c.quantile(q, interpolation), numeric, $q)
+      if temporal:
+        let physicalQ = wrap(nq_expr_to_physical(c.raw)).quantile(q, interpolation).cast(dt)
+        add(physicalQ, true, $q)
+      else:
+        add(c.quantile(q, interpolation), numeric, $q)
     add(c.max, minMax, "max")
     numericResult.add asFloat
     computed.add have
@@ -1550,3 +1803,221 @@ proc format*(fstring: string, args: varargs[Expr]): Expr =
                        " placeholders")
   if rest.len > 0: parts.add lit(rest)
   concatStr(parts)
+
+# ---------------------------------------------------------------------------
+# Temporal cells, ranges and durations
+# ---------------------------------------------------------------------------
+
+proc `[]`*[T: TemporalValue](df: DataFrame, column: string, row: int, _: typedesc[T]): T =
+  ## One temporal cell; raises `InvalidOperationError` if it is null.
+  df.slice(row, 1).toList(column, T)[0]
+
+proc `[]`*[T: TemporalValue](df: DataFrame, column: string, row: int,
+                             _: typedesc[Option[T]]): Option[T] =
+  ## One temporal cell, `none` if it is null.
+  df.slice(row, 1).toList(column, Option[T])[0]
+
+type
+  ClosedWindow* {.pure.} = enum
+    ## Which ends of a range are included (Polars' `ClosedWindow`).
+    Left, Right, Both, None
+
+proc toPolarsInterval*(ti: TimeInterval): string =
+  ## A std/times interval in Polars' duration language: `1.months + 2.days` is
+  ## "1mo2d". Mixed signs raise `ValueError`.
+  let parts = [(ti.years, "y"), (ti.months, "mo"), (ti.weeks, "w"), (ti.days, "d"),
+               (ti.hours, "h"), (ti.minutes, "m"), (ti.seconds, "s"),
+               (ti.milliseconds, "ms"), (ti.microseconds, "us"), (ti.nanoseconds, "ns")]
+  var neg, pos = false
+  for (v, _) in parts:
+    if v < 0: neg = true
+    elif v > 0: pos = true
+  if neg and pos: raise newException(ValueError, "an interval can't mix signs: " & $ti)
+  if not (neg or pos): raise newException(ValueError, "an interval must not be zero")
+  if neg: result.add '-'
+  for (v, unit) in parts:
+    if v != 0: result.add $abs(v) & unit
+
+proc toInterval(x: string): string = x
+proc toInterval(x: TimeInterval): string = toPolarsInterval(x)
+
+proc toTu(x: TimeUnit): Option[TimeUnit] = some(x)
+proc toTu(x: Option[TimeUnit]): Option[TimeUnit] = x
+
+proc dateRange*(start, stop: Date | Expr, interval: string | TimeInterval = "1d",
+                closed = ClosedWindow.Both): Expr =
+  ## One date per `interval` from `start` to `stop`, as an expression for
+  ## `select`: `dateRange(date(2026, 1, 1), date(2026, 12, 31), 1.days)`.
+  ## Intervals are std/times intervals (`1.weeks`, `1.months`) or Polars
+  ## strings ("1w", "1mo").
+  let a = lit(start)
+  let b = lit(stop)
+  wrap nq_expr_date_range(a.raw, b.raw, toInterval(interval).cstring, NqClosedWindow(ord(closed)),
+                          false, false, nquMicroseconds, "")
+
+proc datetimeRange*(start, stop: DateTime | Expr, interval: string | TimeInterval = "1d",
+                    closed = ClosedWindow.Both,
+                    timeUnit: TimeUnit | Option[TimeUnit] = none(TimeUnit),
+                    timeZone = ""): Expr =
+  ## One datetime per `interval` from `start` to `stop`, as an expression.
+  let a = lit(start)
+  let b = lit(stop)
+  let tu = toTu(timeUnit)
+  wrap nq_expr_date_range(a.raw, b.raw, toInterval(interval).cstring, NqClosedWindow(ord(closed)),
+                          true, tu.isSome, NqTimeUnit(ord(tu.get(TimeUnit.Microseconds))),
+                          timeZone.cstring)
+
+proc duration*(weeks: int | Expr = 0; days: int | Expr = 0; hours: int | Expr = 0;
+               minutes: int | Expr = 0; seconds: int | Expr = 0;
+               milliseconds: int | Expr = 0; microseconds: int | Expr = 0;
+               nanoseconds: int | Expr = 0; timeUnit = TimeUnit.Microseconds): Expr =
+  ## A Duration built from parts, each a number or an expression, as Polars'
+  ## `duration`: `duration(hours = col.h, minutes = col.m)`.
+  let parts = [lit(weeks), lit(days), lit(hours), lit(minutes), lit(seconds),
+               lit(milliseconds), lit(microseconds), lit(nanoseconds)]
+  let r = raws(parts)
+  wrap nq_expr_duration(r.firstOrNil, NqTimeUnit(ord(timeUnit)))
+
+# ---------------------------------------------------------------------------
+# Parsing strings into temporal values
+# ---------------------------------------------------------------------------
+
+type
+  Ambiguous* {.pure.} = enum
+    ## What to do with a local time that happens twice when clocks go back
+    ## (Python Polars' `ambiguous`). Write `Ambiguous.Null`: `Null` alone is
+    ## the null data type.
+    Raise, Earliest, Latest, Null
+  NonExistent* {.pure.} = enum
+    ## What to do with a local time skipped when clocks go forward (Polars'
+    ## `NonExistent`).
+    Null, Raise
+  DurationFormat* {.pure.} = enum
+    ## The two formats Polars has for durations: ISO 8601 ("PT4M23S") and its
+    ## own ("4m 23s").
+    Iso, Polars
+
+proc ambiguousName(a: Ambiguous): string = ($a).toLowerAscii
+
+proc strptime*(s: StrNameSpace, T: typedesc, format = "", strict = true, exact = true,
+               cache = true, timeUnit = TimeUnit.Microseconds, timeZone = "",
+               ambiguous = Ambiguous.Raise): Expr =
+  ## Parses strings into `Date`, `DateTime` or `TimeOfDay` values with a chrono
+  ## format (`"%d %B %Y"`; "" infers it). With `strict`, a value that doesn't
+  ## parse raises; otherwise it becomes null. With `exact = false`, the format
+  ## may match part of the string.
+  when T isnot Date and T isnot DateTime and T isnot TimeOfDay:
+    {.error: "strptime parses into Date, DateTime or TimeOfDay".}
+  let sp = toSpecs([dataType(T, timeUnit, timeZone)])
+  wrap nq_expr_strptime(Expr(s).raw, sp.specs[0].unsafeAddr, format.cstring, strict, exact,
+                        cache, ambiguousName(ambiguous).cstring)
+
+proc toDate*(s: StrNameSpace, format = "", strict = true, exact = true, cache = true): Expr =
+  ## Parses strings into dates: `col.born.str.toDate("%d %B %Y")`.
+  s.strptime(Date, format, strict, exact, cache)
+
+proc toDatetime*(s: StrNameSpace, format = "", timeUnit = TimeUnit.Microseconds,
+                 timeZone = "", strict = true, exact = true, cache = true,
+                 ambiguous = Ambiguous.Raise): Expr =
+  ## Parses strings into datetimes, naive unless `timeZone` is given (or the
+  ## format has an offset, `%z`).
+  s.strptime(DateTime, format, strict, exact, cache, timeUnit, timeZone, ambiguous)
+
+proc toTime*(s: StrNameSpace, format = "", strict = true, cache = true): Expr =
+  ## Parses strings into times of day: `str.toTime("%H:%M")`.
+  s.strptime(TimeOfDay, format, strict, true, cache)
+
+# ---------------------------------------------------------------------------
+# The dt namespace
+# ---------------------------------------------------------------------------
+
+type
+  DtNameSpace* = distinct Expr
+    ## `e.dt`: temporal functions, as Polars' `Expr.dt`.
+
+proc dt*(e: Expr): DtNameSpace = DtNameSpace(e)
+  ## Temporal functions: `col.born.dt.year`.
+
+proc dtOp(d: DtNameSpace, op: NqDtOp, a: Expr = nil, s = "", flag = false,
+          tu = TimeUnit.Microseconds, nonExistent = 0): Expr =
+  checkUnit(tu)
+  wrap nq_expr_dt(Expr(d).raw, op, (if a.isNil: nil else: a.raw), s.cstring, flag,
+                  NqTimeUnit(ord(tu)), nonExistent.int32)
+
+template dtPart(name, op) =
+  proc name*(d: DtNameSpace): Expr = dtOp(d, op)
+
+dtPart(year, nqdYear)  # Year (i32).
+dtPart(isoYear, nqdIsoYear)  # ISO 8601 week-numbering year (i32).
+dtPart(quarter, nqdQuarter)  # Quarter, 1 to 4 (i8).
+dtPart(month, nqdMonth)  # Month, 1 to 12 (i8).
+dtPart(week, nqdWeek)  # ISO 8601 week, 1 to 53 (i8).
+dtPart(weekday, nqdWeekday)  # Day of the week, Monday 1 to Sunday 7 (i8).
+dtPart(day, nqdDay)  # Day of the month, 1 to 31 (i8).
+dtPart(ordinalDay, nqdOrdinalDay)  # Day of the year, 1 to 366 (i16).
+dtPart(hour, nqdHour)  # Hour, 0 to 23 (i8).
+dtPart(minute, nqdMinute)  # Minute, 0 to 59 (i8).
+dtPart(second, nqdSecond)  # Second, 0 to 59 (i8).
+dtPart(millisecond, nqdMillisecond)  # Milliseconds of the second (i32).
+dtPart(microsecond, nqdMicrosecond)  # Microseconds of the second (i32).
+dtPart(nanosecond, nqdNanosecond)  # Nanoseconds of the second (i32).
+dtPart(date, nqdDate)  # The date of a datetime.
+dtPart(time, nqdTime)  # The time of day of a datetime.
+dtPart(isLeapYear, nqdIsLeapYear)  # True in leap years.
+dtPart(daysInMonth, nqdDaysInMonth)  # Number of days in the month (i8).
+dtPart(monthStart, nqdMonthStart)  # The first day of the month.
+dtPart(monthEnd, nqdMonthEnd)  # The last day of the month.
+
+proc timestamp*(d: DtNameSpace, timeUnit = TimeUnit.Microseconds): Expr =
+  ## Time since 1970-01-01 in `timeUnit` (i64).
+  dtOp(d, nqdTimestamp, tu = timeUnit)
+proc castTimeUnit*(d: DtNameSpace, timeUnit: TimeUnit): Expr =
+  ## The same datetimes or durations with another time unit.
+  dtOp(d, nqdCastTimeUnit, tu = timeUnit)
+
+proc toString*(d: DtNameSpace, format: string): Expr =
+  ## Formats dates, datetimes and times with a chrono format: `"%d %B %Y"`.
+  dtOp(d, nqdToString, s = format)
+proc toString*(d: DtNameSpace, format: DurationFormat): Expr =
+  ## Formats durations, as ISO 8601 ("PT4M23S") or Polars ("4m 23s").
+  dtOp(d, nqdToString, s = (if format == DurationFormat.Iso: "iso" else: "polars"))
+proc strftime*(d: DtNameSpace, format: string): Expr = d.toString(format)
+  ## Alias of `toString`.
+
+proc truncate*(d: DtNameSpace, every: string | TimeInterval): Expr =
+  ## Rounds down to a multiple of `every`: `truncate(1.months)` gives the first
+  ## of the month.
+  dtOp(d, nqdTruncate, lit(toInterval(every)))
+proc round*(d: DtNameSpace, every: string | TimeInterval): Expr =
+  ## Rounds to the nearest multiple of `every`.
+  dtOp(d, nqdRound, lit(toInterval(every)))
+proc offsetBy*(d: DtNameSpace, by: string | TimeInterval | Expr): Expr =
+  ## Moves each value by a calendar-aware interval: `offsetBy(1.months)`
+  ## (January 31 gives February 28), `offsetBy("-2d")`, or a string column.
+  when by is Expr: dtOp(d, nqdOffsetBy, by)
+  else: dtOp(d, nqdOffsetBy, lit(toInterval(by)))
+
+proc convertTimeZone*(d: DtNameSpace, timeZone: string): Expr =
+  ## The same instants on another zone's clock: `convertTimeZone("Europe/Paris")`.
+  dtOp(d, nqdConvertTimeZone, s = timeZone)
+proc replaceTimeZone*(d: DtNameSpace, timeZone: string, ambiguous = Ambiguous.Raise,
+                      nonExistent = NonExistent.Raise): Expr =
+  ## The same clock time in another zone (`""` makes it naive), which changes
+  ## the instants.
+  dtOp(d, nqdReplaceTimeZone, lit(ambiguousName(ambiguous)), timeZone,
+       nonExistent = (if nonExistent == NonExistent.Raise: 1 else: 0))
+
+proc combine*(d: DtNameSpace, time: Expr | TimeOfDay, timeUnit = TimeUnit.Microseconds): Expr =
+  ## A datetime from a date (or datetime) and a time of day.
+  dtOp(d, nqdCombine, lit(time), tu = timeUnit)
+
+template dtTotal(name, op) =
+  proc name*(d: DtNameSpace, fractional = false): Expr = dtOp(d, op, flag = fractional)
+
+dtTotal(totalDays, nqdTotalDays)  # Whole days of a duration (i64), or fractional (f64).
+dtTotal(totalHours, nqdTotalHours)  # Whole hours of a duration (i64), or fractional (f64).
+dtTotal(totalMinutes, nqdTotalMinutes)  # Whole minutes of a duration.
+dtTotal(totalSeconds, nqdTotalSeconds)  # Whole seconds of a duration.
+dtTotal(totalMilliseconds, nqdTotalMilliseconds)  # Whole milliseconds of a duration.
+dtTotal(totalMicroseconds, nqdTotalMicroseconds)  # Whole microseconds of a duration.
+dtTotal(totalNanoseconds, nqdTotalNanoseconds)  # Whole nanoseconds of a duration.

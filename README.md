@@ -188,6 +188,15 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `str.extract(r"(\d+)'")`, `str.toUppercase`, `str.stripChars`, `str.slice`,
   `str.zfill`, `str.join(", ")` in `agg`, `format("{} ({})", col.rider, col.nat)`,
   `concatStr`
+- Dates and times: `Date` (`date(2026, 7, 4)`), `TimeOfDay` (`timeOfDay(13, 10)`) and
+  std/times' `DateTime` and `Duration` as column values and literals; `cast(Date)`,
+  `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`; parsing with
+  `str.toDate("%d %B %Y")`, `str.toDatetime`, `str.strptime(T, fmt)` and
+  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `datetimeRange`,
+  `duration(hours = col.h)`; the `dt` namespace (`dt.year`, `dt.weekday`, `dt.date`,
+  `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
+  `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
+  and read back as UTC instants
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,

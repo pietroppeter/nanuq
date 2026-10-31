@@ -22,6 +22,13 @@ its OpenSpec change is archived. Format based on
   `startsWith`, `contains(pattern, literal)`, `extract`, `replace`, `replaceAll`,
   `slice`, `padStart`, `zfill`, the `join` aggregation, and more), plus `concatStr` and
   `format("{} ({})", ...)`. Patterns are Rust regexes. (add-string-expressions, #47)
+- Temporal types: Date, Datetime (with time unit and time zone), Duration and Time
+  columns, built from Nanuq's `Date` and `TimeOfDay` and std/times' `DateTime` and
+  `Duration` (nanuq exports std/times); temporal casts and literals; `dateRange`,
+  `datetimeRange` and `duration`; string parsing (`str.toDate`, `str.toDatetime`,
+  `str.toTime`, `str.strptime`) and `tryParseDates` for CSV; the `dt` namespace with
+  parts, formatting, truncation, offsets, time zones, `combine` and duration totals.
+  (add-temporal-types, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
@@ -33,6 +40,8 @@ its OpenSpec change is archived. Format based on
   `ShapeError`, `StructFieldNotFoundError`, `SqlError`) raised by Polars error kind
   (new `nq_last_error_kind` in the ABI). IO failures raise Nim's `IOError`.
   (add-typed-errors, #47)
+- Data types cross the native ABI as an `NqDtypeSpec` struct (code, time unit, time
+  zone, categories) instead of a single enum code. (add-temporal-types, #47)
 - **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so
   `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #47)
 

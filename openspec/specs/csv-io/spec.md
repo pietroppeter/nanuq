@@ -44,6 +44,7 @@ shape: (3, 2)
 - `skipRows = 0`, `nRows = none(int)` and `columns` (all when empty)
 - `inferSchemaLength = some(100)`, where `none` scans all rows
 - `ignoreErrors = false` and `decimalComma = false`
+- `tryParseDates = false`, which reads ISO dates, datetimes and times as temporal columns
 
 `nRows` and `inferSchemaLength` SHALL also accept a plain `int`.
 
@@ -53,6 +54,9 @@ writeFile(path, "Polar survey 2026\nexported by hand\nstation;bears;weight\n" &
                 "North;3;410\nSouth;lots;380\nEast;1;355\n")
 echo readCsv(path, separator = ';', skipRows = 2, nRows = 2, nullValues = ["lots"],
              schemaOverrides = {"weight": Float64}, columns = ["station", "weight", "bears"])
+let stages = getTempDir() / "stages.csv"
+writeFile(stages, "stage,day,start\n1,2026-07-04,13:10:00\n2,2026-07-05,12:45:00\n")
+echo readCsv(stages, tryParseDates = true).schema
 ```
 
 ```text
@@ -65,6 +69,7 @@ shape: (2, 3)
 │ North   ┆ 410.0  ┆ 3     │
 │ South   ┆ 380.0  ┆ null  │
 └─────────┴────────┴───────┘
+{"stage": i64, "day": date, "start": time}
 ```
 
 #### Scenario: Semicolons and null words
@@ -82,6 +87,10 @@ shape: (2, 3)
 #### Scenario: Columns
 - **WHEN** a file with columns `a`, `b` and `c` is read with `columns = ["c", "a"]`
 - **THEN** the result has columns `c` and `a`
+
+#### Scenario: Dates
+- **WHEN** a column of ISO dates is read with and without `tryParseDates = true`
+- **THEN** its dtype is `Date` and `String`
 
 ### Requirement: CSV write options
 `writeCsv(df, path, ...)` SHALL take these named options:

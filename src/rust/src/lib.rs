@@ -328,13 +328,14 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
     null_values: *const *const c_char,
     n_nulls: usize,
     override_names: *const *const c_char,
-    override_dtypes: *const NqDtype,
+    override_dtypes: *const NqDtypeSpec,
     n_overrides: usize,
     skip_rows: usize,
     n_rows: i64,
     infer_schema_length: i64,
     ignore_errors: bool,
     decimal_comma: bool,
+    try_parse_dates: bool,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let path = cstr(path)?;
@@ -344,14 +345,14 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             .collect::<Vec<_>>();
         let nulls = (!nulls.is_empty()).then(|| NullValues::AllColumns(nulls));
         let onames = names(override_names, n_overrides)?;
-        let odtypes = slice(override_dtypes, n_overrides)?;
+        let odtypes = dtypes_from_specs(override_dtypes, n_overrides)?;
         let overrides = if n_overrides == 0 {
             None
         } else {
             let fields = onames
                 .iter()
                 .zip(odtypes)
-                .map(|(n, d)| Ok(Field::new((*n).into(), dtype_from_code(*d)?)))
+                .map(|(n, d)| Ok(Field::new((*n).into(), d.clone())))
                 .collect::<Result<Vec<_>, String>>()?;
             Some(Arc::new(Schema::from_iter(fields)))
         };
@@ -366,6 +367,7 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             .with_infer_schema_length(opt(infer_schema_length))
             .with_ignore_errors(ignore_errors)
             .with_decimal_comma(decimal_comma)
+            .with_try_parse_dates(try_parse_dates)
             .finish()
             .map_err(pe)
     }))
@@ -477,7 +479,74 @@ pub enum NqDtype {
     Float64,
     String,
     Null,
+    Date,
+    Datetime,
+    Duration,
+    Time,
     Other,
+}
+
+/// Time units. Keep in sync with `NqTimeUnit` in nanuq/ffi.nim and `TimeUnit`
+/// in nanuq.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqTimeUnit {
+    Nanoseconds = 0,
+    Microseconds,
+    Milliseconds,
+}
+
+fn time_unit(u: NqTimeUnit) -> TimeUnit {
+    match u {
+        NqTimeUnit::Nanoseconds => TimeUnit::Nanoseconds,
+        NqTimeUnit::Microseconds => TimeUnit::Microseconds,
+        NqTimeUnit::Milliseconds => TimeUnit::Milliseconds,
+    }
+}
+
+fn time_unit_code(u: &TimeUnit) -> NqTimeUnit {
+    match u {
+        TimeUnit::Nanoseconds => NqTimeUnit::Nanoseconds,
+        TimeUnit::Microseconds => NqTimeUnit::Microseconds,
+        TimeUnit::Milliseconds => NqTimeUnit::Milliseconds,
+    }
+}
+
+/// A data type with its parameters, as Nim passes it: `time_unit` and
+/// `time_zone` (NULL or "" for none) apply to Datetime and Duration;
+/// `categories` (n_categories) to Enum.
+#[repr(C)]
+pub struct NqDtypeSpec {
+    pub code: NqDtype,
+    pub time_unit: NqTimeUnit,
+    pub time_zone: *const c_char,
+    pub categories: *const *const c_char,
+    pub n_categories: usize,
+}
+
+unsafe fn time_zone(tz: *const c_char) -> Result<Option<TimeZone>, String> {
+    if tz.is_null() {
+        return Ok(None);
+    }
+    let tz = cstr(tz)?;
+    if tz.is_empty() {
+        return Ok(None);
+    }
+    TimeZone::opt_try_new(Some(tz)).map_err(pe)
+}
+
+unsafe fn dtype_from_spec(spec: &NqDtypeSpec) -> Result<DataType, String> {
+    Ok(match spec.code {
+        NqDtype::Date => DataType::Date,
+        NqDtype::Datetime => DataType::Datetime(time_unit(spec.time_unit), time_zone(spec.time_zone)?),
+        NqDtype::Duration => DataType::Duration(time_unit(spec.time_unit)),
+        NqDtype::Time => DataType::Time,
+        c => dtype_from_code(c)?,
+    })
+}
+
+unsafe fn dtypes_from_specs(p: *const NqDtypeSpec, n: usize) -> Result<Vec<DataType>, String> {
+    slice(p, n)?.iter().map(|s| dtype_from_spec(s)).collect()
 }
 
 fn dtype_code(d: &DataType) -> NqDtype {
@@ -495,6 +564,10 @@ fn dtype_code(d: &DataType) -> NqDtype {
         DataType::Float64 => NqDtype::Float64,
         DataType::String => NqDtype::String,
         DataType::Null => NqDtype::Null,
+        DataType::Date => NqDtype::Date,
+        DataType::Datetime(_, _) => NqDtype::Datetime,
+        DataType::Duration(_) => NqDtype::Duration,
+        DataType::Time => NqDtype::Time,
         _ => NqDtype::Other,
     }
 }
@@ -514,6 +587,9 @@ fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
         NqDtype::Float64 => DataType::Float64,
         NqDtype::String => DataType::String,
         NqDtype::Null => DataType::Null,
+        NqDtype::Date | NqDtype::Datetime | NqDtype::Duration | NqDtype::Time => {
+            return Err("temporal dtypes need their parameters".into())
+        }
         NqDtype::Other => return Err("cannot cast to a dtype Nanuq does not model".into()),
     })
 }
@@ -689,6 +765,16 @@ unsafe fn column_as(
     }
     if col.len() != len {
         return Err(format!("column '{name}' has {} rows, buffer has {len}", col.len()));
+    }
+    if matches!(col.dtype(), DataType::Duration(_)) && to == DataType::String {
+        // Polars can't cast durations to strings: format them as it prints them
+        let one = DataFrame::new(len, vec![col.clone()]).map_err(pe)?;
+        let out = one
+            .lazy()
+            .select([polars::lazy::dsl::col(name).dt().to_string("polars")])
+            .collect()
+            .map_err(pe)?;
+        return Ok(out.columns()[0].as_materialized_series().clone());
     }
     Ok(col.cast(&to).map_err(pe)?.as_materialized_series().clone())
 }
@@ -947,10 +1033,10 @@ pub unsafe extern "C" fn nq_expr_fill_null(e: *const Expr, value: *const Expr) -
 /// Casts to the dtype `code`; strict casts fail on values that can't be
 /// converted, non-strict ones turn them into nulls.
 #[no_mangle]
-pub unsafe extern "C" fn nq_expr_cast(e: *const Expr, code: NqDtype, strict: bool) -> *mut Expr {
+pub unsafe extern "C" fn nq_expr_cast(e: *const Expr, spec: *const NqDtypeSpec, strict: bool) -> *mut Expr {
     boxed(guard(|| {
         let e = borrow(e, "expression")?.clone();
-        let dt = dtype_from_code(code)?;
+        let dt = dtype_from_spec(borrow(spec, "dtype")?)?;
         Ok(if strict { e.strict_cast(dt) } else { e.cast(dt) })
     }))
 }
@@ -1109,16 +1195,16 @@ pub unsafe extern "C" fn nq_lf_collect_schema(lf_: *const LazyFrame) -> *mut Dat
 pub unsafe extern "C" fn nq_lf_cast(
     lf_: *const LazyFrame,
     names: *const *const c_char,
-    codes: *const NqDtype,
+    specs: *const NqDtypeSpec,
     n: usize,
     strict: bool,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let names = slice(names, n)?;
-        let codes = slice(codes, n)?;
+        let dts = dtypes_from_specs(specs, n)?;
         let mut map = PlHashMap::new();
-        for (name, code) in names.iter().zip(codes) {
-            map.insert(cstr(*name)?, dtype_from_code(*code)?);
+        for (name, dt) in names.iter().zip(dts) {
+            map.insert(cstr(*name)?, dt);
         }
         Ok(lf(lf_)?.cast(map, strict))
     }))
@@ -1126,8 +1212,8 @@ pub unsafe extern "C" fn nq_lf_cast(
 
 /// Casts every column to the dtype `code`.
 #[no_mangle]
-pub unsafe extern "C" fn nq_lf_cast_all(lf_: *const LazyFrame, code: NqDtype, strict: bool) -> *mut LazyFrame {
-    boxed(guard(|| Ok(lf(lf_)?.cast_all(dtype_from_code(code)?, strict))))
+pub unsafe extern "C" fn nq_lf_cast_all(lf_: *const LazyFrame, spec: *const NqDtypeSpec, strict: bool) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.cast_all(dtype_from_spec(borrow(spec, "dtype")?)?, strict))))
 }
 
 // ---------------------------------------------------------------------------
@@ -1621,7 +1707,7 @@ pub enum NqDtypeClass {
 pub unsafe extern "C" fn nq_expr_selector(
     names_: *const *const c_char,
     n_names: usize,
-    dtypes: *const NqDtype,
+    dtypes: *const NqDtypeSpec,
     n_dtypes: usize,
     classes: u32,
     wildcard: bool,
@@ -1637,10 +1723,7 @@ pub unsafe extern "C" fn nq_expr_selector(
         if !ns.is_empty() {
             parts.push(by_name(ns, true, true));
         }
-        let dts = slice(dtypes, n_dtypes)?
-            .iter()
-            .map(|c| dtype_from_code(*c))
-            .collect::<Result<Vec<_>, _>>()?;
+        let dts = dtypes_from_specs(dtypes, n_dtypes)?;
         if !dts.is_empty() {
             parts.push(Selector::ByDType(DataTypeSelector::AnyOf(dts.into())));
         }
@@ -1832,4 +1915,344 @@ pub unsafe extern "C" fn nq_expr_concat_str(
     ignore_nulls: bool,
 ) -> *mut Expr {
     boxed(guard(|| Ok(concat_str(exprs(es, len)?, cstr(separator)?, ignore_nulls))))
+}
+
+// ---------------------------------------------------------------------------
+// Temporal values
+// ---------------------------------------------------------------------------
+
+/// Time unit of a Datetime or Duration column, or -1 (with an error) for other
+/// columns.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_time_unit(df: *const DataFrame, name: *const c_char) -> i32 {
+    guard(|| {
+        let df = borrow(df, "dataframe")?;
+        match df.column(cstr(name)?).map_err(pe)?.dtype() {
+            DataType::Datetime(tu, _) | DataType::Duration(tu) => Ok(time_unit_code(tu) as i32),
+            dt => Err(format!("{dt} has no time unit")),
+        }
+    })
+    .unwrap_or(-1)
+}
+
+/// Time zone of a Datetime column ("" when it has none). Free with nq_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_time_zone(df: *const DataFrame, name: *const c_char) -> *mut c_char {
+    guard(|| {
+        let df = borrow(df, "dataframe")?;
+        match df.column(cstr(name)?).map_err(pe)?.dtype() {
+            DataType::Datetime(_, tz) => {
+                Ok(to_c_string(tz.as_ref().map_or(String::new(), |z| z.to_string())))
+            }
+            dt => Err(format!("{dt} has no time zone")),
+        }
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// The physical values of a column (days for Date, the time unit for Datetime
+/// and Duration, nanoseconds for Time) as i64, with validity, into
+/// caller-provided buffers of length `n` (the column's length).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_physical(
+    df: *const DataFrame,
+    name: *const c_char,
+    out: *mut i64,
+    valid: *mut bool,
+    n: usize,
+) -> bool {
+    guard(|| {
+        let df = borrow(df, "dataframe")?;
+        let s = df.column(cstr(name)?).map_err(pe)?.as_materialized_series();
+        if s.len() != n {
+            return Err(format!("expected {} rows, got {n}", s.len()));
+        }
+        let phys = s.to_physical_repr().cast(&DataType::Int64).map_err(pe)?;
+        let ca = phys.i64().map_err(pe)?;
+        let out = std::slice::from_raw_parts_mut(out, n);
+        let valid = std::slice::from_raw_parts_mut(valid, n);
+        for (i, v) in ca.iter().enumerate() {
+            out[i] = v.unwrap_or(0);
+            valid[i] = v.is_some();
+        }
+        Ok(())
+    })
+    .is_some()
+}
+
+unsafe fn physical_series(
+    name: &str,
+    values: &[i64],
+    valid: Option<&[bool]>,
+    spec: &NqDtypeSpec,
+) -> Result<Series, String> {
+    let ca: Int64Chunked = match valid {
+        Some(v) => values
+            .iter()
+            .zip(v)
+            .map(|(x, ok)| ok.then_some(*x))
+            .collect(),
+        None => values.iter().copied().map(Some).collect(),
+    };
+    let s = ca.with_name(name.into()).into_series();
+    Ok(match spec.code {
+        NqDtype::Date => s.cast(&DataType::Int32).map_err(pe)?.into_date(),
+        NqDtype::Datetime => s.into_datetime(time_unit(spec.time_unit), time_zone(spec.time_zone)?),
+        NqDtype::Duration => s.into_duration(time_unit(spec.time_unit)),
+        NqDtype::Time => s.into_time(),
+        _ => return Err("not a temporal dtype".into()),
+    })
+}
+
+/// A temporal series from physical i64 values (see `nq_df_column_physical`);
+/// `valid` may be NULL (no nulls).
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_temporal(
+    name: *const c_char,
+    values: *const i64,
+    valid: *const bool,
+    n: usize,
+    spec: *const NqDtypeSpec,
+) -> *mut Series {
+    boxed(guard(|| {
+        let valid = if valid.is_null() { None } else { Some(slice(valid, n)?) };
+        physical_series(cstr(name)?, slice(values, n)?, valid, borrow(spec, "dtype")?)
+    }))
+}
+
+/// A temporal literal from one physical value.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_lit_temporal(v: i64, spec: *const NqDtypeSpec) -> *mut Expr {
+    boxed(guard(|| {
+        let s = physical_series("literal", &[v], None, borrow(spec, "dtype")?)?;
+        let av = s.get(0).map_err(pe)?.into_static();
+        Ok(Scalar::new(s.dtype().clone(), av).lit())
+    }))
+}
+
+/// Physical representation (`to_physical`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_to_physical(e: *const Expr) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().to_physical())))
+}
+
+/// Closed windows. Keep in sync with `NqClosedWindow` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqClosedWindow {
+    Left = 0,
+    Right,
+    Both,
+    None,
+}
+
+fn closed_window(c: NqClosedWindow) -> ClosedWindow {
+    match c {
+        NqClosedWindow::Left => ClosedWindow::Left,
+        NqClosedWindow::Right => ClosedWindow::Right,
+        NqClosedWindow::Both => ClosedWindow::Both,
+        NqClosedWindow::None => ClosedWindow::None,
+    }
+}
+
+/// `date_range` (`datetime = false`) or `datetime_range` from `start` to `end`
+/// every `interval` (a Polars duration string such as "1d" or "1mo2d").
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_date_range(
+    start: *const Expr,
+    end: *const Expr,
+    interval: *const c_char,
+    closed: NqClosedWindow,
+    datetime: bool,
+    has_time_unit: bool,
+    tu: NqTimeUnit,
+    tz: *const c_char,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let every = polars::prelude::Duration::try_parse(cstr(interval)?).map_err(pe)?;
+        if datetime {
+            polars::lazy::dsl::datetime_range(
+                Some(start),
+                Some(end),
+                Some(every),
+                None,
+                closed_window(closed),
+                has_time_unit.then(|| time_unit(tu)),
+                time_zone(tz)?,
+            )
+            .map_err(pe)
+        } else {
+            polars::lazy::dsl::date_range(Some(start), Some(end), Some(every), None, closed_window(closed)).map_err(pe)
+        }
+    }))
+}
+
+/// `duration(weeks, days, hours, minutes, seconds, milliseconds, microseconds,
+/// nanoseconds)`: `parts` holds those 8 expressions.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_duration(parts: *const *const Expr, tu: NqTimeUnit) -> *mut Expr {
+    boxed(guard(|| {
+        let p = exprs(parts, 8)?;
+        let mut it = p.into_iter();
+        let mut next = || it.next().unwrap();
+        Ok(polars::lazy::dsl::duration(DurationArgs {
+            weeks: next(),
+            days: next(),
+            hours: next(),
+            minutes: next(),
+            seconds: next(),
+            milliseconds: next(),
+            microseconds: next(),
+            nanoseconds: next(),
+            time_unit: time_unit(tu),
+        }))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Parsing strings into temporal values, and the dt namespace
+// ---------------------------------------------------------------------------
+
+/// `str.strptime` into the dtype `spec` (Date, Datetime or Time). `format` may
+/// be NULL or "" (inferred); `ambiguous` is "raise", "earliest", "latest" or
+/// "null".
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_strptime(
+    e: *const Expr,
+    spec: *const NqDtypeSpec,
+    format: *const c_char,
+    strict: bool,
+    exact: bool,
+    cache: bool,
+    ambiguous: *const c_char,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let dt = dtype_from_spec(borrow(spec, "dtype")?)?;
+        let fmt = if format.is_null() { "" } else { cstr(format)? };
+        let options = StrptimeOptions {
+            format: (!fmt.is_empty()).then(|| fmt.into()),
+            strict,
+            exact,
+            cache,
+        };
+        let e = borrow(e, "expression")?.clone();
+        Ok(e.str().strptime(dt, options, lit(cstr(ambiguous)?)))
+    }))
+}
+
+/// dt functions. Keep in sync with `NqDtOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqDtOp {
+    Year = 0,
+    IsoYear,
+    Quarter,
+    Month,
+    Week,
+    Weekday,
+    Day,
+    OrdinalDay,
+    Hour,
+    Minute,
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+    Date,
+    Time,
+    IsLeapYear,
+    DaysInMonth,
+    MonthStart,
+    MonthEnd,
+    Timestamp,
+    CastTimeUnit,
+    ToString,
+    Truncate,
+    Round,
+    OffsetBy,
+    ConvertTimeZone,
+    ReplaceTimeZone,
+    Combine,
+    TotalDays,
+    TotalHours,
+    TotalMinutes,
+    TotalSeconds,
+    TotalMilliseconds,
+    TotalMicroseconds,
+    TotalNanoseconds,
+}
+
+/// One entry point for the `dt` namespace: `a` is an expression argument
+/// (interval, offset, time, ambiguous), `s` a string argument (format, time
+/// zone), `flag` the `fractional` option, `tu` a time unit, and `non_existent`
+/// 0 for null, 1 for raise.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_dt(
+    e: *const Expr,
+    op: NqDtOp,
+    a: *const Expr,
+    s: *const c_char,
+    flag: bool,
+    tu: NqTimeUnit,
+    non_existent: i32,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ns = borrow(e, "expression")?.clone().dt();
+        let a = opt_expr(a)?;
+        let s = if s.is_null() { "" } else { cstr(s)? };
+        let tu = time_unit(tu);
+        Ok(match op {
+            NqDtOp::Year => ns.year(),
+            NqDtOp::IsoYear => ns.iso_year(),
+            NqDtOp::Quarter => ns.quarter(),
+            NqDtOp::Month => ns.month(),
+            NqDtOp::Week => ns.week(),
+            NqDtOp::Weekday => ns.weekday(),
+            NqDtOp::Day => ns.day(),
+            NqDtOp::OrdinalDay => ns.ordinal_day(),
+            NqDtOp::Hour => ns.hour(),
+            NqDtOp::Minute => ns.minute(),
+            NqDtOp::Second => ns.second(),
+            NqDtOp::Millisecond => ns.millisecond(),
+            NqDtOp::Microsecond => ns.microsecond(),
+            NqDtOp::Nanosecond => ns.nanosecond(),
+            NqDtOp::Date => ns.date(),
+            NqDtOp::Time => ns.time(),
+            NqDtOp::IsLeapYear => ns.is_leap_year(),
+            NqDtOp::DaysInMonth => ns.days_in_month(),
+            NqDtOp::MonthStart => ns.month_start(),
+            NqDtOp::MonthEnd => ns.month_end(),
+            NqDtOp::Timestamp => ns.timestamp(tu),
+            NqDtOp::CastTimeUnit => ns.cast_time_unit(tu),
+            NqDtOp::ToString => ns.to_string(s),
+            NqDtOp::Truncate => ns.truncate(a),
+            NqDtOp::Round => ns.round(a),
+            NqDtOp::OffsetBy => ns.offset_by(a),
+            NqDtOp::ConvertTimeZone => {
+                let tz = time_zone_req(s)?;
+                ns.convert_time_zone(tz)
+            }
+            NqDtOp::ReplaceTimeZone => {
+                let tz = if s.is_empty() { None } else { Some(time_zone_req(s)?) };
+                let ne = if non_existent == 1 { NonExistent::Raise } else { NonExistent::Null };
+                ns.replace_time_zone(tz, a, ne)
+            }
+            NqDtOp::Combine => ns.combine(a, tu),
+            NqDtOp::TotalDays => ns.total_days(flag),
+            NqDtOp::TotalHours => ns.total_hours(flag),
+            NqDtOp::TotalMinutes => ns.total_minutes(flag),
+            NqDtOp::TotalSeconds => ns.total_seconds(flag),
+            NqDtOp::TotalMilliseconds => ns.total_milliseconds(flag),
+            NqDtOp::TotalMicroseconds => ns.total_microseconds(flag),
+            NqDtOp::TotalNanoseconds => ns.total_nanoseconds(flag),
+        })
+    }))
+}
+
+fn time_zone_req(s: &str) -> Result<TimeZone, String> {
+    TimeZone::opt_try_new(Some(s))
+        .map_err(pe)?
+        .ok_or_else(|| "a time zone is required".to_string())
 }

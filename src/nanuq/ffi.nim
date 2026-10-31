@@ -207,7 +207,18 @@ type
     ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
     nqBoolean, nqInt8, nqInt16, nqInt32, nqInt64,
     nqUInt8, nqUInt16, nqUInt32, nqUInt64,
-    nqFloat32, nqFloat64, nqString, nqNull, nqOther
+    nqFloat32, nqFloat64, nqString, nqNull, nqDate, nqDatetime, nqDuration, nqTime, nqOther
+  NqTimeUnit* {.size: sizeof(cint).} = enum
+    nquNanoseconds, nquMicroseconds, nquMilliseconds
+  NqClosedWindow* {.size: sizeof(cint).} = enum
+    nqwLeft, nqwRight, nqwBoth, nqwNone
+  NqDtypeSpec* = object
+    ## A data type with its parameters (`NqDtypeSpec` in lib.rs).
+    code*: NqDtype
+    timeUnit*: NqTimeUnit
+    timeZone*: cstring
+    categories*: ptr cstring
+    nCategories*: csize_t
 
   NqJoinType* {.size: sizeof(cint).} = enum
     nqjInner, nqjLeft, nqjRight, nqjFull, nqjSemi, nqjAnti, nqjCross
@@ -235,6 +246,13 @@ type
     nqeGeneric, nqeColumnNotFound, nqeCompute, nqeDuplicate, nqeInvalidOperation, nqeIo,
     nqeNoData, nqeOutOfBounds, nqeSchema, nqeSchemaFieldNotFound, nqeShape,
     nqeStructFieldNotFound, nqeSql
+  NqDtOp* {.size: sizeof(cint).} = enum
+    nqdYear, nqdIsoYear, nqdQuarter, nqdMonth, nqdWeek, nqdWeekday, nqdDay, nqdOrdinalDay,
+    nqdHour, nqdMinute, nqdSecond, nqdMillisecond, nqdMicrosecond, nqdNanosecond, nqdDate,
+    nqdTime, nqdIsLeapYear, nqdDaysInMonth, nqdMonthStart, nqdMonthEnd, nqdTimestamp,
+    nqdCastTimeUnit, nqdToString, nqdTruncate, nqdRound, nqdOffsetBy, nqdConvertTimeZone,
+    nqdReplaceTimeZone, nqdCombine, nqdTotalDays, nqdTotalHours, nqdTotalMinutes,
+    nqdTotalSeconds, nqdTotalMilliseconds, nqdTotalMicroseconds, nqdTotalNanoseconds
   NqRankMethod* {.size: sizeof(cint).} = enum
     nqkAverage, nqkMin, nqkMax, nqkDense, nqkOrdinal, nqkRandom
   NqStrOp* {.size: sizeof(cint).} = enum
@@ -268,9 +286,10 @@ proc nq_df_free*(df: ptr NqDataFrame)
 proc nq_df_new*(series: ptr ptr NqSeries, n: csize_t): ptr NqDataFrame
 proc nq_lf_scan_csv*(path: cstring, separator: uint8, hasHeader: bool,
                      nullValues: ptr cstring, nNulls: csize_t,
-                     overrideNames: ptr cstring, overrideDtypes: ptr NqDtype,
+                     overrideNames: ptr cstring, overrideDtypes: ptr NqDtypeSpec,
                      nOverrides: csize_t, skipRows: csize_t, nRows: int64,
-                     inferSchemaLength: int64, ignoreErrors, decimalComma: bool): ptr NqLazyFrame
+                     inferSchemaLength: int64,
+                     ignoreErrors, decimalComma, tryParseDates: bool): ptr NqLazyFrame
 proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring, separator: uint8,
                       includeHeader: bool, nullValue: cstring, quoteStyle: NqQuoteStyle,
                       floatPrecision: int32, decimalComma: bool): bool
@@ -311,7 +330,7 @@ proc nq_expr_binary*(a: ptr NqExpr, op: NqBinOp, b: ptr NqExpr): ptr NqExpr
 proc nq_expr_unary*(e: ptr NqExpr, op: NqUnary): ptr NqExpr
 proc nq_expr_fill_null*(e: ptr NqExpr, value: ptr NqExpr): ptr NqExpr
 proc nq_expr_alias*(e: ptr NqExpr, name: cstring): ptr NqExpr
-proc nq_expr_cast*(e: ptr NqExpr, code: NqDtype, strict: bool): ptr NqExpr
+proc nq_expr_cast*(e: ptr NqExpr, spec: ptr NqDtypeSpec, strict: bool): ptr NqExpr
 proc nq_expr_to_string*(e: ptr NqExpr): cstring
 
 # lazy frames
@@ -330,9 +349,9 @@ proc nq_lf_drop_nulls*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t): ptr
 proc nq_lf_limit*(lf: ptr NqLazyFrame, n: uint32): ptr NqLazyFrame
 proc nq_lf_explain*(lf: ptr NqLazyFrame): cstring
 proc nq_lf_collect_schema*(lf: ptr NqLazyFrame): ptr NqDataFrame
-proc nq_lf_cast*(lf: ptr NqLazyFrame, names: ptr cstring, codes: ptr NqDtype, n: csize_t,
+proc nq_lf_cast*(lf: ptr NqLazyFrame, names: ptr cstring, specs: ptr NqDtypeSpec, n: csize_t,
                  strict: bool): ptr NqLazyFrame
-proc nq_lf_cast_all*(lf: ptr NqLazyFrame, code: NqDtype, strict: bool): ptr NqLazyFrame
+proc nq_lf_cast_all*(lf: ptr NqLazyFrame, spec: ptr NqDtypeSpec, strict: bool): ptr NqLazyFrame
 proc nq_lf_join*(left, right: ptr NqLazyFrame, leftOn: ptr ptr NqExpr, nLeft: csize_t,
                  rightOn: ptr ptr NqExpr, nRight: csize_t, how: NqJoinType, suffix: cstring,
                  validate: NqJoinValidation, nullsEqual: bool, coalesce: int32,
@@ -366,7 +385,7 @@ proc nq_expr_round*(e: ptr NqExpr, decimals: uint32, mode: NqRoundMode): ptr NqE
 proc nq_expr_over*(e: ptr NqExpr, by: ptr ptr NqExpr, n: csize_t): ptr NqExpr
 
 # column selectors
-proc nq_expr_selector*(names: ptr cstring, nNames: csize_t, dtypes: ptr NqDtype, nDtypes: csize_t,
+proc nq_expr_selector*(names: ptr cstring, nNames: csize_t, dtypes: ptr NqDtypeSpec, nDtypes: csize_t,
                        classes: uint32, wildcard: bool, excluded: ptr cstring,
                        nExcluded: csize_t): ptr NqExpr
 proc nq_expr_name_affix*(e: ptr NqExpr, affix: cstring, prefix: bool): ptr NqExpr
@@ -376,6 +395,23 @@ proc nq_expr_str*(e: ptr NqExpr, op: NqStrOp, a, b: ptr NqExpr, flag1, flag2: bo
                   ch: uint32, s: cstring): ptr NqExpr
 proc nq_expr_concat_str*(es: ptr ptr NqExpr, n: csize_t, separator: cstring,
                          ignoreNulls: bool): ptr NqExpr
+
+# temporal values
+proc nq_df_column_time_unit*(df: ptr NqDataFrame, name: cstring): int32
+proc nq_df_column_time_zone*(df: ptr NqDataFrame, name: cstring): cstring
+proc nq_df_column_physical*(df: ptr NqDataFrame, name: cstring, output: ptr int64, valid: ptr bool,
+                            n: csize_t): bool
+proc nq_series_new_temporal*(name: cstring, values: ptr int64, valid: ptr bool, n: csize_t,
+                             spec: ptr NqDtypeSpec): ptr NqSeries
+proc nq_expr_lit_temporal*(v: int64, spec: ptr NqDtypeSpec): ptr NqExpr
+proc nq_expr_to_physical*(e: ptr NqExpr): ptr NqExpr
+proc nq_expr_date_range*(start, stop: ptr NqExpr, interval: cstring, closed: NqClosedWindow,
+                         datetime, hasTimeUnit: bool, tu: NqTimeUnit, tz: cstring): ptr NqExpr
+proc nq_expr_duration*(parts: ptr ptr NqExpr, tu: NqTimeUnit): ptr NqExpr
+proc nq_expr_strptime*(e: ptr NqExpr, spec: ptr NqDtypeSpec, format: cstring,
+                       strict, exact, cache: bool, ambiguous: cstring): ptr NqExpr
+proc nq_expr_dt*(e: ptr NqExpr, op: NqDtOp, a: ptr NqExpr, s: cstring, flag: bool,
+                 tu: NqTimeUnit, nonExistent: int32): ptr NqExpr
 
 # ranking
 proc nq_expr_rank*(e: ptr NqExpr, meth: NqRankMethod, descending, hasSeed: bool,
