@@ -194,12 +194,14 @@ type
   NqBinOp* {.size: sizeof(cint).} = enum
     nqAdd, nqSub, nqMul, nqDiv,
     nqEq, nqNotEq, nqLt, nqLtEq, nqGt, nqGtEq,
-    nqAnd, nqOr
+    nqAnd, nqOr,
+    nqMod, nqFloorDiv, nqPow
 
   NqUnary* {.size: sizeof(cint).} = enum
     nqNot, nqSum, nqMean, nqMin, nqMax, nqCount,
     nqFirst, nqLast, nqNUnique, nqStd,
-    nqIsNull, nqIsNotNull
+    nqIsNull, nqIsNotNull,
+    nqAbs, nqMedian, nqLen, nqNeg
 
   NqDtype* {.size: sizeof(cint).} = enum
     ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
@@ -217,6 +219,14 @@ type
     nqcVertical, nqcVerticalRelaxed, nqcHorizontal, nqcDiagonal, nqcDiagonalRelaxed
   NqUniqueKeepStrategy* {.size: sizeof(cint).} = enum
     nqkFirst, nqkLast, nqkNone, nqkAny
+  NqClosedInterval* {.size: sizeof(cint).} = enum
+    nqiBoth, nqiLeft, nqiRight, nqiNone
+  NqQuantileMethod* {.size: sizeof(cint).} = enum
+    nqqNearest, nqqLower, nqqHigher, nqqMidpoint, nqqLinear, nqqEquiprobable
+  NqFillNullStrategy* {.size: sizeof(cint).} = enum
+    nqfForward, nqfBackward, nqfMean, nqfMin, nqfMax, nqfZero, nqfOne
+  NqRoundMode* {.size: sizeof(cint).} = enum
+    nqrHalfToEven, nqrHalfAwayFromZero, nqrToZero
 
 {.push importc, cdecl.}
 
@@ -318,6 +328,19 @@ proc nq_lf_unique*(lf: ptr NqLazyFrame, subset: ptr cstring, n: csize_t,
 proc nq_df_sample*(df: ptr NqDataFrame, n: csize_t, fraction: float64, byFraction: bool,
                    withReplacement, shuffle, hasSeed: bool, seed: uint64): ptr NqDataFrame
 proc nq_set_random_seed*(seed: uint64)
+
+# more expressions
+proc nq_expr_when_then*(conds, values: ptr ptr NqExpr, n: csize_t,
+                        otherwise: ptr NqExpr): ptr NqExpr
+proc nq_expr_lit_series*(s: ptr NqSeries): ptr NqExpr
+proc nq_expr_is_in*(e, other: ptr NqExpr, nullsEqual: bool): ptr NqExpr
+proc nq_expr_is_between*(e, lower, upper: ptr NqExpr, closed: NqClosedInterval): ptr NqExpr
+proc nq_expr_quantile*(e: ptr NqExpr, q: float64, meth: NqQuantileMethod): ptr NqExpr
+proc nq_expr_var_std*(e: ptr NqExpr, ddof: uint8, isVar: bool): ptr NqExpr
+proc nq_expr_fill_null_strategy*(e: ptr NqExpr, strategy: NqFillNullStrategy, hasLimit: bool,
+                                 limit: uint32): ptr NqExpr
+proc nq_expr_round*(e: ptr NqExpr, decimals: uint32, mode: NqRoundMode): ptr NqExpr
+proc nq_expr_over*(e: ptr NqExpr, by: ptr ptr NqExpr, n: csize_t): ptr NqExpr
 
 {.pop.}
 

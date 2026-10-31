@@ -38,7 +38,7 @@ API choices the explainer forces" (options A + D for conditionals, with the macr
   `^`, `abs`, unary `-`, and `round(decimals = 0, mode = HalfToEven)` with a `RoundMode`
   (`HalfToEven`, `HalfAwayFromZero`, `ToZero`).
 - **Aggregations**: `median`, `var(ddof = 1)` (written `e.var`), `std(ddof = 1)` (gains
-  `ddof`), `quantile(q, method = Nearest)` with a `QuantileMethod` (`Nearest`, `Lower`,
+  `ddof`), `quantile(q, interpolation = Nearest)` with a `QuantileMethod` (`Nearest`, `Lower`,
   `Higher`, `Midpoint`, `Linear`, `Equiprobable`), and `len` (rows including nulls, unlike
   `count`).
 - **Null strategies**: `fillNull(Forward)`, `fillNull(strategy = Backward, limit = 2)`
@@ -78,7 +78,9 @@ Expected differences from Polars' Rust and Python APIs:
 - **Option values are enums**: `closed = Left`, `method = Linear`, `fillNull(Forward)`.
   Rust's `FillNullStrategy::Forward(limit)` carries the limit, but a pure enum can't carry
   data, so `limit` is a separate argument, as in Python.
-- **`quantile`** takes a float, not an expression, in this change.
+- **`quantile`** takes a float, not an expression, in this change. Its option is named
+  `interpolation` as in Python (Rust's type is `QuantileMethod`), because `method` is a
+  Nim keyword and can't be a named argument.
 - **`over`** takes only the partition keys. Python's `order_by` and `mapping_strategy`
   are left for later.
 - **`round`** defaults to half-to-even, as Rust Polars and Python Polars do (Nim's

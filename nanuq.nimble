@@ -21,7 +21,7 @@ task buildRust, "Build the Rust wrapper library (src/rust/target/release/libnanu
 
 task test, "Run the tests (tests/test_datamancer.nim needs Datamancer installed)":
   for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datatypes.nim",
-            "tests/test_combining.nim", "tests/test_verbs.nim",
+            "tests/test_combining.nim", "tests/test_verbs.nim", "tests/test_expressions.nim",
             "tests/test_datasets.nim", "tests/test_html.nim",
             "tests/test_datamancer.nim"]:
     exec "nim r --hints:off " & t
