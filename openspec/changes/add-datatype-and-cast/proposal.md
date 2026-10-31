@@ -64,7 +64,9 @@ Expected differences from Polars' Rust and Python APIs:
 - **No 128-bit integers, no Decimal.** `Int128`, `UInt128` and `Decimal` are left out
   (they need extra Polars features); they would read as `dkOther`.
 - **`$` is Polars' short name.** Python prints `Int64`; Rust's `Display` prints `i64`.
-  Nanuq follows Rust, which is also what the table header shows in both.
+  Nanuq follows Rust, which is also what the table header shows in both. Nim names
+  (`int64`, `string`) were considered and dropped: `$df` is rendered by Polars, so the
+  tables would disagree with `$` or need their dtype row rewritten.
 - **Schema type.** Python's `pl.Schema` is an ordered mapping; Nanuq uses Nim's
   `OrderedTable[string, DataType]`. Python's `df.schema` is a property; in Nim it is a
   proc, `df.schema` reads the same.
