@@ -252,16 +252,6 @@ proc newDataFrame*(columns: varargs[Series]): DataFrame =
   for i, c in columns: buf[i] = c.raw
   wrap nq_df_new(buf.firstOrNil, buf.len.csize_t)
 
-proc readCsv*(path: string, nullValues: openArray[string] = []): DataFrame =
-  ## Reads a CSV file with a header row. Fields equal to one of `nullValues`
-  ## (e.g. `["NA"]`) are read as null; empty fields always are.
-  var nulls = newSeq[cstring](nullValues.len)
-  for i, v in nullValues: nulls[i] = v.cstring
-  wrap nq_df_read_csv(path.cstring, nulls.firstOrNil, nulls.len.csize_t)
-
-proc writeCsv*(df: DataFrame, path: string) =
-  if not nq_df_write_csv(df.raw, path.cstring): raiseLast()
-
 # ---------------------------------------------------------------------------
 # DataFrame inspection
 # ---------------------------------------------------------------------------
@@ -980,6 +970,78 @@ proc unique*(lf: LazyFrame, subset: string, keep = UniqueKeepStrategy.Any,
 proc explain*(lf: LazyFrame): string =
   ## The optimized query plan.
   takeString nq_lf_explain(lf.raw)
+
+# ---------------------------------------------------------------------------
+# CSV
+# ---------------------------------------------------------------------------
+
+type
+  QuoteStyle* {.pure.} = enum
+    ## When `writeCsv` quotes a field (Polars' `QuoteStyle`). `Necessary`
+    ## quotes only fields that hold a quote, the separator or a line break.
+    Necessary, Always, NonNumeric, Never
+
+proc toOpt(x: int): Option[int] = some(x)
+proc toOpt(x: Option[int]): Option[int] = x
+proc toC(x: Option[int]): int64 = (if x.isSome: x.get.int64 else: -1'i64)
+
+proc scanCsv*(path: string, separator = ',', hasHeader = true,
+              nullValues: openArray[string] = [],
+              schemaOverrides: openArray[(string, DataType)] = [],
+              skipRows = 0, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [],
+              inferSchemaLength: int | Option[int] = some(100),
+              ignoreErrors = false, decimalComma = false): LazyFrame =
+  ## Lazily reads a CSV file; nothing is read until the query runs. `path` may be
+  ## a glob such as `"logs/*.csv"` when every file has the same columns.
+  ##
+  ## Fields equal to one of `nullValues` (e.g. `["NA"]`) are null; empty fields
+  ## always are. `schemaOverrides` sets the dtype of some columns
+  ## (`{"bears": Int64}`), the rest are inferred from the first
+  ## `inferSchemaLength` rows (`none(int)`: all rows). `skipRows` skips lines
+  ## before the header, `nRows` limits the rows read and `columns` keeps only
+  ## those columns, in that order.
+  let nulls = cstrings(nullValues)
+  var names = newSeq[cstring](schemaOverrides.len)
+  var codes = newSeq[NqDtype](schemaOverrides.len)
+  for i, (n, t) in schemaOverrides:
+    names[i] = n.cstring
+    codes[i] = t.code
+  result = wrap nq_lf_scan_csv(path.cstring, separator.uint8, hasHeader,
+                               nulls.firstOrNil, nulls.len.csize_t,
+                               names.firstOrNil, codes.firstOrNil, names.len.csize_t,
+                               skipRows.csize_t, toOpt(nRows).toC,
+                               toOpt(inferSchemaLength).toC, ignoreErrors, decimalComma)
+  if columns.len > 0:
+    var sel = newSeq[Expr](columns.len)
+    for i, c in columns: sel[i] = col(c)
+    result = result.select(sel)
+
+proc readCsv*(path: string, separator = ',', hasHeader = true,
+              nullValues: openArray[string] = [],
+              schemaOverrides: openArray[(string, DataType)] = [],
+              skipRows = 0, nRows: int | Option[int] = none(int),
+              columns: openArray[string] = [],
+              inferSchemaLength: int | Option[int] = some(100),
+              ignoreErrors = false, decimalComma = false): DataFrame =
+  ## Reads a CSV file now: `scanCsv(...).collect`, with the same options.
+  ##
+  ## .. code-block:: nim
+  ##   let df = readCsv("data.csv", separator = ';', nullValues = ["NA"],
+  ##                    schemaOverrides = {"bears": Int64})
+  scanCsv(path, separator, hasHeader, nullValues, schemaOverrides, skipRows, nRows,
+          columns, inferSchemaLength, ignoreErrors, decimalComma).collect
+
+proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = true,
+               nullValue = "", quoteStyle = QuoteStyle.Necessary,
+               floatPrecision: int | Option[int] = none(int), decimalComma = false) =
+  ## Writes `df` as CSV. Nulls are written as `nullValue`; `floatPrecision`
+  ## sets the number of decimals for floats (`none(int)`: as many as needed).
+  let p = toOpt(floatPrecision)
+  if not nq_df_write_csv(df.raw, path.cstring, separator.uint8, includeHeader,
+                         nullValue.cstring, NqQuoteStyle(ord(quoteStyle)),
+                         (if p.isSome: p.get.int32 else: -1'i32), decimalComma):
+    raiseLast()
 
 # Eager shortcuts: run a single lazy step and collect.
 proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collect

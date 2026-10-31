@@ -149,6 +149,13 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 ## What is there
 
 - Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
+- CSV: `scanCsv("logs/*.csv")` reads lazily, globs included (same columns in every
+  file). `readCsv` (which is `scanCsv(...).collect`) takes the same named options with
+  Polars' defaults: `separator = ';'`, `hasHeader`, `nullValues = ["NA"]`,
+  `schemaOverrides = {"bears": Int64}`, `skipRows`, `nRows`, `columns`,
+  `inferSchemaLength` (`none(int)` for all rows), `ignoreErrors`, `decimalComma`.
+  `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
+  `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
   `toSeq(df, "col", float)` (one FFI call per column)
 - Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,

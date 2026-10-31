@@ -50,10 +50,11 @@ written, so no runtime check is needed.
 the same encoding as `cast`. An `Other` dtype raises `NanuqError`.
 
 ### Optional integers
-`Option[int]` parameters cross as `-1` for none. Plain-`int` overloads wrap in `some`. The
-number of overloads stays small, because only `nRows` and `inferSchemaLength` (read) and
-`floatPrecision` (write) are optional integers. A template generates the plain-`int`
-variants.
+`Option[int]` values cross as `-1` for none. The parameters are typed
+`int | Option[int]` (`nRows`, `inferSchemaLength` and `floatPrecision`), so a plain `int`
+works without extra overloads; a private `toOpt` turns either into `Option[int]`.
+(The proposal planned plain-`int` overloads from a template; the generic parameter turned
+out simpler.)
 
 ### `writeCsv`
 `nq_df_write_csv(df, path, separator, include_header, null_value, quote_style:
