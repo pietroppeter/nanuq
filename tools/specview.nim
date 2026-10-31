@@ -236,7 +236,6 @@ proc md(text: string): string =
   var listTag = ""
   var code: seq[string]
   var inCode = false
-  var lang = ""
   template flushPara() =
     if para.len > 0: result.add "<p>" & inline(para.join(" ")) & "</p>\n"; para = @[]
   template flushList() =
@@ -250,12 +249,9 @@ proc md(text: string): string =
     let s = line.strip
     if s.startsWith("```"):
       if inCode:
-        # a ```text block shows an example's output
-        let cls = if lang == "text": " class=\"out\"" else: ""
-        result.add "<pre" & cls & "><code>" & esc(code.join("\n")) & "</code></pre>\n"; code = @[]
+        result.add "<pre><code>" & esc(code.join("\n")) & "</code></pre>\n"; code = @[]
       else:
         flushPara(); flushList()
-        lang = s[3..^1].strip
       inCode = not inCode
     elif inCode: code.add raw
     elif s.startsWith("<!--"): discard
@@ -370,10 +366,6 @@ a{color:var(--fjord)}
 code,pre{font-family:var(--mono);font-size:.85em}
 p code,li code,td code{background:var(--rule);padding:.05em .3em;border-radius:3px}
 pre{background:var(--floe);border:1px solid var(--rule);border-radius:6px;padding:.8rem;overflow-x:auto}
-pre{line-height:1.25}
-pre + pre.out{margin-top:-.4rem;border-top-left-radius:0;border-top-right-radius:0}
-pre.out{background:var(--ice);border-style:dashed;position:relative}
-pre.out::before{content:"output";position:absolute;top:.3rem;right:.6rem;font-size:.7rem;color:var(--mute);font-family:var(--display)}
 table.overview{border-collapse:collapse;width:100%;font-size:.9rem;margin:1rem 0}
 table.overview th,table.overview td{text-align:left;padding:.4rem .6rem;border-bottom:1px solid var(--rule);vertical-align:top}
 table.overview th{font:600 .7rem/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
