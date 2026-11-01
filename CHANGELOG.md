@@ -6,6 +6,18 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-01
+
+Nanuq 0.4 is "a real Series, and shaping": math, cumulative and rolling windows,
+ranking and recoding, horizontal functions and correlation, pivot and unpivot, time
+windows and as-of joins, a Series you can compute with, rows as Nim objects and
+Arraymancer tensors. The dev log post "Designing Nanuq 0.4" explains the API choices.
+The prebuilt library is `lib-v0.4.0` (Polars 0.55), with many more Polars features
+turned on than 0.3.
+
+Known limitations compared with Polars: no List, Array or Struct columns (so no
+`explode`, `unnest`, `str.split`), no JSON, no Nim callbacks and no SQL.
+
 ### Added
 - Dev log post "Designing Nanuq 0.4": the API choices of 0.4 where Nim and Polars
   disagree (optional parameters of several types, the Series as a layer over
