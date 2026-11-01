@@ -252,20 +252,24 @@ scene "s02_countries":
 nbText: """
 A list column can be measured with `list.len`, searched with `list.contains`, and
 turned back into rows with `explode`. Here is how many four-thousanders each country
-can claim, and how many sit right on a border.
+can claim, how many sit right on a border, and which countries share them (sorting and
+joining each list gives one label per combination).
 """
 
 scene "s02_per_country":
   echo peaks.explode("countries")["countries"].valueCounts(sort = true)
-  echo peaks.select(
-    (col.countries.list.len > 1).sum.alias("on_a_border"),
-    (col.countries == lit(@["Switzerland"])).sum.alias("swiss_only"),
+  echo peaks.select((col.countries.list.len > 1).sum.alias("on_a_border"))
+  echo peaks.groupBy(col.countries.list.sort.list.join(" + ")).agg(len().alias("len")).sort(
+    ["len", "countries"], descending = [true, false]
   )
 
 nbText: """
 Switzerland has 48, Italy 38, France 26, which adds up to more than 82 because 30
-summits sit on a border. Mont Blanc is one of them, and France and Italy have
-disagreed about exactly where that border runs over the top since the 18th century.
+summits sit on a border: 17 between Italy and Switzerland, 13 between France and Italy.
+Only 13 are entirely French and 8 entirely Italian, against 31 entirely Swiss, and not
+a single one stands on the French-Swiss border. Mont Blanc is on the French-Italian
+one, and France and Italy have disagreed about exactly where that border runs over
+the top since the 18th century.
 
 ## 3. Prominence: from a string to a struct
 
@@ -846,8 +850,8 @@ nbText: """
 ## What this post used from Nanuq 0.5
 
 - nested data types: `List`, `Array` and `Struct` columns, read from CSV strings, NDJSON
-  and Parquet, inspected through `schema` (`inner`, `fields`), compared with `lit(@[...])`;
-- the `list` namespace: `len`, `get`, `first`, `eval(element() ...)`, plus `explode`,
+  and Parquet, inspected through `schema` (`inner`, `fields`);
+- the `list` namespace: `len`, `get`, `first`, `sort`, `join`, `eval(element() ...)`, plus `explode`,
   `concatList` and `vstack`;
 - strings into lists and structs: `str.split`, `str.extractGroups`;
 - the `struct` namespace and `asStruct`, `unnest`, the `arr` namespace for fixed-size

@@ -87,20 +87,24 @@ peaks.select("summit", "height", "countries").head(8)
 # %% [markdown]
 # A list column can be measured with `list.len`, searched with `list.contains`, and
 # turned back into rows with `explode`. Here is how many four-thousanders each country
-# can claim, and how many sit right on a border.
+# can claim, how many sit right on a border, and which countries share them (sorting and
+# joining each list gives one label per combination).
 
 # %%
 # id: s02_per_country
 print(peaks.explode("countries")["countries"].value_counts(sort=True))
-print(peaks.select(
-    on_a_border=(pl.col("countries").list.len() > 1).sum(),
-    swiss_only=(pl.col("countries") == pl.lit(["Switzerland"])).sum(),
+print(peaks.select(on_a_border=(pl.col("countries").list.len() > 1).sum()))
+print(peaks.group_by(pl.col("countries").list.sort().list.join(" + ")).len().sort(
+    "len", "countries", descending=[True, False]
 ))
 
 # %% [markdown]
 # Switzerland has 48, Italy 38, France 26, which adds up to more than 82 because 30
-# summits sit on a border. Mont Blanc is one of them, and France and Italy have
-# disagreed about exactly where that border runs over the top since the 18th century.
+# summits sit on a border: 17 between Italy and Switzerland, 13 between France and Italy.
+# Only 13 are entirely French and 8 entirely Italian, against 31 entirely Swiss, and not
+# a single one stands on the French-Swiss border. Mont Blanc is on the French-Italian
+# one, and France and Italy have disagreed about exactly where that border runs over
+# the top since the 18th century.
 #
 # ## 3. Prominence: from a string to a struct
 #
