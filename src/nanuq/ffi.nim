@@ -758,6 +758,22 @@ proc nq_read_excel*(path, sheetName: cstring, sheetIndex: csize_t, hasHeader: bo
                     skipRows: csize_t): ptr NqDataFrame
 proc nq_write_excel*(df: ptr NqDataFrame, path, worksheet: cstring, includeHeader,
                      autofit: bool, floatPrecision: int32): bool
+# smaller functions and book gaps (0.6)
+proc nq_expr_xor*(a, b: ptr NqExpr): ptr NqExpr
+proc nq_expr_set_sorted*(e: ptr NqExpr, descending: bool): ptr NqExpr
+proc nq_expr_hist*(e, bins: ptr NqExpr, binCount: int64, includeCategory,
+                   includeBreakpoint: bool): ptr NqExpr
+proc nq_expr_int_ranges*(start, stop, step: ptr NqExpr, spec: ptr NqDtypeSpec): ptr NqExpr
+proc nq_expr_date_ranges*(start, stop: ptr NqExpr, interval: cstring, closed: NqClosedWindow,
+                          datetime, hasTimeUnit: bool, tu: NqTimeUnit, tz: cstring): ptr NqExpr
+proc nq_lf_join_where*(a, b: ptr NqLazyFrame, predicates: ptr ptr NqExpr, n: csize_t,
+                       suffix: cstring): ptr NqLazyFrame
+proc nq_explain_all*(lfs: ptr ptr NqLazyFrame, n: csize_t): cstring
+proc nq_thread_pool_size*(): int64
+proc nq_expr_cast_dtype_of*(e, src: ptr NqExpr, strict: bool): ptr NqExpr
+proc nq_expr_dtype_display*(src: ptr NqExpr, inner: bool): ptr NqExpr
+proc nq_lf_group_head*(lf: ptr NqLazyFrame, by: ptr ptr NqExpr, nBy: csize_t, n: int64,
+                       tail: bool): ptr NqLazyFrame
 {.pop.}
 
 let compiledFor = nanuqLibVersion

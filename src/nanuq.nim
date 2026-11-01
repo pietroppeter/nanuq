@@ -5170,3 +5170,228 @@ proc writeExcel*(df: DataFrame, path: string, worksheet = "Sheet1", includeHeade
   if not nq_write_excel(df.raw, path.cstring, worksheet.cstring, includeHeader, autofit,
                         (if p.isSome: p.get.int32 else: -1'i32)):
     raiseLast()
+
+# ---------------------------------------------------------------------------
+# Smaller functions (0.6): method spellings, xor, ranges, joinWhere, hist, ...
+# ---------------------------------------------------------------------------
+
+template defMethod(name, op: untyped) =
+  proc name*[T: Expr | SomeNumber | string | bool](a: Expr, b: T): Expr = op(a, lit(b))
+    ## Method spelling of an operator, as in Python Polars (`col("a").mul(2)`).
+
+defMethod(add, `+`)
+defMethod(sub, `-`)
+defMethod(mul, `*`)
+defMethod(truediv, `/`)
+defMethod(floordiv, `div`)
+defMethod(eq, `==`)
+defMethod(ne, `!=`)
+defMethod(lt, `<`)
+defMethod(le, `<=`)
+defMethod(gt, `>`)
+defMethod(ge, `>=`)
+proc neg*(e: Expr): Expr = lit(0) - e
+  ## `-e`, as a method.
+
+proc `xor`*(a, b: Expr): Expr = wrap nq_expr_xor(a.raw, b.raw)
+  ## Exclusive or: logical for booleans, bitwise for integers (Python's `^`).
+proc `xor`*[T: SomeInteger | bool](a: Expr, b: T): Expr = a xor lit(b)
+proc `xor`*[T: SomeInteger | bool](a: T, b: Expr): Expr = lit(a) xor b
+
+proc setSorted*(e: Expr, descending = false): Expr =
+  ## Marks the values as sorted, so Polars can use fast paths (binary search,
+  ## sorted joins). Wrong results follow if they are not.
+  wrap nq_expr_set_sorted(e.raw, descending)
+proc setSorted*(df: DataFrame, column: string, descending = false): DataFrame =
+  ## The frame with `column` marked as sorted.
+  df.withColumns(col(column).setSorted(descending))
+
+proc hist*(e: Expr, bins: openArray[float] = [], binCount: int | Option[int] = none(int),
+           includeCategory = false, includeBreakpoint = false): Expr =
+  ## Counts of values per bin: given `bins` edges, or `binCount` equal bins
+  ## (default 10). With `includeCategory`/`includeBreakpoint` the result is a
+  ## struct with the bin's label and right edge.
+  let b = (if bins.len > 0: lit(series("bins", @bins)) else: nil)
+  let n = toOpt(binCount)
+  wrap nq_expr_hist(e.raw, raw(b), (if n.isSome: n.get.int64 else: -1'i64),
+                    includeCategory, includeBreakpoint)
+proc hist*(s: Series, bins: openArray[float] = [], binCount: int | Option[int] = none(int),
+           includeCategory = true, includeBreakpoint = true): DataFrame =
+  ## A frame of bins (`breakpoint`, `category`) and their `count`.
+  let df = s.toFrame.select(col(s.name).hist(bins, binCount, includeCategory, includeBreakpoint))
+  if includeCategory or includeBreakpoint: df.unnest(s.name) else: df
+
+proc intRanges*(start, stop: int | Expr, step: int | Expr = 1, dtype = Int64): Expr =
+  ## One list of integers per row, from `start` up to `stop` by `step`
+  ## (columns or numbers).
+  let sp = toSpecs([dtype])
+  wrap nq_expr_int_ranges(lit(start).raw, lit(stop).raw, lit(step).raw, sp.specs[0].unsafeAddr)
+proc arange*(start, stop: int | Expr, step = 1, dtype = Int64): Expr =
+  ## Another name for `intRange` (Python's `pl.arange`).
+  intRange(start, stop, step, dtype)
+proc dateRanges*(start, stop: Date | Expr, interval: string | TimeInterval = "1d",
+                 closed = ClosedWindow.Both): Expr =
+  ## One list of dates per row, from `start` to `stop` every `interval`.
+  wrap nq_expr_date_ranges(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                           NqClosedWindow(ord(closed)), false, false, nquMicroseconds, "")
+proc datetimeRanges*(start, stop: DateTime | Expr, interval: string | TimeInterval = "1d",
+                     closed = ClosedWindow.Both,
+                     timeUnit: TimeUnit | Option[TimeUnit] = none(TimeUnit),
+                     timeZone = ""): Expr =
+  ## One list of datetimes per row, from `start` to `stop` every `interval`.
+  let tu = toTu(timeUnit)
+  wrap nq_expr_date_ranges(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                           NqClosedWindow(ord(closed)), true, tu.isSome,
+                           NqTimeUnit(ord(tu.get(TimeUnit.Microseconds))), timeZone.cstring)
+
+proc joinWhere*(lf, other: LazyFrame, predicates: varargs[Expr], suffix = "_right"): LazyFrame =
+  ## Joins rows of `lf` and `other` where every predicate holds, for
+  ## inequality joins: `joinWhere(other, col("start") <= col("t"), col("t") < col("end"))`.
+  ## Columns of `other` with a clashing name get `suffix`.
+  let ps = raws(predicates)
+  wrap nq_lf_join_where(lf.raw, other.raw, ps.firstOrNil, ps.len.csize_t, suffix.cstring)
+proc joinWhere*(df, other: DataFrame, predicates: varargs[Expr], suffix = "_right"): DataFrame =
+  df.lazy.joinWhere(other.lazy, predicates, suffix).collect
+
+proc explainAll*(lfs: openArray[LazyFrame]): string =
+  ## The combined optimized plan of several queries (what `collectAll` runs).
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  let s = nq_explain_all(rs.firstOrNil, rs.len.csize_t)
+  if s == nil: raiseLast()
+  takeString s
+
+proc threadPoolSize*(): int = nq_thread_pool_size().int
+  ## Number of threads Polars computes with (set `POLARS_MAX_THREADS` before
+  ## the first query to change it).
+
+proc append*(df: var DataFrame, other: DataFrame) =
+  ## Appends the rows of `other` to `df` (same columns and types), in place:
+  ## Python's `df.append(other)`.
+  df = df.vstack(other)
+
+proc remove*(lf: LazyFrame, predicate: Expr): LazyFrame =
+  ## The rows where `predicate` is not true (rows where it is null stay): the
+  ## opposite of `filter`.
+  lf.filter((not predicate).fillNull(true))
+proc remove*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.remove(predicate).collect
+
+proc isSorted*(s: Series, descending = false, nullsLast = false): bool =
+  ## Whether the values are sorted (nulls first, unless `nullsLast`).
+  let f = s.toFrame
+  f.equals(f.sort(s.name, descending = descending, nullsLast = nullsLast, maintainOrder = true))
+
+type
+  EpochUnit* {.pure.} = enum
+    ## Unit of the numbers `fromEpoch` reads (Python's `"d"`, `"s"`, `"ms"`, `"us"`, `"ns"`).
+    Days, Seconds, Milliseconds, Microseconds, Nanoseconds
+
+proc fromEpoch*(e: Expr, unit = EpochUnit.Seconds): Expr =
+  ## Numbers counting time since 1970-01-01 as Datetime (Date for `Days`).
+  case unit
+  of EpochUnit.Days: e.cast(Int32).cast(Date)
+  of EpochUnit.Seconds: (e.cast(Int64) * 1_000_000).cast(dataType(DateTime, TimeUnit.Microseconds))
+  of EpochUnit.Milliseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Milliseconds))
+  of EpochUnit.Microseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Microseconds))
+  of EpochUnit.Nanoseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Nanoseconds))
+proc fromEpoch*(column: string, unit = EpochUnit.Seconds): Expr = fromEpoch(col(column), unit)
+
+proc readParquetSchema*(path: string): Schema =
+  ## The column names and types of a Parquet file, without reading the data.
+  scanParquet(path).collectSchema
+
+type
+  UnstackDirection* {.pure.} = enum
+    ## How `unstack` lays values out (Python's `how`).
+    Vertical, Horizontal
+
+proc unstack*(df: DataFrame, step: int, how = UnstackDirection.Vertical,
+              columns: openArray[string] = [], fillValues: Expr = nil): DataFrame =
+  ## Reshapes each column into several of `step` values (`Vertical`: runs of
+  ## consecutive values; `Horizontal`: `step` values per row), named
+  ## `<column>_<i>`. Missing values at the end are null or `fillValues`.
+  if step <= 0: raise newException(ValueError, "unstack step must be positive")
+  var d = (if columns.len > 0: df.select(columns) else: df)
+  let h = d.height
+  let (nRows, nCols) = (if how == UnstackDirection.Vertical: (step, (h + step - 1) div step)
+                        else: ((h + step - 1) div step, step))
+  let fill = nRows * nCols - h
+  if fill > 0:
+    var exprs: seq[Expr]
+    for c in d.columns:
+      exprs.add col(c).extendConstant(if fillValues.isNil: lit(nil) else: fillValues, fill)
+    d = d.select(exprs)
+  if how == UnstackDirection.Horizontal:
+    var order = newSeq[int](nRows * nCols)
+    for i in 0 ..< order.len: order[i] = (i mod nCols) * nRows + i div nCols
+    d = d.withColumns(lit(series("__order", order))).sort("__order").drop("__order")
+  let width = len($max(nCols - 1, 0))
+  var parts: seq[Series]
+  for c in d.columns:
+    let s = d.getColumn(c)
+    for k in 0 ..< nCols:
+      parts.add d.slice(k * nRows, nRows).getColumn(c).rename(c & "_" & align($k, width, '0'))
+  newDataFrame(parts)
+
+proc rollingMap*[T, U](e: Expr, f: proc (window: seq[T]): U, windowSize: int,
+                       minPeriods: int | Option[int] = none(int), center = false): Expr =
+  ## `f` applied to each window of `windowSize` values (Python's
+  ## `rolling_map`): the window holds the non-null values; fewer than
+  ## `minPeriods` (default `windowSize`) gives null.
+  if windowSize <= 0: raise newException(ValueError, "windowSize must be positive")
+  let mp = toOpt(minPeriods).get(windowSize)
+  let g = proc (s: Series): Series =
+    let xs = s.toList(Option[T])
+    var ys = newSeq[Option[U]](xs.len)
+    let off = (if center: windowSize div 2 else: windowSize - 1)
+    for i in 0 ..< xs.len:
+      let lo = i - off
+      let hi = lo + windowSize - 1
+      var w: seq[T]
+      for j in max(lo, 0) .. min(hi, xs.high):
+        if xs[j].isSome: w.add xs[j].get
+      if w.len >= mp: ys[i] = some(f(w))
+    series(s.name, ys)
+  e.mapBatches(g, dataType(U))
+
+proc scatter*[T](s: Series, indices: openArray[int], values: openArray[T]): Series =
+  ## A copy of `s` with the values at `indices` replaced by `values` (Python's
+  ## `Series.scatter`). Negative indices count from the end.
+  if indices.len != values.len:
+    raise newException(ValueError, "scatter needs as many values as indices")
+  var idx = newSeq[int](indices.len)
+  for i, x in indices:
+    let j = (if x < 0: s.len + x else: x)
+    if j < 0 or j >= s.len: raise newException(IndexDefect, "index " & $x & " out of bounds")
+    idx[i] = j
+  let upd = newDataFrame(series("__r", idx), series("__v", @values), series("__hit", newSeq[bool](idx.len).mapIt(true)))
+  let f = s.toFrame.withRowIndex("__r").withColumns(col("__r").cast(Int64))
+  let j = f.join(upd, on = ["__r"], how = JoinType.Left).sort("__r")
+  j.select(`when`(col("__hit").fillNull(false)).then(col("__v").cast(s.dtype)).otherwise(col(s.name)).alias(s.name)).getColumn(s.name)
+proc scatter*[T: not openArray](s: Series, indices: openArray[int], value: T): Series =
+  ## The values at `indices` all set to `value`.
+  var vs = newSeq[T](indices.len)
+  for i in 0 ..< vs.len: vs[i] = value
+  s.scatter(indices, vs)
+proc `set`*[T](s: Series, mask: Series, value: T): Series =
+  ## A copy of `s` with `value` where the boolean `mask` is true (Python's
+  ## `Series.set`).
+  let f = newDataFrame(s.rename("__s"), mask.rename("__m"))
+  f.select(`when`(col("__m").fillNull(false)).then(lit(value)).otherwise(col("__s")).alias(s.name)).getColumn(s.name)
+
+type DtypeOf* = object
+  ## The data type of an expression, resolved when the query runs (Python's
+  ## `pl.dtype_of`): cast to it with `cast`, show it with `display`.
+  e: Expr
+  inner: bool
+
+proc dtypeOf*(e: Expr): DtypeOf = DtypeOf(e: e)
+proc dtypeOf*(column: string): DtypeOf = DtypeOf(e: col(column))
+proc innerDtype*(d: DtypeOf): DtypeOf = DtypeOf(e: d.e, inner: true)
+  ## The inner type of a List or Array type.
+proc display*(d: DtypeOf): Expr = wrap nq_expr_dtype_display(d.e.raw, d.inner)
+  ## The type as text (Polars' short name, `i64`), one value.
+proc `cast`*(e: Expr, d: DtypeOf, strict = true): Expr =
+  ## Casts to the type of another expression: `col("a").cast(dtypeOf("b"))`.
+  if d.inner: raise newException(ValueError, "cast to innerDtype is not supported")
+  wrap nq_expr_cast_dtype_of(e.raw, d.e.raw, strict)

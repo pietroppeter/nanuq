@@ -5552,3 +5552,167 @@ pub unsafe extern "C" fn nq_write_excel(
     })
     .is_some()
 }
+
+// ---------------------------------------------------------------------------
+// 0.6: smaller functions from the book tally and book gaps
+// (add-frame-utilities-0-6, add-book-port-needs-0-6)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_xor(a: *const Expr, b: *const Expr) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(a, "expression")?.clone().xor(borrow(b, "expression")?.clone()))))
+}
+
+/// Marks an expression as sorted (`descending`), so Polars can take fast paths.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_set_sorted(e: *const Expr, descending: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let s = polars_plan::plans::AExprSorted { descending: Some(descending), nulls_last: None };
+        Ok(borrow(e, "expression")?.clone().set_sorted_flag(s))
+    }))
+}
+
+/// `hist(bins, bin_count)`: `bins` may be NULL, `bin_count < 0` for none.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_hist(
+    e: *const Expr,
+    bins: *const Expr,
+    bin_count: i64,
+    include_category: bool,
+    include_breakpoint: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let b = if bins.is_null() { None } else { Some(borrow(bins, "expression")?.clone()) };
+        Ok(borrow(e, "expression")?.clone().hist(
+            b,
+            (bin_count >= 0).then_some(bin_count as usize),
+            include_category,
+            include_breakpoint,
+        ))
+    }))
+}
+
+/// `int_ranges(start, end, step)` of type `spec`: one list per row.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_int_ranges(
+    start: *const Expr,
+    end: *const Expr,
+    step: *const Expr,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let dt = dtype_from_spec(borrow(spec, "dtype")?)?;
+        Ok(int_ranges(
+            borrow(start, "expression")?.clone(),
+            borrow(end, "expression")?.clone(),
+            borrow(step, "expression")?.clone(),
+            dt,
+        ))
+    }))
+}
+
+/// `date_ranges` / `datetime_ranges`: one list per row.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_date_ranges(
+    start: *const Expr,
+    end: *const Expr,
+    interval: *const c_char,
+    closed: NqClosedWindow,
+    datetime: bool,
+    has_time_unit: bool,
+    tu: NqTimeUnit,
+    tz: *const c_char,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let every = polars::prelude::Duration::try_parse(cstr(interval)?).map_err(pe)?;
+        if datetime {
+            polars::lazy::dsl::datetime_ranges(
+                Some(start),
+                Some(end),
+                Some(every),
+                None,
+                closed_window(closed),
+                has_time_unit.then(|| time_unit(tu)),
+                time_zone(tz)?,
+            )
+            .map_err(pe)
+        } else {
+            polars::lazy::dsl::date_ranges(Some(start), Some(end), Some(every), None, closed_window(closed)).map_err(pe)
+        }
+    }))
+}
+
+/// Inequality join: rows of `a` and `b` where all `predicates` hold.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_join_where(
+    a: *const LazyFrame,
+    b: *const LazyFrame,
+    predicates: *const *const Expr,
+    n: usize,
+    suffix: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let preds = exprs(predicates, n)?;
+        Ok(lf(a)?
+            .join_builder()
+            .with(lf(b)?)
+            .suffix(cstr(suffix)?)
+            .join_where(preds))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_explain_all(lfs: *const *const LazyFrame, n: usize) -> *mut c_char {
+    guard(|| {
+        let plans: Vec<DslPlan> = slice(lfs, n)?.iter().map(|l| lf(*l).map(|x| x.logical_plan)).collect::<Result<_, _>>()?;
+        Ok(to_c_string(LazyFrame::explain_all(plans, OptFlags::default()).map_err(pe)?))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn nq_thread_pool_size() -> i64 {
+    polars_core::runtime::RAYON.current_num_threads() as i64
+}
+
+/// `e.cast(dtype_of(of))`: cast to the type of another expression.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cast_dtype_of(e: *const Expr, of: *const Expr, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let d = DataTypeExpr::OfExpr(Box::new(borrow(of, "expression")?.clone()));
+        let e = borrow(e, "expression")?.clone();
+        Ok(if strict { e.strict_cast(d) } else { e.cast(d) })
+    }))
+}
+
+/// The type of `of` as a string expression (`dtype_of(of).display()`); with
+/// `inner`, of its inner type.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_dtype_display(of: *const Expr, inner: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let mut d = DataTypeExpr::OfExpr(Box::new(borrow(of, "expression")?.clone()));
+        if inner {
+            d = d.inner_dtype();
+        }
+        Ok(d.display())
+    }))
+}
+
+/// Groups of a frame by `by` (maintaining order), head/tail `n` rows each:
+/// `tail` false for head.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_group_head(
+    lf_: *const LazyFrame,
+    by: *const *const Expr,
+    n_by: usize,
+    n: i64,
+    tail: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let g = lf(lf_)?.group_by_stable(exprs(by, n_by)?);
+        let k = (n >= 0).then_some(n as usize);
+        Ok(if tail { g.tail(k) } else { g.head(k) })
+    }))
+}
