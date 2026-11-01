@@ -711,7 +711,7 @@ scene "s12_amateurs":
     .filter(col.games >= 50)
     .sort(["year", "level"])
   let sideBySide = amateurs.pivot(on = "level", index = "year", values = "early_33").join(
-    invasions.select(col.year, col.early_33.alias("pro")), on = ["year"], how = Left).filter(col.year >= 2014)
+    invasions.select(col.year, col.early_33.alias("pro")), on = ["year"], how = Left, maintainOrder = MaintainOrderJoin.Left).filter(col.year >= 2014)
   echo sideBySide
 
 nbText: """
@@ -884,7 +884,7 @@ are still playing forty years later. EGD writes names last name first, so we fli
 scene "s16_join":
   let championCards = titles
     .withColumns(col.player.str.replace(r"^(\S+) (.+)$", "$2 $1").alias("name"))
-    .join(egd.filter(col.country.isIn(["IT", "DE"])), on = ["name"], how = Left)
+    .join(egd.filter(col.country.isIn(["IT", "DE"])), on = ["name"], how = Left, maintainOrder = MaintainOrderJoin.Left)
     .select("player", "titles", "first", "last", "grade", "gor", "tournaments", "last_year")
   echo championCards
 

@@ -562,7 +562,7 @@ amateurs = (
     .sort("year", "level")
 )
 side_by_side = amateurs.pivot("level", index="year", values="early_33").join(
-    invasions.select("year", pro="early_33"), on="year", how="left").filter(pl.col("year") >= 2014)
+    invasions.select("year", pro="early_33"), on="year", how="left", maintain_order="left").filter(pl.col("year") >= 2014)
 side_by_side
 
 # %% [markdown]
@@ -740,7 +740,7 @@ egd.filter(pl.col("last_year") >= 2021).group_by("country").agg(
 # id: s16_join
 champion_cards = (
     titles.with_columns(name=pl.col("player").str.replace(r"^(\S+) (.+)$", "$2 $1"))
-    .join(egd.filter(pl.col("country").is_in(["IT", "DE"])), on="name", how="left")
+    .join(egd.filter(pl.col("country").is_in(["IT", "DE"])), on="name", how="left", maintain_order="left")
     .select("player", "titles", "first", "last", "grade", "gor", "tournaments", "last_year")
 )
 champion_cards
