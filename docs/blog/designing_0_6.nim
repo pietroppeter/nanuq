@@ -48,9 +48,9 @@ the `collect` we already had. A typo is a compile error, and the default stays t
 one-argument `collect`. `collectAll` runs several queries together, so Polars can
 share the parts they have in common.
 
-`profile` (run a query and time each node) stays, for the in-memory engine. py-polars
-2.0 removed `LazyFrame.profile`, as its timings were misleading under the streaming
-engine; in Nanuq it is a cheap way to see where an in-memory query spends its time.
+There is no `profile`: py-polars 2.0 removed `LazyFrame.profile`, as its timings were
+misleading under the streaming engine, and the Polars Nanuq now builds on (see the
+last section) no longer has it. Calling it is a compile-time error that says so.
 """
 
 nbCode:

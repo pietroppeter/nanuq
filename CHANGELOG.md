@@ -12,15 +12,16 @@ Nanuq 0.6 is "engine and edges": the streaming engine and sinks, saving query pl
 Binary and Decimal columns, the Arrow C Data Interface (zero-copy column views), Excel
 and SQLite, testing helpers, and the functions the book ports still missed. The dev
 log post "Designing Nanuq 0.6" explains the API choices. The prebuilt library is
-`lib-v0.6.0` (Polars 0.55). Excel support is two pure-Rust crates (calamine and
+`lib-v0.6.0`, built on Polars at the py-polars 2.1.0 tag, so Nanuq and py-polars 2.1.0
+now run the same Polars code. Excel support is two pure-Rust crates (calamine and
 rust_xlsxwriter) compiled into the library: no Python and no new system dependency.
 
 Known limitations compared with Polars: no cloud storage (S3, GCS, Azure), no plotting
 namespace (use nim-plotly or ggplotnim with `toSeq`/`toDatamancer`), databases other
-than SQLite, and the Polars version drift described in 0.5.
+than SQLite.
 
 ### Added
-- Streaming: `collect(Engine.Streaming)`, `collectAll(lfs, engine)`, `profile`, and the
+- Streaming: `collect(Engine.Streaming)`, `collectAll(lfs, engine)`, and the
   sinks `sinkParquet`, `sinkIpc`, `sinkCsv`, `sinkNdjson` to a path or partitioned by
   key (`PartitionBy`), with `lazy = true` to return the sink as a frame for
   `collectAll`. (add-streaming-and-sinks, #59)
@@ -70,6 +71,19 @@ than SQLite, and the Polars version drift described in 0.5.
 - The wrapper crate is `0.6.0`, with the Polars features `serde`, `serde-lazy`,
   `binary_encoding`, `bitwise`, `hist`, `string_encoding`, `string_to_integer`,
   `dtype-i128` and `dtype-u128`.
+- Polars comes from the git tag `py-2.1.0` (commit 7f902bd, the code py-polars 2.1.0
+  ships) instead of crates.io 0.55.2, which matched py-polars 1.43; release builds use
+  that tag's toolchain, `nightly-2026-09-01`. This ends the drift the 0.5 book ports
+  found (SQL table functions with named options, `hash`, `sample`, Decimal `mod`).
+  Behavior now follows Polars 2: CSV columns read without a header are `column_0`,
+  `column_1`, ...; `topK`/`bottomK` values come out in no particular order; a join
+  without `maintainOrder` does not keep the left order; `unpivot` emits rows in
+  row-major order. (pin-polars-to-py-release, #59)
+
+### Removed
+- `profile` and `cat.getCategories`, as in Polars 2.0. Both are compile-time errors
+  that say what to use instead (`explain` or timing `collect`; `unique()` or the dtype's
+  `categories`). (pin-polars-to-py-release, #59)
 
 ## [0.5.0] - 2026-11-01
 

@@ -63,8 +63,5 @@ suite "streaming":
     check total == 10
     check files >= 3
 
-  test "profile":
-    let (res, timings) = newDataFrame(series("x", @[1, 2, 3])).lazy.select(col("x").sum).profile
-    check res.toList("x", int) == @[6]
-    check timings.columns == @["node", "start", "end"]
-    check timings.height >= 1
+  test "profile is gone, as in Polars 2.0":
+    check not compiles(newDataFrame(series("x", @[1])).lazy.profile)

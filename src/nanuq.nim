@@ -2045,7 +2045,8 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## those columns, in that order. With `tryParseDates`, string columns that look
   ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
   ## columns. `quoteChar = none(char)` turns quoting off, `newColumns` renames
-  ## the first columns (handy with `hasHeader = false`).
+  ## the first columns (handy with `hasHeader = false`, which names them column_0,
+  ## column_1, ... as Polars 2 does).
   scanCsvImpl(path, nil, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
               tryParseDates, quoteChar, encoding, newColumns)
@@ -2534,14 +2535,14 @@ type
     ## `e.cat`: functions of Categorical and Enum columns, as Polars' `Expr.cat`.
 
 proc cat*(e: Expr): CatNameSpace = CatNameSpace(e)
-  ## Categorical functions: `col.medal.cat.getCategories`.
+  ## Categorical functions: `col.medal.cat.lenChars`.
 
 proc catOp(c: CatNameSpace, op: NqCatOp, s = "", offset = 0'i64, length = -1'i64): Expr =
   wrap nq_expr_cat(Expr(c).raw, op, s.cstring, offset, length)
 
-proc getCategories*(c: CatNameSpace): Expr = c.catOp(nqcGetCategories)
-  ## The categories as a string column: for an Enum all of them in order, for a
-  ## Categorical those seen so far.
+proc getCategories*(c: CatNameSpace): Expr {.error: "cat.getCategories was removed " &
+    "in Polars 2.0: use unique() for the values in a column, or the dtype's " &
+    "categories for an Enum".} = discard
 proc lenBytes*(c: CatNameSpace): Expr = c.catOp(nqcLenBytes)
   ## Length of each value in bytes (u32).
 proc lenChars*(c: CatNameSpace): Expr = c.catOp(nqcLenChars)
@@ -5075,13 +5076,9 @@ proc sinkNdjson*(lf: LazyFrame, target: SinkTarget, maintainOrder = true, mkdir 
   when lazy: sinkTo(lf, target, o, true)
   else: discard sinkTo(lf, target, o, false)
 
-proc profile*(lf: LazyFrame): tuple[result, timings: DataFrame] =
-  ## Runs the query and returns its result and a frame of node timings
-  ## (`node`, `start`, `end`, in microseconds since the query started).
-  var t: ptr NqDataFrame
-  let r = nq_lf_profile(lf.raw, addr t)
-  if r == nil: raiseLast()
-  (wrap(r), wrap(t))
+proc profile*(lf: LazyFrame): tuple[result, timings: DataFrame] {.error: "profile was " &
+    "removed in Polars 2.0 (its timings were misleading under the streaming engine); " &
+    "use explain or time collect".} = discard
 
 # ---------------------------------------------------------------------------
 # Plan and expression serialization, more meta (0.6)

@@ -731,7 +731,6 @@ proc nq_collect_all_engine*(lfs: ptr ptr NqLazyFrame, n: csize_t, engine: uint8,
 proc nq_lf_sink*(lf: ptr NqLazyFrame, path, basePath: cstring, keys: ptr ptr NqExpr,
                  nKeys: csize_t, includeKeys: bool, maxRowsPerFile: int64,
                  o: ptr NqSinkOptions): ptr NqLazyFrame
-proc nq_lf_profile*(lf: ptr NqLazyFrame, timings: ptr ptr NqDataFrame): ptr NqDataFrame
 proc nq_bytes_free*(b: NqBytes)
 proc nq_lf_serialize*(lf: ptr NqLazyFrame, json: bool, ok: ptr bool): NqBytes
 proc nq_lf_deserialize*(data: pointer, len: csize_t, json: bool): ptr NqLazyFrame

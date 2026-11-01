@@ -1,4 +1,4 @@
-import std/[unittest, options, strutils]
+import std/[unittest, options, strutils, algorithm]
 import nanuq
 
 let df = newDataFrame(series("oni", [0.5, -1.0, 2.0, 1.2]), series("y", [1, 2, 3, 4]))
@@ -45,7 +45,7 @@ suite "series operations":
     check s.rollingMean(2).toList(Option[float]) == @[none(float), some(-0.25), some(0.5), some(1.6)]
     check s.shift(1, fillValue = 0.0).toList(float) == @[0.0, 0.5, -1.0, 2.0]
     check s.sort(descending = true).toList(float) == @[2.0, 1.2, 0.5, -1.0]
-    check s.topK(2).toList(float) == @[2.0, 1.2]
+    check s.topK(2).toList(float).sorted == @[1.2, 2.0]
     check s.cut([0.0], labels = ["cold", "warm"]).toList(string) == @["warm", "cold", "warm", "warm"]
   test "value counts":
     let vc = series("p", ["a", "b", "a"]).valueCounts(sort = true)

@@ -10,18 +10,22 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array", "dtype-struct", "cum_agg", "diff", "pct_change", "rolling_window", "rolling_window_by", "ewma", "ewma_by", "log", "sign", "dtype-decimal", "trigonometry", "propagate_nans", "moment", "mode", "unique_counts", "is_unique", "is_first_distinct", "is_last_distinct", "top_k", "interpolate", "interpolate_by", "replace", "cutqcut", "repeat_by", "pivot", "partition_by", "dynamic_group_by", "asof_join", "product", "search_sorted", "rle", "approx_unique", "arg_where", "dot_product", "peaks", "cov", "to_dummies", "index_of", "list_eval", "list_gather", "list_count", "list_sets", "list_drop_nulls", "list_sample", "list_to_struct", "list_filter", "list_arithmetic", "array_count", "array_to_struct", "extract_groups", "extract_jsonpath", "find_many", "json", "sql", "meta", "row_hash", "cumulative_eval", "iejoin", "serde", "serde-lazy", "binary_encoding", "bitwise", "hist", "string_encoding", "string_to_integer", "dtype-u128", "dtype-i128"] }
+# Polars is pinned to the commit py-polars 2.1.0 is built from (git tag py-2.1.0),
+# so Nanuq behaves like the Python Polars the book and explainers compare against.
+# The crates.io releases lag py-polars by months (0.55.2 matches py 1.43). Bump this
+# tag together with the py-polars version used by the book and the explainers.
+polars = { git = "https://github.com/pola-rs/polars", tag = "py-2.1.0", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array", "dtype-struct", "cum_agg", "diff", "pct_change", "rolling_window", "rolling_window_by", "ewma", "ewma_by", "log", "sign", "dtype-decimal", "trigonometry", "propagate_nans", "moment", "mode", "unique_counts", "is_unique", "is_first_distinct", "is_last_distinct", "top_k", "interpolate", "interpolate_by", "replace", "cutqcut", "repeat_by", "pivot", "partition_by", "dynamic_group_by", "asof_join", "product", "search_sorted", "rle", "approx_unique", "arg_where", "dot_product", "peaks", "cov", "to_dummies", "index_of", "list_eval", "list_gather", "list_count", "list_sets", "list_drop_nulls", "list_sample", "list_to_struct", "list_filter", "list_arithmetic", "array_count", "array_to_struct", "extract_groups", "extract_jsonpath", "find_many", "json", "sql", "meta", "row_hash", "cumulative_eval", "iejoin", "serde", "serde-lazy", "binary_encoding", "bitwise", "hist", "string_encoding", "string_to_integer", "dtype-u128", "dtype-i128"] }
 # Only for polars_core::random::set_global_random_seed, which polars does not re-export.
-polars-core = { version = "0.55", default-features = false }
+polars-core = { git = "https://github.com/pola-rs/polars", tag = "py-2.1.0", default-features = false }
 # Only for FunctionFlags (re-entrant and scalar Nim callbacks), which polars does not re-export.
-polars-plan = { version = "0.55", default-features = false }
+polars-plan = { git = "https://github.com/pola-rs/polars", tag = "py-2.1.0", default-features = false }
 either = "1"
 tikv-jemallocator = { version = "0.6", optional = true }
 serde_json = "1"
-polars-utils = { version = "0.55", default-features = false, features = ["serde"] }
+polars-utils = { git = "https://github.com/pola-rs/polars", tag = "py-2.1.0", default-features = false, features = ["serde"] }
 calamine = { version = "0.37.0", features = ["dates"] }
 rust_xlsxwriter = "0.102.0"
-polars-arrow = { version = "0.55", default-features = false }
+polars-arrow = { git = "https://github.com/pola-rs/polars", tag = "py-2.1.0", default-features = false }
 chrono = { version = "0.4", default-features = false }
 
 [features]
@@ -45,3 +49,10 @@ opt-level = 3
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+
+# Copied from Polars' own workspace at py-2.1.0: a git dependency does not inherit
+# them. Keep in sync when moving the tag.
+[patch.crates-io]
+color-backtrace = { git = "https://github.com/orlp/color-backtrace", rev = "20f5eea183563bb4cfac9a4d65901d4a1002cde2" }
+tikv-jemalloc-sys = { git = "https://github.com/pola-rs/jemallocator", rev = "0d683dfb157097e2075d5e0eaf25f71f514a7552" }
+hashbrown = { git = "https://github.com/pola-rs/hashbrown", rev = "d76a6f81abd8f388676aff15068236a8d21c7e1a" }

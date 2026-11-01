@@ -73,14 +73,6 @@ two), L (more).
   feature is off; and/or a "lean" prebuilt variant next to `-legacy-cpu`. Measure a
   stripped, LTO-linked binary each release, next to py-polars. (Pietro asked about
   size and a separate Excel lib, 2026-11-01: a separate lib would link Polars twice.)
-- **Track the Rust Polars that py-polars ships** (M, discussion first). Nanuq pins the
-  crates.io release (0.55.2), but py-polars 2.1.0 is built from a later git commit
-  (7f902bd), and the 0.5 book ports found the drift: SQL table functions with named
-  options (`read_csv('f.csv', infer_schema => false)`) fail, `hash(seed)` gives other
-  values, and `sample(n, seed)` returns the same values in another order. Pinning
-  `polars = { git = ..., rev = ... }` at each py-polars release tag would line them up
-  (the 0.3 performance work already built from git at py-2.1.0), at the cost of git
-  builds in CI and API drift between crate releases.
 
 ## API
 

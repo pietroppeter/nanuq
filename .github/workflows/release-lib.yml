@@ -69,7 +69,7 @@ jobs:
     env:
       ARCHIVE: libnanuq_ffi-${{ needs.version.outputs.version }}-${{ matrix.target }}${{ matrix.variant }}.tar.gz
       MACOSX_DEPLOYMENT_TARGET: "11.0"
-      TOOLCHAIN: nightly-2026-04-01   # pinned, so release builds are reproducible
+      TOOLCHAIN: nightly-2026-09-01   # pinned, so release builds are reproducible; the toolchain of the Polars tag in src/rust/Cargo.toml (py-2.1.0)
     defaults:
       run:
         shell: bash

@@ -883,7 +883,7 @@ pub unsafe extern "C" fn nq_expr_cat(
     boxed(guard(|| {
         let e = borrow(e, "expr")?.clone().cat();
         Ok(match op {
-            NqCatOp::GetCategories => e.get_categories(),
+            NqCatOp::GetCategories => return Err("cat.get_categories was removed in Polars 2.0: use unique()".into()),
             NqCatOp::LenBytes => e.len_bytes(),
             NqCatOp::LenChars => e.len_chars(),
             NqCatOp::StartsWith => e.starts_with(cstr(s)?.to_string()),
@@ -1735,7 +1735,7 @@ pub unsafe extern "C" fn nq_lf_join(
             NqMaintainOrderJoin::LeftRight => MaintainOrderJoin::LeftRight,
             NqMaintainOrderJoin::RightLeft => MaintainOrderJoin::RightLeft,
         };
-        Ok(lf(left_)?.join(lf(right_)?, left_on, right_on, args))
+        lf(left_)?.join(lf(right_)?, left_on, right_on, args).map_err(pe)
     }))
 }
 
@@ -3531,7 +3531,7 @@ pub unsafe extern "C" fn nq_lf_join_asof(
         args.coalesce = if coalesce { JoinCoalesce::CoalesceColumns } else { JoinCoalesce::KeepColumns };
         let l = borrow(left_on, "expression")?.clone();
         let r = borrow(right_on, "expression")?.clone();
-        Ok(lf(left_)?.join(lf(right_)?, [l], [r], args))
+        lf(left_)?.join(lf(right_)?, [l], [r], args).map_err(pe)
     }))
 }
 
@@ -4754,7 +4754,7 @@ pub unsafe extern "C" fn nq_expr_util(
             NqUtilOp::SampleFraction => e.sample_frac(a, f1, Some(f2), sd),
             NqUtilOp::Hash => {
                 let s = seed.max(0) as u64;
-                e.hash(s, s, s, s)
+                e.hash(s)
             }
             NqUtilOp::Get => e.get(a, f1),
             NqUtilOp::ArgTrue => arg_where(e),
@@ -4848,7 +4848,7 @@ pub unsafe extern "C" fn nq_df_equals(a: *const DataFrame, b: *const DataFrame, 
 
 #[no_mangle]
 pub unsafe extern "C" fn nq_df_estimated_size(df: *const DataFrame) -> i64 {
-    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size() as i64)).unwrap_or(-1)
+    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size(false) as i64)).unwrap_or(-1)
 }
 
 #[no_mangle]
@@ -4863,7 +4863,7 @@ pub unsafe extern "C" fn nq_df_upsample(
     boxed(guard(|| {
         let df = borrow(df, "DataFrame")?;
         let by: Vec<PlSmallStr> = names(by, n_by)?.into_iter().map(PlSmallStr::from).collect();
-        let every = polars::time::Duration::try_parse(cstr(every)?).map_err(pe)?;
+        let every = polars::prelude::Duration::try_parse(cstr(every)?).map_err(pe)?;
         let tc = cstr(time_column)?;
         if maintain_order {
             df.upsample_stable(by, tc, every).map_err(pe)
@@ -5017,16 +5017,6 @@ pub unsafe extern "C" fn nq_lf_sink(
             }
         };
         lf(lf_)?.sink(dest, format, args).map_err(pe)
-    }))
-}
-
-/// Runs `lf` with profiling; `timings` receives the node timings.
-#[no_mangle]
-pub unsafe extern "C" fn nq_lf_profile(lf_: *const LazyFrame, timings: *mut *mut DataFrame) -> *mut DataFrame {
-    boxed(guard(|| {
-        let (df, t) = lf(lf_)?.profile().map_err(pe)?;
-        *timings = Box::into_raw(Box::new(t));
-        Ok(df)
     }))
 }
 
