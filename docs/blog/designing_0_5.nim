@@ -56,7 +56,22 @@ put a type inside itself directly, so the inner type lives in a one-element `seq
 `dt.inner` hides that. `Array(Int64, [2, 3])` is the same type as
 `Array(Array(Int64, 3), 2)`, as in Polars, and `shape` gives `@[2, 3]` back.
 
-Printing follows Python Polars: `list[str]`, `array[f64, 3]`, `struct[2]`.
+**How a data type prints.** Until now `$` gave Polars' short names, the ones in table
+headers: `i64`, `list[str]`, `struct[2]`. Python prints something else: `Int64`,
+`List(String)`, `Struct({'x': Int64})`. There were four options:
+
+1. *Table-header names* (`list[str]`): match the tables, but `struct[2]` hides the field
+   names, and it is not what you write.
+2. *Python's repr, exactly*: matches `df.schema` in Python character for character, but
+   `Array(Float64, shape=(3,))` and single quotes are not Nim.
+3. *Nanuq code*: `List(String)`, `Array(Float64, 3)`, `Struct({"x": Int64})`. Nothing is
+   hidden, you can paste it back into Nim, and it differs from Python only where Python's
+   syntax is not Nim.
+4. *Nim types* (`seq[string]`): lossy, since `Int32` and `Int64` would both be `int`.
+
+We picked 3. Temporal types print as the Nim types they cast to: `Date`, `TimeOfDay`,
+`DateTime(Milliseconds, "Europe/Rome")`. Table headers, `glimpse` and `toHtml` keep
+Polars' short names, as in Python.
 """
 
 nbCode:
@@ -215,6 +230,16 @@ Polars runs expressions on its own threads. The callbacks go through a lock, so 
 one Nim proc runs at a time, and Nim's memory management needs no setup. A Nim exception
 in a callback becomes a Polars `ComputeError` with the same message. It never crosses the
 C ABI as a Nim exception.
+
+**Is it faster than Python?** Yes, but not by as much as "compiled" suggests. Python's
+`map_elements` calls a Python function once per value. Nanuq gets a whole batch, so the
+loop runs in compiled Nim. On a million rows (`benchmarks/map_elements.nim` and `.py`),
+Nanuq's `mapElements` is about 10x faster than py-polars for a number to number function,
+4x for a struct row, and 2x for strings. What is left is copying: each batch is copied
+out of Arrow memory into Nim seqs (one allocation per string) and the results are copied
+into a new Series. That is why a native expression is still 5 to 12 times faster than
+`mapElements`, in Nanuq as in Python. Zero-copy columns through the Arrow C Data
+Interface, in the backlog, would close part of that gap.
 """
 
 nbCode:

@@ -46,6 +46,11 @@ its OpenSpec change is archived. Format based on
   `undoAliases`); frame and Series `equals`; `vstack`, `extend`, `hstack`, `update`,
   `upsample`, `estimatedSize`, `partitionBy(asDict = true)`, `collectAll`.
   (add-frame-utilities, #53)
+- `Expr.repeatBy`, and `sample(..., seed = 42)` with a plain int on expressions and
+  lists. (add-repeat-by-and-seeds, #53)
+- `benchmarks/map_elements.nim` and `.py`: `mapElements` against py-polars'
+  `map_elements` and native expressions. `mapElements` skips the `Option` copies when a
+  batch has no nulls. (#53)
 - From the 0.5 book ports: Series namespaces (`s.list`, `s.arr`, `s.struct`, `s.str`,
   `s.dt`, `s.cat`), `toHtml(Series)`, `Expr.entropy`, `len()` (Python's `pl.len()`),
   columns from `int32`, `uint8`, `float32` and the other sized numbers (and `toList` for
@@ -53,6 +58,11 @@ its OpenSpec change is archived. Format based on
   `cast({col(SomeNumber): Float32})`, `explode("a", "b")`. (add-book-port-needs-0-5, #53)
 
 ### Changed
+- **Breaking:** `$` on a `DataType` prints Nanuq code instead of Polars' short name:
+  `Int64`, `List(String)`, `Array(Float64, 3)`, `Struct({"x": Int64})`,
+  `Enum(["low", "high"])`, `Date`, `DateTime(Milliseconds, "Europe/Rome")`. Schemas print
+  the same way; table headers, `glimpse` and `toHtml` keep `i64`.
+  (print-dtypes-as-nanuq-code, #53)
 - New tagline in the README and on the dev-log index: "Watch out where the queries go,
   and process well that rusty data." (#53)
 

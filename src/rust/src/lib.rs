@@ -3633,6 +3633,16 @@ pub unsafe extern "C" fn nq_expr_entropy(e: *const Expr, base: f64, normalize: b
     boxed(guard(|| Ok(borrow(e, "expression")?.clone().entropy(base, normalize))))
 }
 
+/// Each value repeated `by` times, as a list.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_repeat_by(e: *const Expr, by: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let by = borrow(by, "repeat count")?.clone();
+        Ok(e.repeat_by(by))
+    }))
+}
+
 /// The number of rows (Python's `pl.len()`), named `len`.
 #[no_mangle]
 pub extern "C" fn nq_expr_len() -> *mut Expr {

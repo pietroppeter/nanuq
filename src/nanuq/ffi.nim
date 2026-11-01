@@ -568,6 +568,7 @@ proc nq_expr_lit_null*(): ptr NqExpr
 proc nq_expr_any_all*(e: ptr NqExpr, all, ignoreNulls: bool): ptr NqExpr
 proc nq_expr_entropy*(e: ptr NqExpr, base: cdouble, normalize: bool): ptr NqExpr
 proc nq_expr_len*(): ptr NqExpr
+proc nq_expr_repeat_by*(e, by: ptr NqExpr): ptr NqExpr
 
 # data type handles and nested Series (0.5)
 proc nq_dtype_free*(d: ptr NqDataType)

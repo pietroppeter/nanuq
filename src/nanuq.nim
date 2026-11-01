@@ -307,8 +307,8 @@ proc checkUnit(u: TimeUnit) =
     raise newException(ValueError, "Polars time units are Nanoseconds, Microseconds and " &
                        "Milliseconds, not " & $u)
 
-proc `$`*(t: DataType): string =
-  ## Polars' short name, e.g. "i64", "str", "datetime[μs, Europe/Rome]".
+proc shortName(t: DataType): string =
+  ## Polars' short name, as in table headers: "i64", "str", "datetime[μs, Europe/Rome]".
   case t.kind
   of DataTypeKind.Boolean: "bool"
   of DataTypeKind.Int8: "i8"
@@ -330,14 +330,42 @@ proc `$`*(t: DataType): string =
   of DataTypeKind.Time: "time"
   of DataTypeKind.Categorical: "cat"
   of DataTypeKind.Enum: "enum"
-  of DataTypeKind.List: "list[" & $t.listInner[0] & "]"
+  of DataTypeKind.List: "list[" & shortName(t.listInner[0]) & "]"
   of DataTypeKind.Array:
     var d = t
     while d.kind == DataTypeKind.Array: d = d.arrayInner[0]
     let sh = t.shape
-    "array[" & $d & ", " & (if sh.len == 1: $sh[0] else: "(" & sh.join(", ") & ")") & "]"
+    "array[" & shortName(d) & ", " & (if sh.len == 1: $sh[0] else: "(" & sh.join(", ") & ")") & "]"
   of DataTypeKind.Struct: "struct[" & $t.fields.len & "]"
   of DataTypeKind.Other: t.name
+
+proc `$`*(t: DataType): string =
+  ## The data type as Nanuq code: `Int64`, `List(String)`, `Array(Float64, 3)`,
+  ## `Struct({"x": Int64})`, `Enum(["a", "b"])`. Temporal types print as the Nim
+  ## types they cast to: `Date`, `TimeOfDay`, `DateTime(Microseconds, "UTC")`,
+  ## `Duration(Milliseconds)`. Tables keep Polars' short names (`i64`).
+  case t.kind
+  of DataTypeKind.Date: "Date"
+  of DataTypeKind.Time: "TimeOfDay"
+  of DataTypeKind.Datetime:
+    "DateTime(" & $t.timeUnit & (if t.timeZone.len > 0: ", " & t.timeZone.escape else: "") & ")"
+  of DataTypeKind.Duration: "Duration(" & $t.timeUnit & ")"
+  of DataTypeKind.Enum:
+    var cs: seq[string]
+    for c in t.categories: cs.add c.escape
+    "Enum([" & cs.join(", ") & "])"
+  of DataTypeKind.List: "List(" & $t.listInner[0] & ")"
+  of DataTypeKind.Array:
+    var d = t
+    while d.kind == DataTypeKind.Array: d = d.arrayInner[0]
+    let sh = t.shape
+    "Array(" & $d & ", " & (if sh.len == 1: $sh[0] else: "[" & sh.join(", ") & "]") & ")"
+  of DataTypeKind.Struct:
+    var fs: seq[string]
+    for f in t.fields: fs.add f.name.escape & ": " & $f.dtype
+    "Struct({" & fs.join(", ") & "})"
+  of DataTypeKind.Other: t.name
+  else: $t.kind
 
 proc isSignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.Int8 .. DataTypeKind.Int64}
 proc isUnsignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.UInt8 .. DataTypeKind.UInt64}
@@ -973,7 +1001,7 @@ proc toHtml*(df: DataFrame, maxRows = 10, maxCols = 75): string =
     result.add "<th>" & (if c == -1: "&hellip;" else: htmlEscape(names[c])) & "</th>"
   result.add "</tr><tr>"
   for c in cols:
-    result.add "<td>" & (if c == -1: "&hellip;" else: $df.dtype(names[c])) & "</td>"
+    result.add "<td>" & (if c == -1: "&hellip;" else: shortName(df.dtype(names[c]))) & "</td>"
   result.add "</tr></thead><tbody>"
   for r in rows:
     result.add "<tr>"
@@ -1004,11 +1032,17 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if valid[i]: vals[i] = fromPhysical(x, T, u)
     (vals, valid)
   elif T is int:
-    var buf = newSeq[int64](n)
-    if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
-      raiseLast()
-    var vals = newSeq[int](n)
-    for i, x in buf: vals[i] = x.int
+    when sizeof(int) == 8:   # read straight into the result
+      var vals = newSeq[int](n)
+      let p = (if n > 0: cast[ptr int64](vals[0].addr) else: nil)
+      if not nq_df_column_i64(df.raw, column.cstring, p, valid.firstOrNil, n.csize_t):
+        raiseLast()
+    else:
+      var buf = newSeq[int64](n)
+      if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
+        raiseLast()
+      var vals = newSeq[int](n)
+      for i, x in buf: vals[i] = x.int
     (vals, valid)
   elif T is float:
     var vals = newSeq[float](n)
@@ -2189,7 +2223,7 @@ proc glimpse*(df: DataFrame, maxItemsPerColumn = 10, maxColnameLength = 50): str
             break
         vals.add x
       else: vals.add v.get
-    rows.add (shown, "<" & $dt & ">", vals.join(", "))
+    rows.add (shown, "<" & shortName(dt) & ">", vals.join(", "))
   var wName, wType = 0
   for (n, t, _) in rows:
     wName = max(wName, n.runeLen)
@@ -3798,6 +3832,12 @@ proc sample*(l: ListNameSpace, fraction: float, withReplacement = false, shuffle
   ## A random `fraction` of the values of each list.
   listOp(l, nqlSampleFraction, lit(fraction), f1 = withReplacement, f2 = shuffle,
          seed = seed.get(-1))
+proc sample*(l: ListNameSpace, n: int | Expr, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  l.sample(n, withReplacement, shuffle, some(seed))
+proc sample*(l: ListNameSpace, fraction: float, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  l.sample(fraction, withReplacement, shuffle, some(seed))
 proc filter*(l: ListNameSpace, predicate: Expr): Expr =
   ## The values of each list where `predicate` (on `element()`) is true.
   listOp(l, nqlFilter, predicate)
@@ -4262,11 +4302,18 @@ proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
         if x.isSome: ys[i] = f(x.get)
       series(s.name, ys)
     else:
-      let xs = s.toList(Option[T])
-      var ys = newSeq[Option[U]](xs.len)
-      for i, x in xs:
-        if x.isSome: ys[i] = some(f(x.get))
-      series(s.name, ys)
+      if s.nullCount == 0:
+        # No nulls: plain seqs both ways, which skips the Option copies.
+        let xs = s.toList(T)
+        var ys = newSeq[U](xs.len)
+        for i, x in xs: ys[i] = f(x)
+        series(s.name, ys)
+      else:
+        let xs = s.toList(Option[T])
+        var ys = newSeq[Option[U]](xs.len)
+        for i, x in xs:
+          if x.isSome: ys[i] = some(f(x.get))
+        series(s.name, ys)
   mapBatchesImpl(e, g, some(dataType(U)))
 
 proc foldImpl(kind: int, acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
@@ -4357,6 +4404,18 @@ proc sample*(e: Expr, fraction: float, withReplacement = false, shuffle = false,
              seed = none(int)): Expr =
   utilOp(e, nquSampleFraction, lit(fraction), f1 = withReplacement, f2 = shuffle,
          seed = seed.get(-1))
+proc sample*(e: Expr, n: int | Expr, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  ## `n` random values; the same `seed` gives the same values: `sample(3, seed = 42)`.
+  e.sample(n, withReplacement, shuffle, some(seed))
+proc sample*(e: Expr, fraction: float, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  e.sample(fraction, withReplacement, shuffle, some(seed))
+proc repeatBy*(e: Expr, by: Expr | int | string): Expr =
+  ## Each value repeated `by` times, as a list (`by` is a count, a column name or
+  ## an expression).
+  let b = (when by is string: col(by) elif by is int: lit(by) else: by)
+  wrap nq_expr_repeat_by(e.raw, b.raw)
 proc hash*(e: Expr, seed = 0): Expr = utilOp(e, nquHash, seed = seed)
   ## A u64 hash of each value (stable for a given `seed` and Polars version).
 proc get*(e: Expr, index: int | Expr, nullOnOob = false): Expr =

@@ -70,3 +70,19 @@ suite "list namespace":
     check c.toList("all", seq[string]) == @[@["A", "Ada", "Bo"], @["B"], @["C", "Cy"]]
     check f.select(col("den").implode).toList("den", seq[string]) == @[@["A", "B", "C"]]
     check f.lazy.explode("cubs").collect.height == 4
+
+suite "repeatBy and seeds":
+  test "repeatBy":
+    let df = newDataFrame:
+      a: ["x", "y"]
+      n: [2, 1]
+    let r = df.select(col("a").repeatBy("n"), col("a").repeatBy(2).alias("two"))
+    check r.toList("a", seq[string]) == @[@["x", "x"], @["y"]]
+    check r.toList("two", seq[string]) == @[@["x", "x"], @["y", "y"]]
+  test "sample with an int seed":
+    let df = newDataFrame:
+      m: [4806, 4634, 4061, 4506, 4478]
+      l: [@[1, 2, 3], @[4, 5], @[6], @[7, 8], @[9]]
+    let a = df.select(col("m").sample(3, seed = 42)).toList("m", int)
+    check a == df.select(col("m").sample(3, seed = 42)).toList("m", int)
+    check df.select(col("l").list.sample(1, seed = 7)).height == 5
