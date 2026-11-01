@@ -17,6 +17,30 @@ two), L (more).
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
   lib (about 300 MB unstripped), with runtime loading.
 
+## Performance
+
+- **Build the prebuilt lib with nightly Rust, the `nightly` Polars feature and jemalloc**
+  (S-M, *planned for 0.3*). Nanuq 0.2 is 2.5-4.5x slower than Python Polars on the same
+  queries (nanuq-book benchmarks, PDS-H SF1 from CSV), with up to 2 s extra on every query
+  that reads `lineitem.csv`. Python Polars is built with a nightly toolchain and the
+  `nightly` feature, which turns on `simd` (among others the portable-SIMD CSV parser in
+  `polars-io`), and with jemalloc as global allocator. Measured on 2026-10-31, `dist`
+  profile, total of 13 queries, best of 3:
+
+  | lib | Linux sandbox (4-core Xeon) | M3 Pro |
+  |---|---|---|
+  | prebuilt lib-v0.2.0 | 27.8 s | 13.6 s |
+  | nightly + `nightly` | 13.0 s | 3.56 s |
+  | + jemalloc (`#[global_allocator]`) | | 3.20 s |
+  | Python Polars 2.1, in-memory | 11.2 s | 3.07 s |
+
+  `performant`, `streaming`/`cse`, the streaming engine and Polars built from git at
+  py-2.1.0 made no measurable difference; jemalloc via `LD_PRELOAD` did nothing on
+  Linux. The work: opt-in crate features `nightly = ["polars/nightly"]` and `jemalloc`
+  (stable cargo fallback and CI unchanged), release-lib.yml builds with a pinned nightly
+  and both features, check all release targets. The rest of the gap is q21, where the
+  Nim port needs an extra group-by and join until Nanuq has `Expr.filter`.
+
 ## Bridge
 
 - **Generate `ffi.nim` with nbindgen** (S-M). Generate the Nim declarations from the
