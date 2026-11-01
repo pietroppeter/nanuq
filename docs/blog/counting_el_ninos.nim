@@ -8,7 +8,7 @@ import el_nino/plots
 nbInit
 nb.title = "Counting El Niños"
 # dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-xx-counting-el-ninos.html"
+nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-counting-el-ninos.html"
 nb.useNanuqTheme(
   titleHtml = "Counting <em>El Niños</em>",
   eyebrow = "Nanuq dev log · November 2026",
@@ -650,9 +650,9 @@ scene "s10_wettest":
     .topK(1, by = "mm_30d")
 
 nbText: """
-A thousand millimetres in the thirty days to 1 May 1983, the last 305 of them in a
-single day: more than London gets in a typical year (about 600 mm), in one month, in a
-desert.
+A thousand millimetres in the thirty days to 1 May 1983, 305 of them on that last day
+alone, as the station record has it: more than London gets in a whole typical year, in
+one month, in a desert.
 """
 
 nbText: """
@@ -734,9 +734,10 @@ scene "s12_records":
       .drop(["date", "start_date"])
 
 nbText: """
-Twelve of the fourteen record years since 1980 fall during or just after an El Niño;
-only 1990 and 2014 were records made by the warming trend alone. Each of the last
-three very strong El Niños gave two record years in a row: 1997-98, 2015-16 and
+Twelve of the fourteen record years since 1980 came within two years of the start of
+an El Niño (1981 is a stretch: the weak 1979-80 event was already over). The other
+two, 1990 and 2014, came just before one began. Each of the last three very
+strong El Niños gave two record years in a row: 1997-98, 2015-16 and
 2023-24. (The very strong 1982-83 event set no record: the eruption of El Chichón in
 Mexico in 1982 filled the stratosphere with sun-blocking haze and cooled the planet.)
 """
