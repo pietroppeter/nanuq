@@ -8,7 +8,7 @@ Reading and writing CSV files: lazy scans of a file or a glob, eager reads, and 
 ### Requirement: Scanning CSV
 The API SHALL provide `scanCsv(path, ...)`, which returns a `LazyFrame` without reading the
 file until the query runs. `path` SHALL accept a glob that matches several files with the
-same columns. A glob whose files have different columns SHALL raise `NanuqError` when the
+same columns. A glob whose files have different columns SHALL raise `PolarsError` when the
 query runs.
 
 ```nim
@@ -44,6 +44,7 @@ shape: (3, 2)
 - `skipRows = 0`, `nRows = none(int)` and `columns` (all when empty)
 - `inferSchemaLength = some(100)`, where `none` scans all rows
 - `ignoreErrors = false` and `decimalComma = false`
+- `tryParseDates = false`, which reads ISO dates, datetimes and times as temporal columns
 
 `nRows` and `inferSchemaLength` SHALL also accept a plain `int`.
 
@@ -53,6 +54,9 @@ writeFile(path, "Polar survey 2026\nexported by hand\nstation;bears;weight\n" &
                 "North;3;410\nSouth;lots;380\nEast;1;355\n")
 echo readCsv(path, separator = ';', skipRows = 2, nRows = 2, nullValues = ["lots"],
              schemaOverrides = {"weight": Float64}, columns = ["station", "weight", "bears"])
+let stages = getTempDir() / "stages.csv"
+writeFile(stages, "stage,day,start\n1,2026-07-04,13:10:00\n2,2026-07-05,12:45:00\n")
+echo readCsv(stages, tryParseDates = true).schema
 ```
 
 ```text
@@ -65,6 +69,7 @@ shape: (2, 3)
 │ North   ┆ 410.0  ┆ 3     │
 │ South   ┆ 380.0  ┆ null  │
 └─────────┴────────┴───────┘
+{"stage": i64, "day": date, "start": time}
 ```
 
 #### Scenario: Semicolons and null words
@@ -82,6 +87,10 @@ shape: (2, 3)
 #### Scenario: Columns
 - **WHEN** a file with columns `a`, `b` and `c` is read with `columns = ["c", "a"]`
 - **THEN** the result has columns `c` and `a`
+
+#### Scenario: Dates
+- **WHEN** a column of ISO dates is read with and without `tryParseDates = true`
+- **THEN** its dtype is `Date` and `String`
 
 ### Requirement: CSV write options
 `writeCsv(df, path, ...)` SHALL take these named options:
@@ -118,3 +127,33 @@ echo readFile(path)
 #### Scenario: Null marker and precision
 - **WHEN** a frame with a null and 3.14159 is written with `nullValue = "NA", floatPrecision = 2`
 - **THEN** the file holds `NA` and `3.14`
+
+### Requirement: Reading CSV from a stream
+`readCsv` SHALL also take a Nim `Stream` instead of a path, read all of it when called,
+and take every CSV read option.
+
+```nim
+import std/streams
+let text = "station;bears\nNorth;3\nSouth;NA\n"
+echo readCsv(newStringStream(text), separator = ';', nullValues = ["NA"])
+```
+
+```text
+shape: (2, 2)
+┌─────────┬───────┐
+│ station ┆ bears │
+│ ---     ┆ ---   │
+│ str     ┆ i64   │
+╞═════════╪═══════╡
+│ North   ┆ 3     │
+│ South   ┆ null  │
+└─────────┴───────┘
+```
+
+#### Scenario: Same options
+- **WHEN** CSV text with `;` separators and "NA" is read from a stream with `separator = ';', nullValues = ["NA"]`
+- **THEN** the result equals reading the same text from a file with those options
+
+#### Scenario: Empty stream
+- **WHEN** an empty stream is read
+- **THEN** `NoDataError` is raised

@@ -7,7 +7,8 @@ context: |
   Every change to the C ABI must update src/rust/src/lib.rs and src/nanuq/ffi.nim together.
   A cold Rust build compiles Polars and takes about 10 minutes, so CI and user-facing
   workflows should avoid rebuilding it when src/rust/ has not changed.
-  Targets: Nim >= 2.0, stable Rust; Linux x64 first, then macOS and Windows.
+  Targets: Nim >= 2.0, stable Rust for local builds (release archives use a pinned
+  nightly with the crate features nightly and jemalloc); Linux x64 first, then macOS and Windows.
   Ideas that are not yet a change live in BACKLOG.md at the repo root.
 
 rules:

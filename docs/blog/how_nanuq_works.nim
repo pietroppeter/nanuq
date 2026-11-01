@@ -96,7 +96,7 @@ proc nq_df_free*(df: ptr NqDataFrame)
 `nanuq.nim` wraps each pointer in a `ref` object whose `=destroy` hook calls the
 matching `*_free`. Because Polars values are immutable from Nim's side, sharing a
 ref is safe, and the Rust object goes away when the last ref does. A NULL return
-becomes a `NanuqError` that carries the Rust message.
+becomes a `PolarsError` that carries the Rust message.
 
 ```nim
 type
@@ -108,7 +108,7 @@ proc `=destroy`(x: DataFrameObj) =
   if x.raw != nil: nq_df_free(x.raw)
 
 proc readCsv*(path: string): DataFrame =
-  wrap nq_df_read_csv(path.cstring)   # wrap raises NanuqError on NULL
+  wrap nq_df_read_csv(path.cstring)   # wrap raises PolarsError on NULL
 ```
 
 That's all of the machinery. The rest of this page uses it.
@@ -199,7 +199,7 @@ nbCode:
   let top = summary["species", 0, string]
   let topMean = summary["mean_body_mass_g", 0, float]
   echo "heaviest species: ", top, " (mean body mass ", topMean.round(0), " g)"
-  echo "counts: ", summary.toSeq("n", int)
+  echo "counts: ", summary.toList("n", int)
 
 nbText: """
 ## As an HTML table
@@ -224,8 +224,8 @@ the original message.
 nbCode:
   try:
     discard df.select(col("wing_colour"))
-  except NanuqError as e:
-    echo "NanuqError: ", e.msg.splitLines[0]
+  except PolarsError as e:
+    echo "PolarsError: ", e.msg.splitLines[0]
 
 nbText: """
 ## What's next

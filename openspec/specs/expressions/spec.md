@@ -267,3 +267,76 @@ shape: (3, 3)
 #### Scenario: Forward fill within groups
 - **WHEN** `col("r").forwardFill.over("g")` runs where group y starts with a null
 - **THEN** that null stays null, instead of taking the last value of group x
+
+### Requirement: Ranking
+`Expr` SHALL support `rank(rankMethod = Average, descending = false, seed = none(int))`
+with a pure enum `RankMethod` (`Average`, `Min`, `Max`, `Dense`, `Ordinal`, `Random`),
+giving each value its rank from 1. Ties SHALL be handled as Polars does: `Average` gives
+tied values the mean of their ranks (f64), `Min` and `Max` the lowest or highest (u32),
+`Dense` leaves no gaps after ties, and `Ordinal` breaks ties by position. `seed` SHALL
+make `Random` repeatable. Nulls SHALL stay null.
+
+```nim
+let roll = newDataFrame:
+  rider: ["Merckx", "Pogačar", "De Vlaeminck", "Van Looy", "Kelly"]
+  monuments: [19, 13, 11, 8, 9]
+echo roll.select(col.rider, col.monuments,
+                 col.monuments.rank(Min, descending = true).alias("place"),
+                 col.monuments.rank.alias("avg"))
+```
+
+```text
+shape: (5, 4)
+┌──────────────┬───────────┬───────┬─────┐
+│ rider        ┆ monuments ┆ place ┆ avg │
+│ ---          ┆ ---       ┆ ---   ┆ --- │
+│ str          ┆ i64       ┆ u32   ┆ f64 │
+╞══════════════╪═══════════╪═══════╪═════╡
+│ Merckx       ┆ 19        ┆ 1     ┆ 5.0 │
+│ Pogačar      ┆ 13        ┆ 2     ┆ 4.0 │
+│ De Vlaeminck ┆ 11        ┆ 3     ┆ 3.0 │
+│ Van Looy     ┆ 8         ┆ 5     ┆ 1.0 │
+│ Kelly        ┆ 9         ┆ 4     ┆ 2.0 │
+└──────────────┴───────────┴───────┴─────┘
+```
+
+#### Scenario: Shared places
+- **WHEN** `rank(Min, descending = true)` runs over 9, 9, 7
+- **THEN** the result is 1, 1, 3
+
+#### Scenario: Dense
+- **WHEN** `rank(Dense)` runs over 9, 9, 7
+- **THEN** the result is 2, 2, 1
+
+#### Scenario: Average
+- **WHEN** `rank()` runs over 9, 9, 7
+- **THEN** the result is 2.5, 2.5, 1.0 with dtype f64
+
+### Requirement: Filtering inside expressions
+`e.filter(predicate)` SHALL keep the values of `e` where `predicate` is true, so that an
+aggregation can run over part of each group.
+
+```nim
+let df = newDataFrame:
+  rider: ["Pogačar", "Pogačar", "Vingegaard", "Vingegaard"]
+  stage: ["TT", "road", "TT", "road"]
+  secs: [3120, 15400, 3150, 15390]
+echo df.groupBy(col.rider).agg(col.secs.filter(col.stage == "TT").sum.alias("tt_secs"))
+  .sort("rider").collect
+```
+
+```text
+shape: (2, 2)
+┌────────────┬─────────┐
+│ rider      ┆ tt_secs │
+│ ---        ┆ ---     │
+│ str        ┆ i64     │
+╞════════════╪═════════╡
+│ Pogačar    ┆ 3120    │
+│ Vingegaard ┆ 3150    │
+└────────────┴─────────┘
+```
+
+#### Scenario: Conditional sum
+- **WHEN** `col.secs.filter(col.stage == "TT").sum` is aggregated per rider
+- **THEN** each rider's sum counts only the TT rows

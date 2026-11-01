@@ -10,6 +10,58 @@ its OpenSpec change is archived. Format based on
 - Runnable examples in the OpenSpec specs: every API requirement shows a Nim example and
   the table it prints, checked against the code by `nimble specexamples` in CI; specview
   shows them (add-spec-examples, #41, #43)
+- `col.name` shorthand (`col.race` is `col("race")`, like Python's `pl.col.race`), a
+  block syntax for `newDataFrame` (`name: [values]` lines, `nil` for missing values),
+  `Expr.nullCount`, and `rank` with a `RankMethod` (`rank(Min, descending = true)`).
+  The wrapper crate is `0.3.0-dev`. (add-api-polish, #47)
+- `glimpse` (returns Python's one-line-per-column preview as a string), `describe`
+  (summary statistics with `percentiles`), and display config: `setTblRows`,
+  `setTblCols`, `setTblWidthChars`, `setFmtStrLengths`, `setConfig(...)`,
+  `resetConfig()` and the scoped `withConfig(...): body`. (add-inspection-and-config, #47)
+- String expressions: the `str` namespace (`lenChars`, `toUppercase`, `stripChars`,
+  `startsWith`, `contains(pattern, literal)`, `extract`, `replace`, `replaceAll`,
+  `slice`, `padStart`, `zfill`, the `join` aggregation, and more), plus `concatStr` and
+  `format("{} ({})", ...)`. Patterns are Rust regexes. (add-string-expressions, #47)
+- Temporal types: Date, Datetime (with time unit and time zone), Duration and Time
+  columns, built from Nanuq's `Date` and `TimeOfDay` and std/times' `DateTime` and
+  `Duration` (nanuq exports std/times); temporal casts and literals; `dateRange`,
+  `datetimeRange` and `duration`; string parsing (`str.toDate`, `str.toDatetime`,
+  `str.toTime`, `str.strptime`) and `tryParseDates` for CSV; the `dt` namespace with
+  parts, formatting, truncation, offsets, time zones, `combine` and duration totals.
+  (add-temporal-types, #47)
+- Parquet and Arrow IPC: `scanParquet`, `readParquet`, `writeParquet` (with
+  `ParquetCompression`, `compressionLevel`, `statistics`, `rowGroupSize`), `scanIpc`,
+  `readIpc`, `writeIpc` (with `IpcCompression`), and reading CSV, Parquet and IPC from a
+  Nim `Stream` (`readCsv(newStringStream(text))`). (add-parquet-ipc, #47)
+- Categoricals: `Categorical` and `Enum(["low", "high"])` dtypes, and Nim enums as
+  Polars Enums (`cast(Monument)`, `series("m", [Gold, Silver])`, `toList(df, "m",
+  Medal)`, `col.medal == Gold`); the `cat` namespace (`getCategories`, `lenChars`,
+  `startsWith`, `slice`, ...) and `Expr.toPhysical`. (add-categoricals, #47)
+- `Expr.filter(predicate)` for conditional aggregations, and `col(names)` with a list or
+  seq of names. (add-expr-filter, #47)
+- `str.toTitlecase`, with the release libraries (it needs Polars' nightly feature).
+  (build-lib-with-nightly, #47)
+- specview shows every spec in full and hides archived changes behind a checkbox
+  (except those changed since `--base`). (add-specview-full-specs, #47)
+
+### Changed
+- **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns
+  divide to f64, and a division by zero gives `inf` or `NaN`. `div` stays floor
+  division. (add-api-polish, #47)
+- **Breaking:** `NanuqError` is renamed `PolarsError`, with Python's subtypes
+  (`ColumnNotFoundError`, `ComputeError`, `DuplicateError`, `InvalidOperationError`,
+  `NoDataError`, `OutOfBoundsError`, `SchemaError`, `SchemaFieldNotFoundError`,
+  `ShapeError`, `StructFieldNotFoundError`, `SqlError`) raised by Polars error kind
+  (new `nq_last_error_kind` in the ABI). IO failures raise Nim's `IOError`.
+  (add-typed-errors, #47)
+- The prebuilt libraries are built with nightly Rust, Polars' `nightly` feature and
+  jemalloc (crate features `nightly` and `jemalloc`, off for local builds), as py-polars
+  is: PDS-H at scale factor 1 goes from 13.6 s to 3.2 s on an M3 Pro, within 5% of
+  py-polars. (build-lib-with-nightly, #47)
+- Data types cross the native ABI as an `NqDtypeSpec` struct (code, time unit, time
+  zone, categories) instead of a single enum code. (add-temporal-types, #47)
+- **Breaking:** `toSeq(df, column, T)` is renamed `toList` (Polars' `to_list`), so
+  `sequtils.toSeq` works again with Nanuq imported. (add-api-polish, #47)
 
 ## [0.2.0] - 2026-10-31
 

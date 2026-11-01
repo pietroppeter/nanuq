@@ -21,7 +21,7 @@ suite "scanCsv":
     createDir(dir / "mixed")
     writeFile(dir / "mixed" / "a.csv", "x,y\n1,a\n")
     writeFile(dir / "mixed" / "b.csv", "x,y,z\n2,b,true\n")
-    expect NanuqError:
+    expect PolarsError:
       discard scanCsv(dir / "mixed" / "*.csv").collect
 
 suite "readCsv options":
@@ -30,7 +30,7 @@ suite "readCsv options":
     let df = readCsv(p, separator = ';', nullValues = ["lots"])
     check df.columns == @["site", "bears"]
     check df.dtype("bears") == Int64
-    check df.toSeq("bears", Option[int]) == @[some(3), none(int)]
+    check df.toList("bears", Option[int]) == @[some(3), none(int)]
 
   test "schemaOverrides":
     let p = put("ints.csv", "n,s\n1,a\n2,b\n")
@@ -40,7 +40,7 @@ suite "readCsv options":
 
   test "schemaOverrides with a dtype Nanuq does not model raises":
     let p = put("ints2.csv", "n\n1\n")
-    expect NanuqError:
+    expect PolarsError:
       discard readCsv(p, schemaOverrides = {"n": DataType(kind: DataTypeKind.Other, name: "date")})
 
   test "skipRows and nRows":
@@ -49,7 +49,7 @@ suite "readCsv options":
     let p = put("preamble.csv", content)
     let df = readCsv(p, skipRows = 2, nRows = 3)
     check df.columns == @["id", "v"]
-    check df.toSeq("id", int) == @[1, 2, 3]
+    check df.toList("id", int) == @[1, 2, 3]
     check readCsv(p, skipRows = 2, nRows = none(int)).height == 10
     check readCsv(p, skipRows = 2, nRows = some(4)).height == 4
 
@@ -70,7 +70,7 @@ suite "readCsv options":
     for i in 1..5: content.add $i & "\n"
     content.add "2.5\n"
     let p = put("late_float.csv", content)
-    expect NanuqError:
+    expect PolarsError:
       discard readCsv(p, inferSchemaLength = 2)
     check readCsv(p, inferSchemaLength = none(int)).dtype("v") == Float64
     let lenient = readCsv(p, inferSchemaLength = 2, ignoreErrors = true)
@@ -81,7 +81,7 @@ suite "readCsv options":
     let p = put("comma.csv", "v;w\n1,5;x\n2,25;y\n")
     let df = readCsv(p, separator = ';', decimalComma = true)
     check df.dtype("v") == Float64
-    check df.toSeq("v", float) == @[1.5, 2.25]
+    check df.toList("v", float) == @[1.5, 2.25]
 
 suite "writeCsv options":
   test "separator and decimal comma round trip":
@@ -90,7 +90,7 @@ suite "writeCsv options":
       p, separator = ';', decimalComma = true)
     check "1,5" in readFile(p)
     let back = readCsv(p, separator = ';', decimalComma = true)
-    check back.toSeq("v", float) == @[1.5, 2.0]
+    check back.toList("v", float) == @[1.5, 2.0]
 
   test "quoteStyle":
     let df = newDataFrame(series("n", [1]), series("s", ["a"]))

@@ -15,18 +15,18 @@
 ## Both libraries define `DataFrame`, so qualify it when you name the type.
 
 import std/options
-import pkg/datamancer as dmc except toSeq
+import pkg/datamancer as dmc
 import ../nanuq
 
 proc column[T](df: nanuq.DataFrame, name: string, _: typedesc[T]): Column =
   ## A typed column, or an object column with `null` entries if it has nulls.
   if df.hasNulls(name):
     var values = newSeq[Value]()
-    for v in df.toSeq(name, Option[T]):
+    for v in df.toList(name, Option[T]):
       values.add(if v.isSome: %~ v.get else: null())
     toColumn(values)
   else:
-    toColumn(df.toSeq(name, T))
+    toColumn(df.toList(name, T))
 
 proc toDatamancer*(df: nanuq.DataFrame): dmc.DataFrame =
   ## Copies every column, in order: integers become `int` columns, floats
@@ -50,7 +50,7 @@ proc objectSeries(name: string, values: seq[Value]): Series =
     if v.kind != VNull:
       if kind == VNull: kind = v.kind
       elif v.kind != kind:
-        raise newException(NanuqError, "cannot convert Datamancer column '" & name &
+        raise newException(InvalidOperationError, "cannot convert Datamancer column '" & name &
           "': it mixes " & $kind & " and " & $v.kind & " values")
   template opts(T, get): untyped =
     var s: seq[Option[T]]
@@ -63,14 +63,14 @@ proc objectSeries(name: string, values: seq[Value]): Series =
   of VBool: opts(bool, toBool)
   of VString, VNull: opts(string, toStr)
   else:
-    raise newException(NanuqError, "cannot convert Datamancer column '" & name &
+    raise newException(InvalidOperationError, "cannot convert Datamancer column '" & name &
       "' holding " & $kind & " values")
 
 proc fromDatamancer*(dm: dmc.DataFrame): nanuq.DataFrame =
   ## Copies every column back, in order: `int` to i64, `float` to f64, `bool`,
   ## `string` to str, constant columns repeated to the frame's length, and
   ## object columns of one value kind (plus `null` values) to that dtype with
-  ## nulls. Other columns raise `NanuqError`.
+  ## nulls. Other columns raise `InvalidOperationError`.
   var cols: seq[Series]
   for name in dm.getKeys:
     let c = dm[name]
@@ -81,6 +81,6 @@ proc fromDatamancer*(dm: dmc.DataFrame): nanuq.DataFrame =
     of colString: cols.add series(name, c.toTensor(string).toSeq1D)
     of colObject, colConstant: cols.add objectSeries(name, c.toTensor(Value).toSeq1D)
     else:
-      raise newException(NanuqError, "cannot convert Datamancer column '" & name &
+      raise newException(InvalidOperationError, "cannot convert Datamancer column '" & name &
         "' of kind " & $c.kind)
   nanuq.newDataFrame(cols)

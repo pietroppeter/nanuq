@@ -77,7 +77,7 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - FFI functions borrow their arguments and return new objects (cloning is cheap
   in Polars), so Nim values can be shared freely.
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
-  `NanuqError`.
+  `PolarsError` (typed as in Python: `ColumnNotFoundError`, `InvalidOperationError`, ...), or Nim's `IOError` for IO.
 
 ## How we work
 
@@ -154,9 +154,17 @@ Once that file exists it is linked instead of the download, so run `nimble build
 again after each change to `src/rust/`, and delete the file to go back to the prebuilt
 library. Bump the crate version to a `-dev` version when you change it (CI checks this).
 
+A stable build is several times slower than the prebuilt library, which is built like
+py-polars: with nightly Rust, Polars' `nightly` feature and jemalloc. To get the same
+speed locally, build with `cargo +nightly-2026-04-01 build --release --features
+"nightly jemalloc" --manifest-path src/rust/Cargo.toml` (`str.toTitlecase` also needs
+the `nightly` feature).
+
 ## What is there
 
-- Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, `readCsv`, `writeCsv`
+- Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, or a
+  block with one `name: [values]` line per column (`nil` is a missing value, names that
+  aren't identifiers are strings), `readCsv`, `writeCsv`
 - CSV: `scanCsv("logs/*.csv")` reads lazily, globs included (same columns in every
   file). `readCsv` (which is `scanCsv(...).collect`) takes the same named options with
   Polars' defaults: `separator = ';'`, `hasHeader`, `nullValues = ["NA"]`,
@@ -164,24 +172,49 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
   `inferSchemaLength` (`none(int)` for all rows), `ignoreErrors`, `decimalComma`.
   `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
   `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
+- Parquet and Arrow IPC: `scanParquet`, `readParquet(path, columns = [...], nRows = 10)`,
+  `writeParquet(path, compression = ParquetCompression.Zstd, compressionLevel = 19)`,
+  and the same for IPC (`scanIpc`, `readIpc`, `writeIpc`). `readCsv`, `readParquet` and
+  `readIpc` also read a Nim `Stream` (`readCsv(newStringStream(text))`)
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
-  `toSeq(df, "col", float)` (one FFI call per column)
-- Missing values: read as `Option[T]` (`toSeq(df, "col", Option[int])`,
+  `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
+  column), `describe` (summary statistics)
+- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`),
+  `setConfig(tblRows = 20, tblCols = 10)`, `resetConfig()`, and for one block
+  `withConfig(tblRows = 40): echo df`
+- Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
   `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
   `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
-  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toSeq(df, "col", int)`
+  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toList(df, "col", int)`
   raises on a column with nulls.
 - Data types: `dtype(df, "col") == Int64` (constants named as in Polars, `$` gives
   `"i64"`), `dtypes`, `schema`, `lf.collectSchema`, and `cast` with a Nim type
   (`col("a").cast(int32)`, `df.cast(float64)`) or per column (`df.cast({"a": Int32})`),
   strict by default (`strict = false` turns failures into nulls)
-- Expressions: `col`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`, `round`, comparisons,
-  `and or not`, `isIn`, `isBetween`, `sum mean median min max count len first last nUnique
-  std var quantile`, `alias`
+- Expressions: `col("a")` or `col.a`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`,
+  `round`, comparisons, `and or not`, `isIn`, `isBetween`, `sum mean median min max count
+  len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`,
+  `filter` inside an aggregation (`col.pts.filter(col.kind == "TT").sum`)
+- Strings: `col.race.str.replaceAll("–", "-", literal = true)`, `str.contains`,
+  `str.extract(r"(\d+)'")`, `str.toUppercase`, `str.stripChars`, `str.slice`,
+  `str.zfill`, `str.join(", ")` in `agg`, `format("{} ({})", col.rider, col.nat)`,
+  `concatStr`
+- Dates and times: `Date` (`date(2026, 7, 4)`), `TimeOfDay` (`timeOfDay(13, 10)`) and
+  std/times' `DateTime` and `Duration` as column values and literals; `cast(Date)`,
+  `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`; parsing with
+  `str.toDate("%d %B %Y")`, `str.toDatetime`, `str.strptime(T, fmt)` and
+  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `datetimeRange`,
+  `duration(hours = col.h)`; the `dt` namespace (`dt.year`, `dt.weekday`, `dt.date`,
+  `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
+  `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
+  and read back as UTC instants
+- Categoricals: a Nim enum is a Polars Enum (`col.race.cast(Monument)` sorts races in
+  enum order, `toList(df, "race", Monument)`, `col.race == Roubaix`), `Enum(["low",
+  "high"])` at run time, `cast(Categorical)`, and `cat.getCategories`
 - Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
   `if`/`elif`/`else` (strings in branches are values, not column names)
 - Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,
-  `col(float, string)`, `col("a", "b")`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
+  `col(float, string)`, `col("a", "b")`, `col(someSeq)`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
   used like any expression (`agg(col(SomeNumber).mean.name.suffix("_mean"))`)
 - Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
   and `over("group")` for per-group values on every row
@@ -208,7 +241,8 @@ library. Bump the crate version to a `-dev` version when you change it (CI check
 - Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
   Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
 - Operators keep Polars' meaning, not Nim's: `mod` and `div` round towards negative
-  infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit.
+  infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit. `/` is true
+  division (`7 / 2 == 3.5`), as in Python Polars and in Nim.
 - Polars names that are Nim keywords work after a dot (`e.cast(Int32)`, `e.var`,
   `.when(c)`); as a first call they need backticks (`` `when`(c) ``).
 

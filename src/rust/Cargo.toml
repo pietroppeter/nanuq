@@ -1,6 +1,6 @@
 [package]
 name = "nanuq_ffi"
-version = "0.2.0"
+version = "0.3.0-dev"
 edition = "2021"
 description = "C ABI over Polars, consumed by the Nanuq Nim library"
 license = "MIT"
@@ -10,9 +10,21 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series"] }
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array"] }
 # Only for polars_core::random::set_global_random_seed, which polars does not re-export.
 polars-core = { version = "0.55", default-features = false }
+tikv-jemallocator = { version = "0.6", optional = true }
+
+[features]
+# Both are off by default, so local builds work on stable Rust everywhere. The
+# release archives (release-lib.yml) are built with nightly Rust and both
+# features, which closes most of the gap to Python Polars' speed: Polars' nightly
+# feature turns on SIMD code paths and more (it is what py-polars ships with), and
+# jemalloc is the allocator py-polars uses on Linux and macOS. jemalloc as Rust's
+# global allocator is safe here because everything Rust allocates is freed by Rust
+# (the nq_*_free functions); Nim never frees Rust memory itself.
+nightly = ["polars/nightly"]
+jemalloc = ["dep:tikv-jemallocator"]
 
 [profile.release]
 opt-level = 3

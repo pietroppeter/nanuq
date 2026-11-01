@@ -9,7 +9,7 @@ windows, unique rows, row indexes, sorting by several keys, and sampling.
 ### Requirement: Dropping and renaming columns
 LazyFrame and DataFrame SHALL support `drop(columns, strict = true)`, with one column
 name or a list of names, and `rename(mapping: openArray[(string, string)], strict = true)`. With `strict = true`, a
-column that does not exist SHALL raise `NanuqError`. With `strict = false`, it SHALL be
+column that does not exist SHALL raise `PolarsError`. With `strict = false`, it SHALL be
 ignored.
 
 ```nim
@@ -37,7 +37,7 @@ echo df.rename({"a": "x"}).columns
 
 #### Scenario: Strict
 - **WHEN** `df.drop("zzz")` runs
-- **THEN** `NanuqError` is raised, and `df.drop("zzz", strict = false)` returns the frame unchanged
+- **THEN** `PolarsError` is raised, and `df.drop("zzz", strict = false)` returns the frame unchanged
 
 ### Requirement: Row windows
 LazyFrame and DataFrame SHALL support `head(n = 5)`, `tail(n = 5)`, `slice(offset)` and
@@ -46,10 +46,10 @@ reverse the row order.
 
 ```nim
 let df = newDataFrame(series("n", [1, 2, 3, 4, 5]))
-echo df.tail(2).toSeq("n", int)
-echo df.slice(-3, 2).toSeq("n", int)       # negative offset counts from the end
-echo df.slice(1).toSeq("n", int)           # to the end
-echo df.reverse.toSeq("n", int)
+echo df.tail(2).toList("n", int)
+echo df.slice(-3, 2).toList("n", int)       # negative offset counts from the end
+echo df.slice(1).toList("n", int)           # to the end
+echo df.reverse.toList("n", int)
 ```
 
 ```text
@@ -143,7 +143,7 @@ shape: (3, 2)
 LazyFrame and DataFrame SHALL sort by several column names or expressions with
 `sort(by, descending: openArray[bool] = [], nullsLast: openArray[bool] = [],
 maintainOrder = false)`. An empty list SHALL mean false for every key, and one value
-SHALL apply to every key. Another length SHALL raise `NanuqError`. The one-column
+SHALL apply to every key. Another length SHALL raise `PolarsError`. The one-column
 `sort(by: string, descending = false, nullsLast = false, maintainOrder = false)` SHALL
 remain.
 
@@ -176,12 +176,12 @@ shape: (4, 2)
 
 #### Scenario: Length mismatch
 - **WHEN** a sort by three keys gets `descending = [true, false]`
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
 
 ### Requirement: Sampling rows
 DataFrame SHALL support `sample(n, withReplacement = false, shuffle = false, seed =
 none(int))` and `sample(fraction, ...)` with the same options. Asking for more rows than
-there are without replacement SHALL raise `NanuqError`. The same seed SHALL give the same
+there are without replacement SHALL raise `PolarsError`. The same seed SHALL give the same
 rows. `seed` SHALL also accept a plain `int` (`seed = 42`), and `setRandomSeed(seed)` SHALL
 seed Polars' global generator, used when no seed is passed.
 
@@ -215,4 +215,4 @@ false
 
 #### Scenario: Too many rows
 - **WHEN** `sample(11)` runs on 10 rows
-- **THEN** `NanuqError` is raised
+- **THEN** `PolarsError` is raised
