@@ -1,7 +1,7 @@
 # strings Specification
 
 ## Purpose
-TBD - created by archiving change add-string-expressions. Update Purpose after archive.
+String expressions: the `str` namespace, `concatStr` and `format`.
 
 ## Requirements
 

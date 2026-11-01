@@ -1,7 +1,7 @@
 # inspection Specification
 
 ## Purpose
-TBD - created by archiving change add-inspection-and-config. Update Purpose after archive.
+Looking at a frame: `glimpse`, `describe`, and the display configuration (`setTbl*`, `setConfig`, `withConfig`).
 
 ## Requirements
 
