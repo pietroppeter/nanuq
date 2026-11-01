@@ -1349,6 +1349,11 @@ proc collect*(df: DataFrame): DataFrame {.error: "this is already a DataFrame " 
 proc select*(lf: LazyFrame, exprs: varargs[Expr]): LazyFrame =
   let r = raws(exprs)
   wrap nq_lf_select(lf.raw, r.firstOrNil, r.len.csize_t)
+proc select*(lf: LazyFrame, columns: varargs[string]): LazyFrame =
+  ## Columns by name: `lf.select("a", "b")`.
+  var e: seq[Expr]
+  for c in columns: e.add col(c)
+  lf.select(e)
 
 proc withColumns*(lf: LazyFrame, exprs: varargs[Expr]): LazyFrame =
   let r = raws(exprs)
@@ -1785,6 +1790,9 @@ proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompr
 
 # Eager shortcuts: run a single lazy step and collect.
 proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collect
+proc select*(df: DataFrame, columns: varargs[string]): DataFrame =
+  ## Columns by name: `df.select("a", "b")`.
+  df.lazy.select(columns).collect
 proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collect
 proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collect
 proc sort*(df: DataFrame, by: string, descending = false, nullsLast = false,

@@ -91,8 +91,8 @@ echo df.toList("a", string)    # any column formats as text
 The API SHALL provide `col`, `lit`, arithmetic, comparison and boolean operators on `Expr`
 (lifting Nim literals automatically), the aggregations sum, mean, min, max, count, first,
 last, nUnique and std, and `alias`. LazyFrame SHALL support select, withColumns, filter,
-groupBy/agg, sort, limit, explain and collect. `groupBy` SHALL take key expressions or
-column names (`groupBy("species")`), and SHALL keep the groups in the order their keys
+groupBy/agg, sort, limit, explain and collect. `select` and `groupBy` SHALL take
+expressions or column names (`select("a", "b")`, `groupBy("species")`); `groupBy` SHALL keep the groups in the order their keys
 first appear (Python's `maintain_order=True`, always on). On a DataFrame, `groupBy`,
 `groupByDynamic` and `rolling` followed by `agg` SHALL return a DataFrame, as in Python;
 on a LazyFrame they return a LazyFrame. DataFrame SHALL offer eager shortcuts for
@@ -123,6 +123,10 @@ shape: (3, 3)
 #### Scenario: Eager group by
 - **WHEN** `df.groupBy("a").agg(col.v.sum)` runs on a DataFrame
 - **THEN** the result is a DataFrame, with no `collect` needed
+
+#### Scenario: Select by name
+- **WHEN** `df.select("c", "a")` runs
+- **THEN** the result has columns c and a, in that order
 
 #### Scenario: Keys by name
 - **WHEN** `df.groupBy("a", "b")` is followed by `agg`

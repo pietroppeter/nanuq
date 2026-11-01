@@ -62,7 +62,7 @@ its OpenSpec change is archived. Format based on
 ### Added (from the 0.4 book ports)
 - `any` and `all` aggregations on boolean columns (`ignoreNulls`), also on Series. (#51)
 - `lit(nil)` null literal and `fillNan(nil)` (Python's `pl.lit(None)`, `fill_nan(None)`). (#51)
-- `groupBy("a", "b")` with column names. (#51)
+- `groupBy("a", "b")` and `select("a", "b")` with column names. (#51)
 - `gatherEvery(n, offset)` on frames. (#51)
 
 ### Changed

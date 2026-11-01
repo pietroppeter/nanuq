@@ -15,7 +15,7 @@ list go to BACKLOG.md.
 
 - `Expr.any(ignoreNulls)` and `Expr.all(ignoreNulls)` aggregations (also on Series).
 - `lit(nil)` null literal and `fillNan(nil)`.
-- `groupBy("a", "b")` with column names, on DataFrame and LazyFrame.
+- `groupBy("a", "b")` and `select("a", "b")` with column names, on DataFrame and LazyFrame (select from the explainer port).
 - `gatherEvery(n, offset)` on DataFrame and LazyFrame.
 - **BREAKING** On a DataFrame, `groupBy`, `groupByDynamic` and `rolling` return a
   `GroupBy` whose `agg` returns a DataFrame, as in Python (it returned a LazyFrame, so
