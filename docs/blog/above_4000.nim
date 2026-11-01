@@ -1,5 +1,5 @@
 import nimib
-import std/[algorithm, math, os, options, sequtils, strutils, strformat, json, tables, xmltree]
+import std/[algorithm, base64, math, os, options, sequtils, strutils, strformat, json, tables, xmltree]
 import nanuq
 import plotly/plotly_types except Color
 import ../nanuqtheme
@@ -23,6 +23,13 @@ nb.useNanuqTheme(
 # below reads it with paths relative to that folder.
 let siteDir = getCurrentDir()
 setCurrentDir("blog" / "mountains")
+
+nbRawHtml: """<figure class="cover"><img alt="Sunset view west from above Craveggia towards Monte Rosa, Dom and Weissmies, with peak labels" src="data:image/jpeg;base64,""" &
+  base64.encode(readFile("cover.jpg")) & """"><figcaption>Val Vigezzo, about 400 m above Craveggia
+(46.150°N 8.494°E, 1304 m), looking west in the late afternoon of 1 November 2026, while the author
+read a draft of this post. Peak names and heights are the labels of a peak-identification app; six of
+the labelled summits are on the UIAA list of 4000ers: Piramide Vincent, Dufourspitze, Strahlhorn, Dom,
+Weissmies and Lagginhorn. Dufourspitze is about 54 km away. Photo: Pietro Peterlongo.</figcaption></figure>"""
 
 
 # ---------------------------------------------------------------------------
