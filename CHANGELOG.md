@@ -6,6 +6,19 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01
+
+Nanuq 0.5 is "nested data and user code": List, Array and Struct columns with the
+`list`, `struct` and `arr` namespaces, string functions that return lists, JSON and
+NDJSON, SQL, and Nim procs called by Polars (`mapElements`, `mapBatches`, `fold`).
+The dev log post "Designing Nanuq 0.5" explains the API choices. The prebuilt library
+is `lib-v0.5.0` (Polars 0.55).
+
+Known limitations compared with Polars: Nanuq pins the newest Polars crate (0.55.2)
+while py-polars 2.1.0 is built from a newer commit, so SQL table functions with named
+options, `hash` values, `sample` order and the type of SQL `COUNT(*)` differ from
+Python; no decimal or binary columns, streaming sinks or cloud storage.
+
 ### Added
 - Dev log post "Counting El Niños", the 0.4 explainer: what El Niño is, how NOAA counts
   it (ONI and the new RONI), and what it does to rain in Peru and to the world's
