@@ -6,6 +6,19 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
+Nanuq 0.3 adds the data types and functions real tables need: dates, datetimes,
+durations and times of day with the `dt` namespace, string functions with the `str`
+namespace, categoricals (a Nim enum is a Polars Enum), Parquet and Arrow IPC, typed
+errors, and `glimpse`/`describe`. The dev log post "Designing Nanuq 0.3" explains the
+API choices. The prebuilt library is `lib-v0.3.0` (Polars 0.55), now built like
+py-polars (nightly Rust, Polars' nightly feature, jemalloc): PDS-H runs about 4x faster
+than with 0.2.
+
+Known limitations compared with Polars: no List or Struct columns (so no `str.split`),
+no `groupByDynamic` or rolling windows, no pivot, and no writing to streams.
+
 ### Added
 - Runnable examples in the OpenSpec specs: every API requirement shows a Nim example and
   the table it prints, checked against the code by `nimble specexamples` in CI; specview
