@@ -3627,6 +3627,18 @@ pub unsafe extern "C" fn nq_expr_any_all(e: *const Expr, all: bool, ignore_nulls
     }))
 }
 
+/// Entropy of the values, as an aggregation (`-sum(p * ln(p)) / ln(base)`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_entropy(e: *const Expr, base: f64, normalize: bool) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().entropy(base, normalize))))
+}
+
+/// The number of rows (Python's `pl.len()`), named `len`.
+#[no_mangle]
+pub extern "C" fn nq_expr_len() -> *mut Expr {
+    boxed(Some(len()))
+}
+
 // ---------------------------------------------------------------------------
 // Data type handles (0.5): any data type, nested ones included, as an opaque
 // `DataType`, so Nim can read and build types at any depth.

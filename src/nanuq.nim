@@ -586,6 +586,9 @@ proc fromPhysical(v: int64, _: typedesc[times.Duration], u: TimeUnit): times.Dur
   initDuration(nanoseconds = v * unitScale(u))
 
 type TemporalValue = Date | DateTime | times.Duration | TimeOfDay
+type SizedNumber = int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | float32
+  ## Nim number types other than `int` and `float`; they map to the Polars type
+  ## of the same size (`int32` is Int32).
 
 proc temporalType(T: typedesc, timeUnit: TimeUnit, timeZone: string): DataType =
   dataType(T, timeUnit, timeZone)
@@ -647,6 +650,30 @@ proc series*(name: string, data: openArray[Option[string]]): Series =
 proc castSeries(s: Series, t: DataType): Series =
   let sp = toSpecs([t])
   wrap nq_series_cast(s.raw, sp.specs[0].unsafeAddr)
+
+proc castTo*(s: Series, dtype: DataType, strict = true): Series
+
+proc series*[T: SizedNumber](name: string, data: openArray[T]): Series =
+  ## A column of the Polars type with the size of `T`: `series("a", [1'i32, 2])`
+  ## is Int32, `float32` gives Float32.
+  when T is float32:
+    var buf = newSeq[float](data.len)
+    for i, x in data: buf[i] = x.float
+  else:
+    var buf = newSeq[int](data.len)
+    for i, x in data: buf[i] = x.int
+  series(name, buf).castTo(dataType(T))
+
+proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
+  when T is float32:
+    var buf = newSeq[Option[float]](data.len)
+    for i, x in data:
+      if x.isSome: buf[i] = some(x.get.float)
+  else:
+    var buf = newSeq[Option[int]](data.len)
+    for i, x in data:
+      if x.isSome: buf[i] = some(x.get.int)
+  series(name, buf).castTo(dataType(T))
 
 proc series*[T: NimEnum](name: string, data: openArray[T]): Series =
   ## An Enum column from Nim enum values; the categories are all values of `T`.
@@ -988,6 +1015,12 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
     if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
     (vals, valid)
+  elif T is SizedNumber:
+    let (wide, ok) = readColumn(df, column, (when T is float32: float else: int))
+    var vals = newSeq[T](n)
+    for i, x in wide:
+      if ok[i]: vals[i] = T(x)
+    (vals, ok)
   elif T is enum and T isnot bool:
     let (strs, ok) = readColumn(df, column, string)
     valid = ok
@@ -1021,7 +1054,7 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
     (vals, valid)
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](df: DataFrame, column: string,
                                                             _: typedesc[T]): seq[T] =
   ## Copies a whole column into a Nim seq. Raises `InvalidOperationError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
@@ -1037,7 +1070,7 @@ proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataF
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](df: DataFrame, column: string,
                                                             _: typedesc[Option[T]]): seq[Option[T]] =
   ## Copies a whole column into a Nim seq, with `none` for nulls.
   let (vals, valid) = readColumn(df, column, T)
@@ -1225,6 +1258,16 @@ proc fillNan*[T: SomeNumber | Expr](e: Expr, value: T): Expr =
 proc fillNan*(e: Expr, value: typeof(nil)): Expr =
   ## Turns NaN into null: `fillNan(nil)` (Python's `fill_nan(None)`).
   binaryFn(e, lit(nil), nqbFillNan)
+
+proc entropy*(e: Expr, base = E, normalize = true): Expr =
+  ## The entropy of the values, `-sum(p * ln(p)) / ln(base)`, as an
+  ## aggregation; with `normalize` the values are first divided by their sum.
+  wrap nq_expr_entropy(e.raw, base.cdouble, normalize)
+
+proc len*(): Expr =
+  ## The number of rows, in a column named `len` (Python's `pl.len()`); in a
+  ## group-by, the size of each group.
+  wrap nq_expr_len()
 
 proc any*(e: Expr, ignoreNulls = true): Expr =
   ## Whether any value of a boolean column is true (an aggregation). With
@@ -3412,11 +3455,11 @@ proc rename*(s: Series, name: string): Series = s.alias(name)
 proc dtype*(s: Series): DataType = s.toFrame.dtype(s.name)
 proc nullCount*(s: Series): int = s.toFrame.nullCount(s.name)
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](s: Series,
     _: typedesc[T]): seq[T] =
   ## The values as a seq; raises `InvalidOperationError` on nulls.
   s.toFrame.toList(s.name, T)
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](s: Series,
     _: typedesc[Option[T]]): seq[Option[T]] =
   s.toFrame.toList(s.name, Option[T])
 proc `[]`*[T](s: Series, row: int, _: typedesc[T]): T =
@@ -4453,3 +4496,99 @@ proc collectAll*(lfs: openArray[LazyFrame]): seq[DataFrame] =
   var outs = newSeq[ptr NqDataFrame](lfs.len)
   if not nq_collect_all(rs.firstOrNil, rs.len.csize_t, outs.firstOrNil): raiseLast()
   for o in outs: result.add wrap(o)
+
+# ---------------------------------------------------------------------------
+# Book port needs (0.5): Series namespaces, Series HTML, frame helpers
+# ---------------------------------------------------------------------------
+
+type
+  SeriesListNameSpace* = distinct Series
+    ## `s.list`: the list functions of `Expr.list` on a Series.
+  SeriesArrayNameSpace* = distinct Series
+  SeriesStructNameSpace* = distinct Series
+  SeriesStrNameSpace* = distinct Series
+  SeriesDtNameSpace* = distinct Series
+  SeriesCatNameSpace* = distinct Series
+
+proc nsCall(ns: NimNode, nsName: string, field: NimNode, args: seq[NimNode]): NimNode =
+  ## `Series(ns).eval(col(Series(ns).name).<nsName>.<field>(args))`.
+  let s = genSym(nskLet, "s")
+  var call = newCall(newDotExpr(newDotExpr(newCall(bindSym"col", newDotExpr(s, ident"name")),
+                                           ident(nsName)), field))
+  for a in args: call.add a
+  result = quote do:
+    block:
+      let `s` = Series(`ns`)
+      eval(`s`, `call`)
+
+proc list*(s: Series): SeriesListNameSpace =
+  ## The list functions on a Series: `s.list.len` is `s.eval(col(s.name).list.len)`.
+  SeriesListNameSpace(s)
+proc arr*(s: Series): SeriesArrayNameSpace = SeriesArrayNameSpace(s)
+  ## The array functions on a Series.
+proc struct*(s: Series): SeriesStructNameSpace = SeriesStructNameSpace(s)
+  ## The struct functions on a Series: `s.struct.field("x")` is a Series named `x`.
+proc str*(s: Series): SeriesStrNameSpace = SeriesStrNameSpace(s)
+  ## The string functions on a Series.
+proc dt*(s: Series): SeriesDtNameSpace = SeriesDtNameSpace(s)
+  ## The temporal functions on a Series.
+proc cat*(s: Series): SeriesCatNameSpace = SeriesCatNameSpace(s)
+  ## The categorical functions on a Series.
+
+template seriesNsOps(T: untyped, nsName: static string) =
+  macro `.`*(ns: T, field: untyped): untyped =
+    nsCall(ns, nsName, field, @[])
+  macro `.()`*(ns: T, field: untyped, args: varargs[untyped]): untyped =
+    var xs: seq[NimNode]
+    for a in args: xs.add a
+    nsCall(ns, nsName, field, xs)
+
+seriesNsOps(SeriesListNameSpace, "list")
+seriesNsOps(SeriesArrayNameSpace, "arr")
+seriesNsOps(SeriesStructNameSpace, "struct")
+seriesNsOps(SeriesStrNameSpace, "str")
+seriesNsOps(SeriesDtNameSpace, "dt")
+seriesNsOps(SeriesCatNameSpace, "cat")
+
+proc toHtml*(s: Series, maxRows = 10): string =
+  ## The HTML table Python Polars shows for a Series in notebooks: the frame
+  ## table of its one column, with shape `(n,)`.
+  let n = s.len
+  result = s.toFrame.toHtml(maxRows)
+  result = result.replace("<small>shape: (" & thousands(n) & ", 1)</small>",
+                          "<small>shape: (" & thousands(n) & ",)</small>")
+
+proc asStruct*(names: varargs[string]): Expr =
+  ## A struct of the named columns (Python's `pl.struct("a", "b")`).
+  var es: seq[Expr]
+  for n in names: es.add col(n)
+  asStruct(es)
+
+proc interpolate*(lf: LazyFrame, how = InterpolationMethod.Linear): LazyFrame =
+  ## Fills the nulls of every column by interpolation (Python's
+  ## `DataFrame.interpolate`); see `Expr.interpolate`.
+  lf.select(all().toExpr.interpolate(how))
+proc interpolate*(df: DataFrame, how = InterpolationMethod.Linear): DataFrame =
+  df.lazy.interpolate(how).collect
+
+proc `cast`*(lf: LazyFrame, dtypes: openArray[(DataType, DataType)], strict = true): LazyFrame =
+  ## Casts the columns of each key type to its value type:
+  ## `lf.cast({Float64: Float32})`.
+  var es: seq[Expr]
+  for (src, dst) in dtypes: es.add dtypeSelector(src).toExpr.cast(dst, strict)
+  lf.withColumns(es)
+proc `cast`*(lf: LazyFrame, dtypes: openArray[(Selector, DataType)], strict = true): LazyFrame =
+  ## Casts the columns a selector picks: `lf.cast({col(SomeFloat): Float32})`.
+  var es: seq[Expr]
+  for (sel, dst) in dtypes: es.add sel.toExpr.cast(dst, strict)
+  lf.withColumns(es)
+proc `cast`*(df: DataFrame, dtypes: openArray[(DataType, DataType)], strict = true): DataFrame =
+  df.lazy.cast(dtypes, strict).collect
+proc `cast`*(df: DataFrame, dtypes: openArray[(Selector, DataType)], strict = true): DataFrame =
+  df.lazy.cast(dtypes, strict).collect
+
+proc explode*(lf: LazyFrame, a, b: string, more: varargs[string]): LazyFrame =
+  ## Explodes several columns given by name: `lf.explode("a", "b")`.
+  lf.explode(@[a, b] & @more)
+proc explode*(df: DataFrame, a, b: string, more: varargs[string]): DataFrame =
+  df.explode(@[a, b] & @more)

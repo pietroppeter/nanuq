@@ -100,3 +100,65 @@ suite "nested data types":
       tags: [@["polar", "bear"], @[]]
     check "list[str]" in $df
     check "[\"polar\", \"bear\"]" in $df
+
+suite "book port needs (0.5)":
+  let st = newDataFrame:
+    p: [(x: 1, y: 2.0), (x: 3, y: 4.0)]
+    l: [@[1, 2], @[3]]
+    w: ["ab", "c"]
+
+  test "sized numbers":
+    let s = series("a", [1'i32, 2, 3])
+    check s.dtype == Int32
+    check s.toList(int32) == @[1'i32, 2, 3]
+    let f = series("f", [some(1.5'f32), none(float32)])
+    check f.dtype == Float32
+    check f.toList(Option[float32]) == @[some(1.5'f32), none(float32)]
+    let df = newDataFrame:
+      a: [[1'i32, 2], [3'i32, 4]]
+      b: [1'u8, 2]
+    check df.dtype("a") == Array(Int32, 2)
+    check df.dtype("b") == UInt8
+    check df.toList("a", array[2, int32]) == @[[1'i32, 2], [3'i32, 4]]
+
+  test "Series namespaces":
+    let x = st["p"].struct.field("x")
+    check x.name == "x"
+    check x.toList(int) == @[1, 3]
+    check st["p"].struct.renameFields(["u", "v"]).dtype.fields[0].name == "u"
+    check st["l"].list.len.toList(int) == @[2, 1]
+    check st["l"].list.get(0).toList(int) == @[1, 3]
+    check st["w"].str.toUppercase.toList(string) == @["AB", "C"]
+
+  test "Series as HTML":
+    let h = st["w"].toHtml
+    check "<small>shape: (2,)</small>" in h
+    check "<th>w</th>" in h
+
+  test "entropy and len()":
+    let e = st.select(col("l").list.agg(element().entropy).alias("e"))
+    check abs(e.toList("e", float)[0] - 0.6365141682948128) < 1e-12
+    check e.toList("e", float)[1] == 0.0
+    check st.select(len()).toList("len", int) == @[2]
+    check st.groupBy("w").agg(len()).sort("w").toList("len", int) == @[1, 1]
+
+  test "asStruct by name":
+    check st.select(asStruct("w", "l")).dtype("w") == Struct({"w": String, "l": List(Int64)})
+
+  test "frame interpolate and cast by type":
+    let ip = newDataFrame:
+      a: [1.0, NaN, 3.0]
+      b: [some(1), none(int), some(5)]
+    check ip.interpolate.toList("b", float) == @[1.0, 3.0, 5.0]
+    let c = ip.cast({Float64: Float32})
+    check c.dtype("a") == Float32
+    check c.dtype("b") == Int64
+    check ip.cast({col(SomeNumber): Float32}).dtype("b") == Float32
+
+  test "explode several columns by name":
+    let ex = newDataFrame:
+      a: [@[1, 2], @[3, 4]]
+      b: [@["x", "y"], @["z", "w"]]
+    let r = ex.explode("a", "b")
+    check r.toList("b", string) == @["x", "y", "z", "w"]
+    check ex.lazy.explode("a", "b").collect.height == 4

@@ -46,6 +46,11 @@ its OpenSpec change is archived. Format based on
   `undoAliases`); frame and Series `equals`; `vstack`, `extend`, `hstack`, `update`,
   `upsample`, `estimatedSize`, `partitionBy(asDict = true)`, `collectAll`.
   (add-frame-utilities, #53)
+- From the 0.5 book ports: Series namespaces (`s.list`, `s.arr`, `s.struct`, `s.str`,
+  `s.dt`, `s.cat`), `toHtml(Series)`, `Expr.entropy`, `len()` (Python's `pl.len()`),
+  columns from `int32`, `uint8`, `float32` and the other sized numbers (and `toList` for
+  them), `asStruct("a", "b")`, frame `interpolate`, `cast({Float64: Float32})` and
+  `cast({col(SomeNumber): Float32})`, `explode("a", "b")`. (add-book-port-needs-0-5, #53)
 
 ## [0.4.0] - 2026-11-01
 

@@ -155,3 +155,30 @@ shape: (2, 3)
 #### Scenario: Array to struct
 - **WHEN** `arr.toStruct` is evaluated on arrays of width 3
 - **THEN** the result is a struct with fields `field_0`, `field_1` and `field_2`
+
+### Requirement: Structs from column names
+`asStruct` SHALL also take column names: `asStruct("a", "b")` is
+`asStruct(col("a"), col("b"))` (Python's `pl.struct("a", "b")`).
+
+```nim
+let df = newDataFrame:
+  bear: ["Ada", "Bo"]
+  kg: [410, 380]
+echo df.select(asStruct("bear", "kg").alias("s"))
+```
+
+```text
+shape: (2, 1)
+┌─────────────┐
+│ s           │
+│ ---         │
+│ struct[2]   │
+╞═════════════╡
+│ {"Ada",410} │
+│ {"Bo",380}  │
+└─────────────┘
+```
+
+#### Scenario: Field names
+- **WHEN** `asStruct("bear", "kg")` is selected
+- **THEN** the struct has the fields bear and kg

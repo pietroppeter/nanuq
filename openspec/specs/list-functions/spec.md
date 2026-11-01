@@ -148,3 +148,33 @@ shape: (1, 1)
 #### Scenario: Empty lists
 - **WHEN** a frame with an empty list is exploded with `emptyAsNull = false`
 - **THEN** that row is dropped instead of giving a null
+
+### Requirement: Exploding several columns by name
+DataFrame and LazyFrame `explode` SHALL also take several column names as separate
+arguments: `explode("a", "b")` is `explode(["a", "b"])`.
+
+```nim
+let df = newDataFrame:
+  peak: ["Mont Blanc", "Monte Rosa"]
+  huts: [@["Goûter", "Cosmiques"], @["Margherita", "Gnifetti"]]
+  m: [@[3835, 3613], @[4554, 3647]]
+echo df.explode("huts", "m")
+```
+
+```text
+shape: (4, 3)
+┌────────────┬────────────┬──────┐
+│ peak       ┆ huts       ┆ m    │
+│ ---        ┆ ---        ┆ ---  │
+│ str        ┆ str        ┆ i64  │
+╞════════════╪════════════╪══════╡
+│ Mont Blanc ┆ Goûter     ┆ 3835 │
+│ Mont Blanc ┆ Cosmiques  ┆ 3613 │
+│ Monte Rosa ┆ Margherita ┆ 4554 │
+│ Monte Rosa ┆ Gnifetti   ┆ 3647 │
+└────────────┴────────────┴──────┘
+```
+
+#### Scenario: Lists of equal length
+- **WHEN** two list columns with lists of the same lengths are exploded together
+- **THEN** each row holds the matching elements of both
