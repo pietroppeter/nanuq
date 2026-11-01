@@ -13,13 +13,13 @@ type
 
 suite "nested data types":
   test "constructors, names, equality":
-    check $List(Int64) == "list[i64]"
-    check $Array(Float64, 3) == "array[f64, 3]"
-    check $Array(Int64, [2, 3]) == "array[i64, (2, 3)]"
+    check $List(Int64) == "List(Int64)"
+    check $Array(Float64, 3) == "Array(Float64, 3)"
+    check $Array(Int64, [2, 3]) == "Array(Int64, [2, 3])"
     check Array(Int64, [2, 3]) == Array(Array(Int64, 3), 2)
     check Array(Int64, [2, 3]).shape == @[2, 3]
     let p = Struct({"x": Float64, "y": Float64})
-    check $p == "struct[2]"
+    check $p == """Struct({"x": Float64, "y": Float64})"""
     check p.fields[1].name == "y"
     check List(p).inner == p
     check List(Int64) != List(Int32)
@@ -82,7 +82,7 @@ suite "nested data types":
                  Den(name: "B", cubs: @[], loc: Point(x: 3, y: 4.0), note: none(string))]
     let f = dens.toDataFrame
     check f.rows(Den) == dens
-    check $f.dtype("cubs") == "list[str]"
+    check $f.dtype("cubs") == "List(String)"
 
   test "list literal and casting":
     let df = newDataFrame(series("a", @[@[1, 2], @[3]]))

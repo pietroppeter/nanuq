@@ -3,11 +3,11 @@ import nanuq
 
 suite "data types":
   test "constants, names and predicates":
-    check $Int64 == "i64"
-    check $String == "str"
-    check $Boolean == "bool"
-    check $UInt8 == "u8"
-    check $Null == "null"
+    check $Int64 == "Int64"
+    check $String == "String"
+    check $Boolean == "Boolean"
+    check $UInt8 == "UInt8"
+    check $Null == "Null"
     check Int64 != Int32
     check UInt8.isNumeric and Float32.isNumeric and not String.isNumeric
     check Int8.isSignedInteger and not Int8.isUnsignedInteger
@@ -31,7 +31,7 @@ suite "data types":
   test "dtype and schema":
     let df = newDataFrame(series("a", [1, 2]), series("b", ["x", "y"]))
     check df.dtype("a") == Int64
-    check $df.dtype("a") == "i64"
+    check $df.dtype("a") == "Int64"
     check df.dtypes == @[Int64, String]
     let s = df.schema
     var keys: seq[string]

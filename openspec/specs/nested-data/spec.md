@@ -9,7 +9,8 @@ List, Array and Struct data types, and nested values between Nim and Polars.
 `DataType` SHALL have the kinds `List`, `Array` and `Struct`, built by `List(inner)`,
 `Array(inner, width)` (or a shape, `Array(Int64, [2, 3])`) and `Struct(fields)` (from
 `{"name": dtype}` pairs or a seq of `Field`). `inner`, `width`, `shape` and `fields` SHALL
-read them back, `$` SHALL give Polars' names and `==` SHALL compare the whole type.
+read them back, `$` SHALL print the constructor call (`List(Int64)`, `Array(Int64, [2, 3])`,
+`Struct({"x": Float64})`) and `==` SHALL compare the whole type.
 
 ```nim
 let point = Struct({"x": Float64, "y": Float64})
@@ -18,13 +19,13 @@ echo List(point).inner == point, " ", Array(Int64, [2, 3]).shape, " ", point.fie
 ```
 
 ```text
-list[i64] array[f64, 3] array[i64, (2, 3)] struct[2]
+List(Int64) Array(Float64, 3) Array(Int64, [2, 3]) Struct({"x": Float64, "y": Float64})
 true @[2, 3] y
 ```
 
 #### Scenario: Schema of nested columns
 - **WHEN** the schema of a frame with a list of strings column is read
-- **THEN** its dtype is `List(String)` and `$` gives `list[str]`
+- **THEN** its dtype is `List(String)` and `$` gives `List(String)`
 
 #### Scenario: Struct field types
 - **WHEN** `fields` is read from the dtype of a struct column built from `(x: 1, y: 2.0)`

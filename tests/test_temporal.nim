@@ -23,7 +23,7 @@ suite "temporal values":
       t: [timeOfDay(14, 3), timeOfDay(0)]
       gap: [initDuration(minutes = 4, seconds = 23), initDuration(hours = 73)]
       at: [at, dateTime(1904, mJul, 2, zone = utc())]
-    check $df.dtypes == "@[date, time, duration[μs], datetime[μs]]"
+    check $df.dtypes == "@[Date, TimeOfDay, Duration(Microseconds), DateTime(Microseconds)]"
     check df.schema["day"] == Date
     check df.schema["at"] == DateTime
     check df.schema["gap"] == Duration
@@ -41,7 +41,7 @@ suite "temporal values":
     let s = series("at", [dateTime(2026, mJul, 4, 13, 10, zone = utc())], timeUnit = Milliseconds,
                    timeZone = "Europe/Rome")
     let df = newDataFrame(s)
-    check $df.dtype("at") == "datetime[ms, Europe/Rome]"
+    check $df.dtype("at") == """DateTime(Milliseconds, "Europe/Rome")"""
     check df.dtype("at") == dataType(DateTime, Milliseconds, "Europe/Rome")
     check df.toList("at", DateTime)[0] == dateTime(2026, mJul, 4, 13, 10, zone = utc())
     expect ValueError:
@@ -62,7 +62,7 @@ suite "temporal values":
     check df.select(col.n.cast(DateTime).cast(Date)).toList("n", Date) ==
       @[date(1970, 1, 1), date(1970, 1, 2)]
     check $df.select(col.n.cast(DateTime, timeUnit = Milliseconds, timeZone = "UTC")).dtype("n") ==
-      "datetime[ms, UTC]"
+      """DateTime(Milliseconds, "UTC")"""
     check df.select(col.n.cast(Duration)).toList("n", Duration)[1] == initDuration(days = 1)
 
 suite "ranges, durations, intervals":
@@ -86,7 +86,7 @@ suite "ranges, durations, intervals":
                                                 dateTime(2026, mJan, 1, 3, zone = utc()),
                                                 1.hours, timeZone = "Europe/Rome").alias("t"))
     check r.height == 4
-    check $r.dtype("t") == "datetime[μs, Europe/Rome]"
+    check $r.dtype("t") == """DateTime(Microseconds, "Europe/Rome")"""
 
   test "duration":
     let df = newDataFrame:
@@ -109,7 +109,7 @@ suite "parsing":
   test "toDatetime, toTime, strptime":
     let t = newDataFrame(series("s", ["2026-07-04 13:10", "2026-07-05 09:00"]))
     let r = t.select(col.s.str.toDatetime("%Y-%m-%d %H:%M", timeZone = "Australia/Adelaide"))
-    check $r.dtype("s") == "datetime[μs, Australia/Adelaide]"
+    check $r.dtype("s") == """DateTime(Microseconds, "Australia/Adelaide")"""
     check t.select(col.s.str.slice(11).str.toTime("%H:%M")).toList("s", TimeOfDay) ==
       @[timeOfDay(13, 10), timeOfDay(9)]
     check t.select(col.s.str.strptime(Date, "%Y-%m-%d %H:%M")).toList("s", Date)[0] == date(2026, 7, 4)
@@ -164,7 +164,7 @@ suite "dt namespace":
       finish: [timeOfDay(14, 3)]
     let finish = col.day.dt.combine(col.finish).dt.replaceTimeZone("Australia/Adelaide")
     let cet = days.select(finish.dt.convertTimeZone("Europe/Paris").alias("cet"))
-    check $cet.dtype("cet") == "datetime[μs, Europe/Paris]"
+    check $cet.dtype("cet") == """DateTime(Microseconds, "Europe/Paris")"""
     check cet.select(col.cet.dt.time).toList("cet", TimeOfDay) == @[timeOfDay(4, 33)]
     check cet.toList("cet", DateTime)[0] == dateTime(2026, mJan, 20, 3, 33, zone = utc())
 

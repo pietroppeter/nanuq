@@ -16,11 +16,15 @@ values SHALL carry a `timeUnit` (std/times' `TimeUnit`: `Nanoseconds`, `Microsec
 or `Milliseconds`), Datetime values a `timeZone` ("" when naive), and Enum values their
 `categories`. `dtype(df, col)` SHALL return a `DataType`. `dtype == T` with a Nim type
 SHALL compare with `dataType(T)`, except that `DateTime` and `Duration` SHALL match any
-time unit and zone.
+time unit and zone. `$` SHALL print a data type as the Nanuq code that builds or names
+it: the constant (`Int64`), the constructor (`Enum(["low", "high"])`), or for temporal
+types the Nim type a column casts to (`Date`, `TimeOfDay`, `DateTime(Milliseconds,
+"Europe/Rome")`, `Duration(Microseconds)`). Table headers, `glimpse` and `toHtml` SHALL
+keep Polars' short names (`i64`).
 
 ```nim
 let df = newDataFrame(series("a", [1, 2]))
-echo df.dtype("a")                  # Polars' short name
+echo df.dtype("a")                  # as Nanuq code
 echo df.dtype("a") == Int64
 echo df.dtype("a").kind
 let t = newDataFrame(series("at", [dateTime(2026, mJul, 4, zone = utc())],
@@ -29,15 +33,15 @@ echo t.dtype("at"), " ", t.dtype("at").timeZone, " ", t.dtype("at") == DateTime
 ```
 
 ```text
-i64
+Int64
 true
 Int64
-datetime[ms, Europe/Rome] Europe/Rome true
+DateTime(Milliseconds, "Europe/Rome") Europe/Rome true
 ```
 
 #### Scenario: Column dtype
 - **WHEN** a DataFrame is built from a Nim `seq[int]` column `a`
-- **THEN** `df.dtype("a") == Int64` and `$df.dtype("a") == "i64"`
+- **THEN** `df.dtype("a") == Int64` and `$df.dtype("a") == "Int64"`
 
 #### Scenario: Unmodelled dtype
 - **WHEN** a column has a dtype Nanuq does not model
@@ -45,15 +49,19 @@ datetime[ms, Europe/Rome] Europe/Rome true
 
 #### Scenario: Zoned datetime
 - **WHEN** a Datetime column has unit ms and zone Europe/Rome
-- **THEN** `$` gives "datetime[ms, Europe/Rome]" and it equals `DateTime`
+- **THEN** `$` gives `DateTime(Milliseconds, "Europe/Rome")` and it equals `DateTime`
 
 #### Scenario: Enum categories
 - **WHEN** a column is cast to `Enum(["low", "high"])`
-- **THEN** `$` of its dtype gives "enum" and `categories` is `@["low", "high"]`
+- **THEN** `$` of its dtype gives `Enum(["low", "high"])` and `categories` is `@["low", "high"]`
+
+#### Scenario: Tables keep short names
+- **WHEN** a frame with an Int64 column is printed or turned into HTML
+- **THEN** the column header shows `i64`
 
 ### Requirement: DataType constants and predicates
 The API SHALL export `DataType` constants with Polars' names (`Int64`, `String`, ...),
-`==`, `$` returning Polars' short name, and the predicates `isInteger`,
+`==`, `$` printing the constant's name, and the predicates `isInteger`,
 `isSignedInteger`, `isUnsignedInteger`, `isFloat` and `isNumeric`.
 
 ```nim
@@ -80,8 +88,8 @@ echo df.lazy.withColumns((col("a") * 1.5).alias("c")).collectSchema   # nothing 
 ```
 
 ```text
-{"a": i64, "b": str}
-{"a": i64, "b": str, "c": f64}
+{"a": Int64, "b": String}
+{"a": Int64, "b": String, "c": Float64}
 ```
 
 #### Scenario: Schema in column order
@@ -111,8 +119,8 @@ echo df.select(col("a").cast(DateTime, timeUnit = Milliseconds, timeZone = "UTC"
 ```
 
 ```text
-i32
-f32
+Int32
+Float32
 shape: (2, 1)
 ┌──────┐
 │ s    │
@@ -122,7 +130,7 @@ shape: (2, 1)
 │ 1    │
 │ null │
 └──────┘
-datetime[ms, UTC]
+DateTime(Milliseconds, "UTC")
 ```
 
 #### Scenario: Narrow an integer column
@@ -163,10 +171,10 @@ echo dataType(seq[string]), " ", dataType(array[3, float]), " ", dataType(tuple[
 ```
 
 ```text
-i64 f32 u8 str
-date datetime[μs] duration[ns] time
-enum @["Gold", "Silver", "Bronze"]
-list[str] array[f64, 3] @[(name: "x", dtype: i64), (name: "tags", dtype: list[str])]
+Int64 Float32 UInt8 String
+Date DateTime(Microseconds) Duration(Nanoseconds) TimeOfDay
+Enum(["Gold", "Silver", "Bronze"]) @["Gold", "Silver", "Bronze"]
+List(String) Array(Float64, 3) @[(name: "x", dtype: Int64), (name: "tags", dtype: List(String))]
 ```
 
 #### Scenario: Platform int

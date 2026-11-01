@@ -66,7 +66,7 @@ suite "row index":
     check df.columns == @["index", "a", "b"]
     check df.toList("index", int) == @[0, 1, 2, 3, 4]
     check nums().head(3).withRowIndex("n", offset = 1).toList("n", int) == @[1, 2, 3]
-    check $nums().withRowIndex.dtype("index") == "u32"
+    check $nums().withRowIndex.dtype("index") == "UInt32"
     expect ValueError: discard nums().withRowIndex(offset = -1)
 
 suite "sorting":

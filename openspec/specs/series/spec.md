@@ -28,7 +28,7 @@ Series: 'oni' [f64]
 	2.6
 	2.0
 ]
-oni 3 f64
+oni 3 Float64
 ```
 
 #### Scenario: Missing column

@@ -288,8 +288,8 @@ echo df.cast({col(SomeNumber): Float32}).schema
 ```
 
 ```text
-{"kg": f32, "cubs": i64, "bear": str}
-{"kg": f32, "cubs": f32, "bear": str}
+{"kg": Float32, "cubs": Int64, "bear": String}
+{"kg": Float32, "cubs": Float32, "bear": String}
 ```
 
 #### Scenario: Other columns kept
