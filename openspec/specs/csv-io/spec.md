@@ -184,3 +184,26 @@ shape: (2, 1)
 #### Scenario: Invalid UTF-8
 - **WHEN** a line holds the byte 0xFF and `encoding = CsvEncoding.Utf8Lossy`
 - **THEN** the line is read, with a replacement character
+
+### Requirement: Comment lines
+`readCsv` and `scanCsv` SHALL skip lines starting with `commentPrefix` (none when empty).
+
+```nim
+import std/streams
+echo readCsv(newStringStream("# measured 2026\nbear,kg\nAda,410\n"), commentPrefix = "#")
+```
+
+```text
+shape: (1, 2)
+┌──────┬─────┐
+│ bear ┆ kg  │
+│ ---  ┆ --- │
+│ str  ┆ i64 │
+╞══════╪═════╡
+│ Ada  ┆ 410 │
+└──────┴─────┘
+```
+
+#### Scenario: No prefix
+- **WHEN** a CSV starting with "# note" is read without `commentPrefix`
+- **THEN** "# note" is the first column name

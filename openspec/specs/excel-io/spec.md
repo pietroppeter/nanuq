@@ -84,3 +84,26 @@ shape: (1, 3)
 #### Scenario: Round trip
 - **WHEN** a frame of strings, integers, floats, booleans and dates is written and read back
 - **THEN** the result equals the frame
+
+### Requirement: Reading OpenDocument
+`readOds` SHALL read a sheet of an .ods file with the options of `readExcel`.
+
+```nim
+echo readOds("tests/data/bears.ods")
+```
+
+```text
+shape: (2, 2)
+┌──────┬─────┐
+│ bear ┆ kg  │
+│ ---  ┆ --- │
+│ str  ┆ i64 │
+╞══════╪═════╡
+│ Ada  ┆ 410 │
+│ Bo   ┆ 380 │
+└──────┴─────┘
+```
+
+#### Scenario: Numbers
+- **WHEN** an .ods sheet with numeric cells is read
+- **THEN** those columns are Float64

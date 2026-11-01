@@ -188,6 +188,7 @@ elif defined(windows):
 type
   NqDataFrame* {.incompleteStruct.} = object
   NqLazyFrame* {.incompleteStruct.} = object
+  NqCloudOptions* {.incompleteStruct.} = object
   NqExpr* {.incompleteStruct.} = object
   NqDataType* {.incompleteStruct.} = object
     ## A Polars data type handle (0.5), nested ones included.
@@ -336,6 +337,7 @@ type
     decimalComma*: bool
     maintainOrder*: bool
     mkdir*: bool
+    cloud*: ptr NqCloudOptions
 
 # serialization and meta (0.6)
 type
@@ -405,15 +407,18 @@ proc nq_lf_scan_csv*(path: cstring, data: ptr uint8, dataLen: csize_t,
                      nOverrides: csize_t, skipRows: csize_t, nRows: int64,
                      inferSchemaLength: int64,
                      ignoreErrors, decimalComma, tryParseDates: bool,
-                     quoteChar: int32, utf8Lossy: bool): ptr NqLazyFrame
+                     quoteChar: int32, utf8Lossy: bool, commentPrefix: cstring,
+                     cloud: ptr NqCloudOptions): ptr NqLazyFrame
 proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring, separator: uint8,
                       includeHeader: bool, nullValue: cstring, quoteStyle: NqQuoteStyle,
                       floatPrecision: int32, decimalComma: bool): bool
 proc nq_lf_scan_parquet*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
                          rowIndexName: cstring, rowIndexOffset: uint32,
-                         lowMemory: bool): ptr NqLazyFrame
+                         lowMemory: bool, hive: int32,
+                         cloud: ptr NqCloudOptions): ptr NqLazyFrame
 proc nq_lf_scan_ipc*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
-                     rowIndexName: cstring, rowIndexOffset: uint32): ptr NqLazyFrame
+                     rowIndexName: cstring, rowIndexOffset: uint32,
+                     cloud: ptr NqCloudOptions): ptr NqLazyFrame
 proc nq_df_write_parquet*(df: ptr NqDataFrame, path: cstring,
                           compression: NqParquetCompression, level: int32,
                           statistics: bool, rowGroupSize: int64): bool
@@ -683,7 +688,8 @@ proc nq_df_read_json*(path: cstring, data: ptr uint8, dataLen: csize_t, lines: b
 proc nq_lf_scan_ndjson*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
                         rowIndexName: cstring, rowIndexOffset: uint32, names: ptr cstring,
                         specs: ptr NqDtypeSpec, n: csize_t, fullSchema: bool,
-                        inferSchemaLength: int64, ignoreErrors: bool): ptr NqLazyFrame
+                        inferSchemaLength: int64, ignoreErrors: bool,
+                        cloud: ptr NqCloudOptions): ptr NqLazyFrame
 proc nq_df_write_json*(df: ptr NqDataFrame, path: cstring, lines: bool): cstring
 
 # SQL (0.5)
@@ -779,6 +785,39 @@ proc nq_expr_str_to_integer*(e, base: ptr NqExpr, spec: ptr NqDtypeSpec, strict:
 proc nq_series_new_u64*(name: cstring, data: ptr uint64, valid: ptr bool, len: csize_t): ptr NqSeries
 proc nq_df_column_u64*(df: ptr NqDataFrame, name: cstring, values: ptr uint64, valid: ptr bool,
                        len: csize_t): bool
+{.pop.}
+
+# easy wins and cloud storage (0.6)
+type
+  NqWinOp* {.size: sizeof(cint).} = enum
+    nqwEqMissing, nqwNeMissing, nqwCumulativeEval, nqwRoundSigFigs, nqwCentury,
+    nqwMillennium, nqwDstOffset, nqwBaseUtcOffset, nqwEscapeRegex, nqwIsClose,
+    nqwAddBusinessDays, nqwIsBusinessDay, nqwNormalize, nqwReinterpret
+{.push importc, cdecl.}
+proc nq_expr_win*(e: ptr NqExpr, op: NqWinOp, a, b: ptr NqExpr, i, j: int64, x, y: float64,
+                  flag: bool): ptr NqExpr
+proc nq_expr_business_day_count*(start, stop: ptr NqExpr, mask: int64,
+                                 holidays: ptr NqExpr): ptr NqExpr
+proc nq_expr_time_range*(start, stop: ptr NqExpr, interval: cstring, closed: NqClosedWindow,
+                         many: bool): ptr NqExpr
+proc nq_expr_concat_arr*(es: ptr ptr NqExpr, n: csize_t): ptr NqExpr
+proc nq_expr_nth*(idx: ptr int64, n: csize_t, strict: bool): ptr NqExpr
+proc nq_lf_with_optimizations*(lf: ptr NqLazyFrame, bits: uint32): ptr NqLazyFrame
+proc nq_lf_cache*(lf: ptr NqLazyFrame): ptr NqLazyFrame
+proc nq_lf_drop_nans*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t): ptr NqLazyFrame
+proc nq_lf_merge_sorted*(a, b: ptr NqLazyFrame, key: cstring): ptr NqLazyFrame
+proc nq_lf_match_to_schema*(lf: ptr NqLazyFrame, names: ptr cstring, specs: ptr NqDtypeSpec,
+                            n: csize_t, missing, extra, integerCast,
+                            floatCast: int32): ptr NqLazyFrame
+proc nq_df_rechunk*(df: ptr NqDataFrame): ptr NqDataFrame
+proc nq_df_shrink_to_fit*(df: ptr NqDataFrame): ptr NqDataFrame
+proc nq_df_n_chunks*(df: ptr NqDataFrame): int64
+proc nq_read_ipc_stream*(path: cstring, data: ptr uint8, dataLen: csize_t): ptr NqDataFrame
+proc nq_df_write_ipc_stream*(df: ptr NqDataFrame, path: cstring,
+                             compression: NqIpcCompression): bool
+proc nq_cloud_options_new*(uri: cstring, keys, values: ptr cstring,
+                           n: csize_t): ptr NqCloudOptions
+proc nq_cloud_options_free*(p: ptr NqCloudOptions)
 {.pop.}
 
 let compiledFor = nanuqLibVersion

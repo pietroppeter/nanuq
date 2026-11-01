@@ -9,15 +9,15 @@ its OpenSpec change is archived. Format based on
 ## [0.6.0] - 2026-11-01
 
 Nanuq 0.6 is "engine and edges": the streaming engine and sinks, saving query plans,
-Binary and Decimal columns, the Arrow C Data Interface (zero-copy column views), Excel
-and SQLite, testing helpers, and the functions the book ports still missed. The dev
+Binary and Decimal columns, the Arrow C Data Interface (zero-copy column views), Excel,
+SQLite and cloud storage, testing helpers, thirty small functions from the Polars
+coverage map, and the functions the book ports still missed. The dev
 log post "Designing Nanuq 0.6" explains the API choices. The prebuilt library is
 `lib-v0.6.0`, built on Polars at the py-polars 2.1.0 tag, so Nanuq and py-polars 2.1.0
 now run the same Polars code. Excel support is two pure-Rust crates (calamine and
 rust_xlsxwriter) compiled into the library: no Python and no new system dependency.
 
-Known limitations compared with Polars: no cloud storage (S3, GCS, Azure), no plotting
-namespace (use nim-plotly or ggplotnim with `toSeq`/`toDatamancer`), databases other
+Known limitations compared with Polars: no plotting namespace (use nim-plotly or ggplotnim with `toSeq`/`toDatamancer`), databases other
 than SQLite.
 
 ### Added
@@ -61,6 +61,21 @@ than SQLite.
   (`CsvEncoding.Utf8Lossy`) and `newColumns`. (add-explainer-needs-0-6, #59)
 - `rolling` and `groupByDynamic` take `groupBy` as names or expressions
   (`groupBy = "store"`). (refine-book-needs-0-6, #59)
+- Cloud storage: CSV, Parquet, IPC and NDJSON scans, reads, writes and sinks take
+  `s3://`, `gs://`, `az://`, `hf://` and `http(s)://` URIs and `storageOptions` (Python's
+  `storage_options`; credentials otherwise from the environment); `isCloudPath`.
+  (add-cloud-storage, #59)
+- From the Polars coverage map: empty frames (`newDataFrame(schema = ...)`, `clear`),
+  `isEmpty`, `getColumnIndex`, `rowsByKey`, frame `shift` and `dropNans`, LazyFrame
+  `shift`, `first`, `last`, `dt.epoch`, `dt.century`, `dt.millennium`, `dt.dstOffset`,
+  `dt.baseUtcOffset`, `timeRange(s)`, business days (`dt.addBusinessDays`,
+  `dt.isBusinessDay`, `businessDayCount`), `eqMissing`, `neMissing`, `isClose`, `nth`,
+  `cumulativeEval`, `roundSigFigs`, `reinterpret`, `concatArr`, `str.escapeRegex`,
+  `str.normalize`, `bin` on Series, CSV `commentPrefix`, `scanParquet(hivePartitioning)`,
+  `cache`, `QueryOptFlags` (`collect(optimizations)`), `rechunk`, `shrinkToFit`,
+  `nChunks`, `matchToSchema`, `mergeSorted`, `readOds`, `readIpcStream`,
+  `writeIpcStream`, and table styles (`setTblFormatting`, `setAsciiTables`,
+  `setTblHide*`, `setTblCellAlignment`, ...). (add-coverage-easy-wins-0-6, #59)
 
 ### Changed
 - Operators take selectors on either side (`all() > 0` keeps each column's name), and
@@ -70,7 +85,9 @@ than SQLite.
   (`1986-09-04 00:00:00`, no `.000000`). (add-book-port-needs-0-6, #59)
 - The wrapper crate is `0.6.0`, with the Polars features `serde`, `serde-lazy`,
   `binary_encoding`, `bitwise`, `hist`, `string_encoding`, `string_to_integer`,
-  `dtype-i128` and `dtype-u128`.
+  `dtype-i128`, `dtype-u128`, `cloud`, `aws`, `gcp`, `azure`, `http`, `is_close`,
+  `merge_sorted`, `business`, `string_normalize`, `reinterpret`, `ipc_streaming` and
+  `cse`.
 - Polars comes from the git tag `py-2.1.0` (commit 7f902bd, the code py-polars 2.1.0
   ships) instead of crates.io 0.55.2, which matched py-polars 1.43; release builds use
   that tag's toolchain, `nightly-2026-09-01`. This ends the drift the 0.5 book ports

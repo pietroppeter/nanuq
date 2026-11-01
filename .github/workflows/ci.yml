@@ -103,6 +103,8 @@ jobs:
       # tests/test_datamancer.nim and test_arraymancer.nim need Datamancer (an optional
       # dependency, which brings Arraymancer); tests/test_database.nim needs db_connector
       - run: nimble install -y datamancer db_connector
+      # tests/test_cloud.nim writes to a local S3 (moto) when moto_server is installed
+      - run: pip install "moto[server]"
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim

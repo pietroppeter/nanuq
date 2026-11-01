@@ -882,6 +882,9 @@ proc blockColumn(line: NimNode): NimNode =
     vals = opts
   newCall(bindSym("series", brOpen), name, vals)
 
+proc emptyFrameOf(schema: Schema): DataFrame
+proc emptyFrameOf(schema: openArray[(string, DataType)]): DataFrame
+
 macro newDataFrame*(columns: varargs[untyped]): untyped =
   ## Builds a DataFrame from columns of equal length, given as series or as a
   ## block with one `name: [values]` line per column. In the block, a name that
@@ -893,6 +896,12 @@ macro newDataFrame*(columns: varargs[untyped]): untyped =
   ##     rider: ["Pogačar", "Seixas"]
   ##     wins: [22, nil]
   ##     "win %": [0.31, 0.12]
+  ##
+  ## `newDataFrame(schema = {"a": Int64, "b": String})` is an empty frame with
+  ## those columns (Python's `pl.DataFrame(schema=...)`).
+  if columns.len == 1 and columns[0].kind == nnkExprEqExpr and
+      columns[0][0].eqIdent("schema"):
+    return newCall(bindSym"emptyFrameOf", columns[0][1])
   if columns.len == 1 and columns[0].kind == nnkStmtList:
     result = newCall(bindSym"newDataFrameOf")
     for line in columns[0]: result.add blockColumn(line)
@@ -1991,6 +2000,43 @@ type CsvEncoding* {.pure.} = enum
   ## instead of raising (Python's `encoding="utf8-lossy"`).
   Utf8, Utf8Lossy
 
+type StorageOptions* = openArray[(string, string)]
+  ## Options for cloud storage, as Python's `storage_options`:
+  ## `{"aws_region": "eu-west-1"}`. Empty: Polars reads credentials from the
+  ## environment.
+
+proc isCloudPath*(path: string): bool =
+  ## True for `s3://`, `gs://`, `az://`, `abfss://`, `hf://`, `http(s)://` and other
+  ## object-store URIs (not `file://`).
+  let i = path.find("://")
+  i > 0 and not path.startsWith("file:")
+
+proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
+proc toOptB(x: bool): Option[bool] = some(x)
+proc toOptB(x: Option[bool]): Option[bool] = x
+
+proc cloudOptions(path: string, storage: StorageOptions): ptr NqCloudOptions =
+  if storage.len == 0: return nil
+  var ks, vs: seq[cstring]
+  for p in storage:
+    ks.add p[0].cstring
+    vs.add p[1].cstring
+  result = nq_cloud_options_new(path.cstring, ks.firstOrNil, vs.firstOrNil, ks.len.csize_t)
+  if result == nil: raiseLast()
+
+proc csvOpts(separator: char, includeHeader: bool, nullValue: string,
+             quoteStyle: QuoteStyle, floatPrecision: Option[int], decimalComma,
+             maintainOrder, mkdir: bool): NqSinkOptions
+proc sinkOptions(format: uint8, maintainOrder, mkdir: bool): NqSinkOptions
+proc writeCloud(df: DataFrame, path: string, o: NqSinkOptions, storage: StorageOptions)
+
+template withCloud(path: string, storage: StorageOptions, c, body: untyped) =
+  let c = cloudOptions(path, storage)
+  try:
+    body
+  finally:
+    if c != nil: nq_cloud_options_free(c)
+
 proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: bool,
                  nullValues: openArray[string],
                  schemaOverrides: openArray[(string, DataType)],
@@ -1998,7 +2044,8 @@ proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: boo
                  inferSchemaLength: Option[int],
                  ignoreErrors, decimalComma, tryParseDates: bool,
                  quoteChar: Option[char], encoding: CsvEncoding,
-                 newColumns: openArray[string]): LazyFrame =
+                 newColumns: openArray[string], commentPrefix = "",
+                 storageOptions: StorageOptions = []): LazyFrame =
   let nulls = cstrings(nullValues)
   var names = newSeq[cstring](schemaOverrides.len)
   var ts = newSeq[DataType](schemaOverrides.len)
@@ -2007,14 +2054,15 @@ proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: boo
     ts[i] = t
   let sp = toSpecs(ts)
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_csv(path.cstring, dp, dl, separator.uint8, hasHeader,
-                               nulls.firstOrNil, nulls.len.csize_t,
-                               names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
-                               skipRows.csize_t, nRows.toC,
-                               inferSchemaLength.toC, ignoreErrors, decimalComma,
-                               tryParseDates,
-                               (if quoteChar.isSome: quoteChar.get.int32 else: -1'i32),
-                               encoding == CsvEncoding.Utf8Lossy)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_csv(path.cstring, dp, dl, separator.uint8, hasHeader,
+                                 nulls.firstOrNil, nulls.len.csize_t,
+                                 names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
+                                 skipRows.csize_t, nRows.toC,
+                                 inferSchemaLength.toC, ignoreErrors, decimalComma,
+                                 tryParseDates,
+                                 (if quoteChar.isSome: quoteChar.get.int32 else: -1'i32),
+                                 encoding == CsvEncoding.Utf8Lossy, cOrNil(commentPrefix), c)
   if newColumns.len > 0:
     var pairs: seq[(string, string)]
     var i = 0
@@ -2033,7 +2081,8 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
               inferSchemaLength: int | Option[int] = some(100),
               ignoreErrors = false, decimalComma = false, tryParseDates = false,
               quoteChar = some('"'), encoding = CsvEncoding.Utf8,
-              newColumns: openArray[string] = []): LazyFrame =
+              newColumns: openArray[string] = [], commentPrefix = "",
+              storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads a CSV file; nothing is read until the query runs. `path` may be
   ## a glob such as `"logs/*.csv"` when every file has the same columns.
   ##
@@ -2046,10 +2095,12 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
   ## columns. `quoteChar = none(char)` turns quoting off, `newColumns` renames
   ## the first columns (handy with `hasHeader = false`, which names them column_0,
-  ## column_1, ... as Polars 2 does).
+  ## column_1, ... as Polars 2 does). Lines starting with `commentPrefix` (e.g.
+  ## `"#"`) are skipped. `path` may be a cloud URI (`s3://bucket/x.csv`,
+  ## `https://...`), with credentials in `storageOptions` or the environment.
   scanCsvImpl(path, nil, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates, quoteChar, encoding, newColumns)
+              tryParseDates, quoteChar, encoding, newColumns, commentPrefix, storageOptions)
 
 proc readCsv*(path: string, separator = ',', hasHeader = true,
               nullValues: openArray[string] = [],
@@ -2059,7 +2110,8 @@ proc readCsv*(path: string, separator = ',', hasHeader = true,
               inferSchemaLength: int | Option[int] = some(100),
               ignoreErrors = false, decimalComma = false, tryParseDates = false,
               quoteChar = some('"'), encoding = CsvEncoding.Utf8,
-              newColumns: openArray[string] = []): DataFrame =
+              newColumns: openArray[string] = [], commentPrefix = "",
+              storageOptions: StorageOptions = []): DataFrame =
   ## Reads a CSV file now: `scanCsv(...).collect`, with the same options.
   ##
   ## .. code-block:: nim
@@ -2067,14 +2119,20 @@ proc readCsv*(path: string, separator = ',', hasHeader = true,
   ##                    schemaOverrides = {"bears": Int64})
   scanCsv(path, separator, hasHeader, nullValues, schemaOverrides, skipRows, nRows,
           columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates, quoteChar,
-          encoding, newColumns).collect
+          encoding, newColumns, commentPrefix, storageOptions).collect
 
 proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = true,
                nullValue = "", quoteStyle = QuoteStyle.Necessary,
-               floatPrecision: int | Option[int] = none(int), decimalComma = false) =
+               floatPrecision: int | Option[int] = none(int), decimalComma = false,
+               storageOptions: StorageOptions = []) =
   ## Writes `df` as CSV. Nulls are written as `nullValue`; `floatPrecision`
   ## sets the number of decimals for floats (`none(int)`: as many as needed).
+  ## A cloud URI `path` is written through a sink, with `storageOptions`.
   let p = toOpt(floatPrecision)
+  if isCloudPath(path):
+    writeCloud(df, path, csvOpts(separator, includeHeader, nullValue, quoteStyle, p,
+                                 decimalComma, true, false), storageOptions)
+    return
   if not nq_df_write_csv(df.raw, path.cstring, separator.uint8, includeHeader,
                          nullValue.cstring, NqQuoteStyle(ord(quoteStyle)),
                          (if p.isSome: p.get.int32 else: -1'i32), decimalComma):
@@ -2088,13 +2146,13 @@ proc readCsv*(source: Stream, separator = ',', hasHeader = true,
               inferSchemaLength: int | Option[int] = some(100),
               ignoreErrors = false, decimalComma = false, tryParseDates = false,
               quoteChar = some('"'), encoding = CsvEncoding.Utf8,
-              newColumns: openArray[string] = []): DataFrame =
+              newColumns: openArray[string] = [], commentPrefix = ""): DataFrame =
   ## Reads CSV from a stream (all of it, now), with the same options as reading
   ## a file: `readCsv(newStringStream("a,b\n1,2\n"))`.
   var data = source.readAll
   scanCsvImpl("", addr data, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates, quoteChar, encoding, newColumns).collect
+              tryParseDates, quoteChar, encoding, newColumns, commentPrefix).collect
 
 # ---------------------------------------------------------------------------
 # Parquet and IPC
@@ -2109,7 +2167,10 @@ type
     ## Codec for `writeIpc`.
     Uncompressed, Lz4, Zstd
 
-proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
+proc parquetOpts(compression: ParquetCompression, compressionLevel: Option[int],
+                 statistics: bool, rowGroupSize: Option[int], maintainOrder,
+                 mkdir: bool): NqSinkOptions
+proc ipcOpts(compression: IpcCompression, maintainOrder, mkdir: bool): NqSinkOptions
 
 proc keepRowIndex(columns: openArray[string], rowIndexName: string): seq[string] =
   ## `columns` keeps the row index, as in Polars.
@@ -2118,26 +2179,38 @@ proc keepRowIndex(columns: openArray[string], rowIndexName: string): seq[string]
 
 proc scanParquetImpl(path: string, data: ptr string, nRows: Option[int],
                      columns: openArray[string], rowIndexName: string,
-                     rowIndexOffset: int, lowMemory: bool): LazyFrame =
+                     rowIndexOffset: int, lowMemory: bool,
+                     hivePartitioning = none(bool),
+                     storageOptions: StorageOptions = []): LazyFrame =
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
-                                   rowIndexOffset.uint32, lowMemory)
+  let hive = (if hivePartitioning.isNone: -1'i32 else: hivePartitioning.get.int32)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                                     rowIndexOffset.uint32, lowMemory, hive, c)
   result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanParquet*(path: string, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
-                  rowIndexOffset = 0, lowMemory = false): LazyFrame =
+                  rowIndexOffset = 0, lowMemory = false,
+                  hivePartitioning: bool | Option[bool] = none(bool),
+                  storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads a Parquet file, or a glob of files with the same columns.
   ## `nRows` limits the rows read, `columns` keeps only those columns, and a
   ## `rowIndexName` adds a row number column first, counting from `rowIndexOffset`.
-  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, lowMemory)
+  ## `hivePartitioning` reads `key=value` directories as columns (`none`: when the
+  ## path is a directory or glob). `path` may be a cloud URI, with credentials in
+  ## `storageOptions` or the environment.
+  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, lowMemory,
+                  toOptB(hivePartitioning), storageOptions)
 
 proc readParquet*(path: string, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
-                  rowIndexOffset = 0, lowMemory = false): DataFrame =
+                  rowIndexOffset = 0, lowMemory = false,
+                  hivePartitioning: bool | Option[bool] = none(bool),
+                  storageOptions: StorageOptions = []): DataFrame =
   ## Reads a Parquet file now: `scanParquet(...).collect`.
   scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
-                  lowMemory).collect
+                  lowMemory, toOptB(hivePartitioning), storageOptions).collect
 
 proc readParquet*(source: Stream, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
@@ -2149,13 +2222,19 @@ proc readParquet*(source: Stream, nRows: int | Option[int] = none(int),
 
 proc writeParquet*(df: DataFrame, path: string, compression = ParquetCompression.Zstd,
                    compressionLevel: int | Option[int] = none(int), statistics = true,
-                   rowGroupSize: int | Option[int] = none(int)) =
+                   rowGroupSize: int | Option[int] = none(int),
+                   storageOptions: StorageOptions = []) =
   ## Writes `df` as a Parquet file. `compressionLevel` applies to `Gzip` (0-9),
   ## `Brotli` (0-11) and `Zstd` (1-22); `none(int)` uses the codec's default.
   ## `statistics` writes min, max and null counts per row group, which let scans
-  ## skip row groups.
+  ## skip row groups. A cloud URI `path` (`s3://bucket/x.parquet`) is written
+  ## through a sink, with credentials in `storageOptions` or the environment.
   let lvl = toOpt(compressionLevel)
   let rg = toOpt(rowGroupSize)
+  if isCloudPath(path):
+    writeCloud(df, path, parquetOpts(compression, lvl, statistics, rg, true, false),
+               storageOptions)
+    return
   if lvl.isSome and compression notin {ParquetCompression.Gzip, ParquetCompression.Brotli,
                                        ParquetCompression.Zstd}:
     raise newException(ValueError, "compressionLevel needs Gzip, Brotli or Zstd, not " &
@@ -2167,24 +2246,26 @@ proc writeParquet*(df: DataFrame, path: string, compression = ParquetCompression
 
 proc scanIpcImpl(path: string, data: ptr string, nRows: Option[int],
                  columns: openArray[string], rowIndexName: string,
-                 rowIndexOffset: int): LazyFrame =
+                 rowIndexOffset: int, storageOptions: StorageOptions = []): LazyFrame =
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
-                               rowIndexOffset.uint32)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                                 rowIndexOffset.uint32, c)
   result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanIpc*(path: string, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
-              rowIndexOffset = 0): LazyFrame =
+              rowIndexOffset = 0, storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads an Arrow IPC file (Feather v2), or a glob of them. Options as
   ## in `scanParquet`.
-  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset)
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, storageOptions)
 
 proc readIpc*(path: string, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
-              rowIndexOffset = 0): DataFrame =
+              rowIndexOffset = 0, storageOptions: StorageOptions = []): DataFrame =
   ## Reads an Arrow IPC file now: `scanIpc(...).collect`.
-  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
+              storageOptions).collect
 
 proc readIpc*(source: Stream, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
@@ -2193,8 +2274,12 @@ proc readIpc*(source: Stream, nRows: int | Option[int] = none(int),
   var data = source.readAll
   scanIpcImpl("", addr data, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
 
-proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed) =
-  ## Writes `df` as an Arrow IPC file (Feather v2).
+proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed,
+               storageOptions: StorageOptions = []) =
+  ## Writes `df` as an Arrow IPC file (Feather v2), to a cloud URI as `writeParquet`.
+  if isCloudPath(path):
+    writeCloud(df, path, ipcOpts(compression, true, false), storageOptions)
+    return
   if not nq_df_write_ipc(df.raw, path.cstring, NqIpcCompression(ord(compression))):
     raiseLast()
 
@@ -2440,7 +2525,36 @@ proc describe*(df: DataFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
 # ---------------------------------------------------------------------------
 
 const configVars = ["POLARS_FMT_MAX_ROWS", "POLARS_FMT_MAX_COLS", "POLARS_TABLE_WIDTH",
-                    "POLARS_FMT_STR_LEN"]
+                    "POLARS_FMT_STR_LEN", "POLARS_FMT_TABLE_FORMATTING",
+                    "POLARS_FMT_TABLE_ROUNDED_CORNERS",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_NAMES",
+                    "POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_SEPARATOR",
+                    "POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW",
+                    "POLARS_FMT_TABLE_INLINE_COLUMN_DATA_TYPE",
+                    "POLARS_FMT_TABLE_CELL_ALIGNMENT",
+                    "POLARS_FMT_TABLE_CELL_NUMERIC_ALIGNMENT",
+                    "POLARS_FMT_TABLE_CELL_LIST_LEN"]
+
+type
+  TableFormat* {.pure.} = enum
+    ## Table styles for `setTblFormatting` (Python's names in CamelCase).
+    AsciiFull = "ASCII_FULL", AsciiFullCondensed = "ASCII_FULL_CONDENSED",
+    AsciiNoBorders = "ASCII_NO_BORDERS", AsciiBordersOnly = "ASCII_BORDERS_ONLY",
+    AsciiBordersOnlyCondensed = "ASCII_BORDERS_ONLY_CONDENSED",
+    AsciiHorizontalOnly = "ASCII_HORIZONTAL_ONLY", AsciiMarkdown = "ASCII_MARKDOWN",
+    Markdown = "MARKDOWN", Utf8Full = "UTF8_FULL",
+    Utf8FullCondensed = "UTF8_FULL_CONDENSED", Utf8NoBorders = "UTF8_NO_BORDERS",
+    Utf8BordersOnly = "UTF8_BORDERS_ONLY", Utf8HorizontalOnly = "UTF8_HORIZONTAL_ONLY",
+    Nothing = "NOTHING"
+  CellAlignment* {.pure.} = enum
+    ## Cell alignment for `setTblCellAlignment`.
+    Left = "LEFT", Center = "CENTER", Right = "RIGHT"
+
+proc setFlag(name: string, active: Option[bool]) =
+  if active.isSome and active.get: putEnv(name, "1") else: delEnv(name)
+
 
 proc setVar(name: string, n: Option[int]) =
   if n.isSome: putEnv(name, $n.get) else: delEnv(name)
@@ -2458,6 +2572,47 @@ proc setFmtStrLengths*(n: int | Option[int]) =
   ## Characters shown of each string value (`-1`: all; `none(int)`: Polars' default, 30).
   setVar(configVars[3], toOpt(n))
 
+proc setTblFormatting*(format: TableFormat | Option[TableFormat], roundedCorners = false) =
+  ## The table style used when a frame prints (`none(TableFormat)`: Polars'
+  ## default, `Utf8FullCondensed`), with rounded corners for the UTF-8 styles.
+  let f = (when format is TableFormat: some(format) else: format)
+  if f.isSome: putEnv(configVars[4], $f.get) else: delEnv(configVars[4])
+  setFlag(configVars[5], some(roundedCorners))
+proc setAsciiTables*(active: bool | Option[bool] = true) =
+  ## ASCII characters instead of UTF-8 box drawing for table borders.
+  let a = toOptB(active)
+  if a.isSome and a.get: putEnv(configVars[4], $TableFormat.AsciiFullCondensed)
+  else: delEnv(configVars[4])
+proc setTblHideColumnDataTypes*(active: bool | Option[bool] = true) =
+  ## Hides the data type line under the column names.
+  setFlag(configVars[6], toOptB(active))
+proc setTblHideColumnNames*(active: bool | Option[bool] = true) =
+  ## Hides the column names.
+  setFlag(configVars[7], toOptB(active))
+proc setTblHideDataframeShape*(active: bool | Option[bool] = true) =
+  ## Hides the `shape: (rows, columns)` line.
+  setFlag(configVars[8], toOptB(active))
+proc setTblHideColumnSeparator*(active: bool | Option[bool] = true) =
+  ## Hides the line between column names and values.
+  setFlag(configVars[9], toOptB(active))
+proc setTblDataframeShapeBelow*(active: bool | Option[bool] = true) =
+  ## Prints the shape line below the table.
+  setFlag(configVars[10], toOptB(active))
+proc setTblColumnDataTypeInline*(active: bool | Option[bool] = true) =
+  ## Puts the data type next to each column name (`kg (i64)`).
+  setFlag(configVars[11], toOptB(active))
+proc setTblCellAlignment*(alignment: CellAlignment | Option[CellAlignment]) =
+  ## Alignment of all cells (`none`: Polars' default, left).
+  let a = (when alignment is CellAlignment: some(alignment) else: alignment)
+  if a.isSome: putEnv(configVars[12], $a.get) else: delEnv(configVars[12])
+proc setTblCellNumericAlignment*(alignment: CellAlignment | Option[CellAlignment]) =
+  ## Alignment of numeric cells (`none`: as the other cells).
+  let a = (when alignment is CellAlignment: some(alignment) else: alignment)
+  if a.isSome: putEnv(configVars[13], $a.get) else: delEnv(configVars[13])
+proc setFmtTableCellListLen*(n: int | Option[int]) =
+  ## Items shown of each list value (`-1`: all; `none(int)`: Polars' default, 3).
+  setVar(configVars[14], toOpt(n))
+
 proc setFloatPrecision*(n: int | Option[int]) =
   ## Decimal places shown for floats when a frame prints (`none(int)`: Polars'
   ## default, which shows what the value needs). Python's `float_precision`.
@@ -2468,9 +2623,25 @@ proc setFloatPrecision*(n: int | Option[int]) =
 proc setConfig*(tblRows: int | Option[int] = none(int); tblCols: int | Option[int] = none(int);
                 tblWidthChars: int | Option[int] = none(int);
                 fmtStrLengths: int | Option[int] = none(int);
-                floatPrecision: int | Option[int] = none(int)) =
+                floatPrecision: int | Option[int] = none(int);
+                tblFormatting: TableFormat | Option[TableFormat] = none(TableFormat);
+                asciiTables: bool | Option[bool] = none(bool);
+                tblHideColumnDataTypes: bool | Option[bool] = none(bool);
+                tblHideColumnNames: bool | Option[bool] = none(bool);
+                tblHideDataframeShape: bool | Option[bool] = none(bool);
+                tblCellAlignment: CellAlignment | Option[CellAlignment] = none(CellAlignment)) =
   ## Sets several display options at once, like Python's `pl.Config(...)`:
   ## `setConfig(tblRows = 12, floatPrecision = 2)`. Options left out are unchanged.
+  when tblFormatting is TableFormat: setTblFormatting(tblFormatting)
+  else:
+    if tblFormatting.isSome: setTblFormatting(tblFormatting)
+  if toOptB(asciiTables).isSome: setAsciiTables(asciiTables)
+  if toOptB(tblHideColumnDataTypes).isSome: setTblHideColumnDataTypes(tblHideColumnDataTypes)
+  if toOptB(tblHideColumnNames).isSome: setTblHideColumnNames(tblHideColumnNames)
+  if toOptB(tblHideDataframeShape).isSome: setTblHideDataframeShape(tblHideDataframeShape)
+  when tblCellAlignment is CellAlignment: setTblCellAlignment(tblCellAlignment)
+  else:
+    if tblCellAlignment.isSome: setTblCellAlignment(tblCellAlignment)
   if toOpt(tblRows).isSome: setTblRows(tblRows)
   if toOpt(tblCols).isSome: setTblCols(tblCols)
   if toOpt(tblWidthChars).isSome: setTblWidthChars(tblWidthChars)
@@ -2483,7 +2654,7 @@ proc resetConfig*() =
   nq_set_float_precision(-1)
 
 type ConfigSnapshot = object
-  vars: array[4, Option[string]]
+  vars: array[configVars.len, Option[string]]
   floatPrecision: int32
 
 proc saveConfig(): ConfigSnapshot =
@@ -4258,9 +4429,19 @@ proc readJson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaAr
   ## Reads JSON from a stream: `readJson(newStringStream(text))`.
   var data = source.readAll
   readJsonImpl("", addr data, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
+                 rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): LazyFrame
+
 proc readNdjson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
-                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): DataFrame =
   ## Reads newline-delimited JSON, one object per line (options as in `readJson`).
+  if isCloudPath(path):
+    return scanNdjson(path, schema = schema, schemaOverrides = schemaOverrides,
+                      inferSchemaLength = inferSchemaLength, ignoreErrors = ignoreErrors,
+                      storageOptions = storageOptions).collect
   readJsonImpl(path, nil, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
 proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
                  inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
@@ -4269,12 +4450,16 @@ proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: Schema
 
 proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
                  rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
-                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): LazyFrame =
-  ## Lazily reads newline-delimited JSON files (a path or a glob).
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): LazyFrame =
+  ## Lazily reads newline-delimited JSON files (a path or a glob, or a cloud URI).
   let (names, specs, full) = schemaArgs(schema, schemaOverrides)
-  wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC, cOrNil(rowIndexName),
-                         rowIndexOffset.uint32, names.firstOrNil, specs.specs.firstOrNil,
-                         names.len.csize_t, full, toOpt(inferSchemaLength).toC, ignoreErrors)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC,
+                                    cOrNil(rowIndexName), rowIndexOffset.uint32,
+                                    names.firstOrNil, specs.specs.firstOrNil,
+                                    names.len.csize_t, full, toOpt(inferSchemaLength).toC,
+                                    ignoreErrors, c)
 
 proc writeJsonImpl(df: DataFrame, path: cstring, lines: bool): string =
   let r = nq_df_write_json(df.raw, path, lines)
@@ -4288,8 +4473,12 @@ proc toNdjson*(df: DataFrame): string = writeJsonImpl(df, nil, true)
 proc writeJson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, false)
   ## Writes the frame as a JSON array of row objects.
 proc writeJson*(df: DataFrame, dest: Stream) = dest.write(df.toJson)
-proc writeNdjson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, true)
-  ## Writes the frame as newline-delimited JSON.
+proc writeNdjson*(df: DataFrame, path: string, storageOptions: StorageOptions = []) =
+  ## Writes the frame as newline-delimited JSON, to a file or a cloud URI.
+  if isCloudPath(path):
+    writeCloud(df, path, sinkOptions(3, true, false), storageOptions)
+    return
+  discard writeJsonImpl(df, path.cstring, true)
 proc writeNdjson*(df: DataFrame, dest: Stream) = dest.write(df.toNdjson)
 
 # ---------------------------------------------------------------------------
@@ -4988,16 +5177,19 @@ proc sinkOptions(format: uint8, maintainOrder, mkdir: bool): NqSinkOptions =
                 maintainOrder: maintainOrder, mkdir: mkdir)
 
 proc sinkImpl(lf: LazyFrame, path: string, part: ptr PartitionBy, o: NqSinkOptions,
-              lazy: bool): LazyFrame =
+              lazy: bool, storageOptions: StorageOptions = []): LazyFrame =
   var o = o
-  if part == nil:
-    result = wrap nq_lf_sink(lf.raw, path.cstring, nil, nil, 0, true, 0, addr o)
-  else:
-    let keys = part[].key.mapIt(col(it))
-    let raws = keys.mapIt(it.raw)
-    result = wrap nq_lf_sink(lf.raw, nil, part[].basePath.cstring, raws.firstOrNil,
-                             raws.len.csize_t, part[].includeKey,
-                             part[].maxRowsPerFile.int64, addr o)
+  let target = (if part == nil: path else: part[].basePath)
+  withCloud(target, storageOptions, c):
+    o.cloud = c
+    if part == nil:
+      result = wrap nq_lf_sink(lf.raw, path.cstring, nil, nil, 0, true, 0, addr o)
+    else:
+      let keys = part[].key.mapIt(col(it))
+      let raws = keys.mapIt(it.raw)
+      result = wrap nq_lf_sink(lf.raw, nil, part[].basePath.cstring, raws.firstOrNil,
+                               raws.len.csize_t, part[].includeKey,
+                               part[].maxRowsPerFile.int64, addr o)
   if not lazy:
     discard result.collect(Engine.Streaming)
 
@@ -5031,50 +5223,59 @@ proc csvOpts(separator: char, includeHeader: bool, nullValue: string,
 
 type SinkTarget = string | PartitionBy
 
-proc sinkTo(lf: LazyFrame, target: SinkTarget, o: NqSinkOptions, lazy: bool): LazyFrame =
+proc writeCloud(df: DataFrame, path: string, o: NqSinkOptions, storage: StorageOptions) =
+  discard sinkImpl(df.lazy, path, nil, o, false, storage)
+
+proc sinkTo(lf: LazyFrame, target: SinkTarget, o: NqSinkOptions, lazy: bool,
+            storageOptions: StorageOptions): LazyFrame =
   when target is string:
-    sinkImpl(lf, target, nil, o, lazy)
+    sinkImpl(lf, target, nil, o, lazy, storageOptions)
   else:
     var t = target
-    sinkImpl(lf, "", addr t, o, lazy)
+    sinkImpl(lf, "", addr t, o, lazy, storageOptions)
 
 proc sinkParquet*(lf: LazyFrame, target: SinkTarget, compression = ParquetCompression.Zstd,
                   compressionLevel: int | Option[int] = none(int), statistics = true,
                   rowGroupSize: int | Option[int] = none(int), maintainOrder = true,
-                  mkdir = false, lazy: static bool = false): auto =
+                  mkdir = false, lazy: static bool = false,
+                  storageOptions: StorageOptions = []): auto =
   ## Runs the query with the streaming engine and writes the result to a
   ## Parquet file (`target` a path) or to partitioned files (`PartitionBy`).
   ## Options as in `writeParquet`; `mkdir` creates missing directories. With
   ## `lazy = true` it returns the sink as a LazyFrame instead, which writes
-  ## the file when collected (several at once with `collectAll`).
+  ## the file when collected (several at once with `collectAll`). A cloud URI
+  ## target (`s3://bucket/x.parquet`) takes credentials from `storageOptions` or
+  ## the environment.
   let o = parquetOpts(compression, toOpt(compressionLevel), statistics, toOpt(rowGroupSize),
                       maintainOrder, mkdir)
-  when lazy: sinkTo(lf, target, o, true)
-  else: discard sinkTo(lf, target, o, false)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
 
 proc sinkIpc*(lf: LazyFrame, target: SinkTarget, compression = IpcCompression.Uncompressed,
-              maintainOrder = true, mkdir = false, lazy: static bool = false): auto =
+              maintainOrder = true, mkdir = false, lazy: static bool = false,
+              storageOptions: StorageOptions = []): auto =
   ## Like `sinkParquet`, to Arrow IPC files (options as in `writeIpc`).
   let o = ipcOpts(compression, maintainOrder, mkdir)
-  when lazy: sinkTo(lf, target, o, true)
-  else: discard sinkTo(lf, target, o, false)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
 
 proc sinkCsv*(lf: LazyFrame, target: SinkTarget, separator = ',', includeHeader = true,
               nullValue = "", quoteStyle = QuoteStyle.Necessary,
               floatPrecision: int | Option[int] = none(int), decimalComma = false,
-              maintainOrder = true, mkdir = false, lazy: static bool = false): auto =
+              maintainOrder = true, mkdir = false, lazy: static bool = false,
+              storageOptions: StorageOptions = []): auto =
   ## Like `sinkParquet`, to CSV files (options as in `writeCsv`).
   let o = csvOpts(separator, includeHeader, nullValue, quoteStyle, toOpt(floatPrecision),
                   decimalComma, maintainOrder, mkdir)
-  when lazy: sinkTo(lf, target, o, true)
-  else: discard sinkTo(lf, target, o, false)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
 
 proc sinkNdjson*(lf: LazyFrame, target: SinkTarget, maintainOrder = true, mkdir = false,
-                 lazy: static bool = false): auto =
+                 lazy: static bool = false, storageOptions: StorageOptions = []): auto =
   ## Like `sinkParquet`, to newline-delimited JSON files.
   let o = sinkOptions(3, maintainOrder, mkdir)
-  when lazy: sinkTo(lf, target, o, true)
-  else: discard sinkTo(lf, target, o, false)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
 
 proc profile*(lf: LazyFrame): tuple[result, timings: DataFrame] {.error: "profile was " &
     "removed in Polars 2.0 (its timings were misleading under the streaming engine); " &
@@ -5656,3 +5857,322 @@ iterator pairs*(g: GroupBy): tuple[key: seq[string], frame: DataFrame] =
   let df = g.lazy.lf.collect
   for k, part in df.partitionBy(names, maintainOrder = true, asDict = true):
     yield (k, part)
+
+# ---------------------------------------------------------------------------
+# 0.6: small functions from the Polars coverage map (add-coverage-easy-wins-0-6)
+# ---------------------------------------------------------------------------
+
+proc nullColumns(schema: Schema, n: int): seq[Expr] =
+  for name, t in schema:
+    let v = lit(nil).cast(t)
+    result.add (if n == 0: v else: repeat(v, n)).alias(name)
+
+proc nullFrame(schema: Schema, n: int): DataFrame =
+  if schema.len == 0: return newDataFrameOf()
+  let r = newDataFrameOf().lazy.select(nullColumns(schema, n)).collect
+  if n == 0: r.head(0) else: r
+
+proc emptyFrameOf(schema: openArray[(string, DataType)]): DataFrame =
+  var s: Schema
+  for (name, t) in schema: s[name] = t
+  nullFrame(s, 0)
+
+proc emptyFrameOf(schema: Schema): DataFrame = nullFrame(schema, 0)
+
+proc clear*(df: DataFrame, n = 0): DataFrame =
+  ## A frame with the same columns and types and no rows, or `n` rows of nulls.
+  nullFrame(df.schema, n)
+
+proc clear*(lf: LazyFrame, n = 0): LazyFrame =
+  ## `clear` on a LazyFrame (the schema is resolved now).
+  nullFrame(lf.collectSchema, n).lazy
+
+proc isEmpty*(df: DataFrame): bool = df.height == 0
+  ## True when the frame has no rows.
+proc isEmpty*(s: Series): bool = s.len == 0
+  ## True when the series has no values.
+
+proc getColumnIndex*(df: DataFrame, name: string): int =
+  ## The position of column `name`; raises `ColumnNotFoundError` if there is none.
+  result = df.columns.find(name)
+  if result < 0: raise newException(ColumnNotFoundError, "no column named '" & name & "'")
+
+proc rowsByKey*[K; T: object | tuple](df: DataFrame, key: string, _: typedesc[K],
+                                      _: typedesc[T],
+                                      unique: static bool = false): auto =
+  ## The rows grouped by the values of column `key`, in order of appearance:
+  ## `df.rowsByKey("station", string, tuple[day: Date, rain: float])` is an
+  ## `OrderedTable[string, seq[...]]`. The key column is left out of the rows
+  ## unless `T` has a field with its name. With `unique = true` each key maps to
+  ## its last row instead of a seq.
+  let keys = df.toList(key, K)
+  let rs = df.rows(T)
+  when unique:
+    var t = initOrderedTable[K, T]()
+    for i, k in keys: t[k] = rs[i]
+    t
+  else:
+    var t = initOrderedTable[K, seq[T]]()
+    for i, k in keys: t.mgetOrPut(k, @[]).add rs[i]
+    t
+
+proc shift*(lf: LazyFrame, n = 1): LazyFrame =
+  ## Shifts every column down by `n` rows (up when negative), filling with nulls.
+  lf.select(all().shift(n))
+proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](lf: LazyFrame, n = 1,
+    fillValue: T): LazyFrame =
+  ## Like `shift`, filling with `fillValue`.
+  lf.select(all().toExpr.shift(n, fillValue))
+proc shift*(df: DataFrame, n = 1): DataFrame = df.lazy.shift(n).collect
+  ## Shifts every column down by `n` rows (up when negative), filling with nulls.
+proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](df: DataFrame, n = 1,
+    fillValue: T): DataFrame = df.lazy.shift(n, fillValue).collect
+
+proc first*(lf: LazyFrame): LazyFrame = lf.slice(0, 1)
+  ## The first row.
+proc last*(lf: LazyFrame): LazyFrame = lf.tail(1)
+  ## The last row.
+
+proc dropNans*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
+  ## Drops rows with a NaN in any float column, or only in the `subset` columns.
+  let names = cstrings(subset)
+  wrap nq_lf_drop_nans(lf.raw, names.firstOrNil, names.len.csize_t)
+proc dropNans*(df: DataFrame, subset: varargs[string]): DataFrame =
+  df.lazy.dropNans(subset).collect
+
+proc epoch*(d: DtNameSpace, timeUnit = EpochUnit.Microseconds): Expr =
+  ## Time since 1970-01-01 in `timeUnit`: `Seconds` and `Days` are whole numbers.
+  case timeUnit
+  of EpochUnit.Nanoseconds: d.timestamp(TimeUnit.Nanoseconds)
+  of EpochUnit.Microseconds: d.timestamp(TimeUnit.Microseconds)
+  of EpochUnit.Milliseconds: d.timestamp(TimeUnit.Milliseconds)
+  of EpochUnit.Seconds: d.timestamp(TimeUnit.Milliseconds) div 1000
+  of EpochUnit.Days: Expr(d).cast(dataType(Date)).cast(Int32)
+
+# Series bin namespace
+
+type SeriesBinNameSpace* = distinct Series
+proc bin*(s: Series): SeriesBinNameSpace = SeriesBinNameSpace(s)
+  ## The binary functions on a Series.
+seriesNsOps(SeriesBinNameSpace, "bin")
+
+# Expressions
+
+proc win(e: Expr, op: NqWinOp, a: Expr = nil, b: Expr = nil, i = 0'i64, j = 0'i64,
+         x = 0.0, y = 0.0, flag = false): Expr =
+  wrap nq_expr_win(e.raw, op, (if a.isNil: nil else: a.raw), (if b.isNil: nil else: b.raw),
+                   i, j, x, y, flag)
+
+proc eqMissing*[T](e: Expr, other: T): Expr = win(e, nqwEqMissing, lit(other))
+  ## `==` where null equals null (never null itself).
+proc neMissing*[T](e: Expr, other: T): Expr = win(e, nqwNeMissing, lit(other))
+  ## `!=` where null equals null (never null itself).
+
+proc nth*(indices: varargs[int]): Expr =
+  ## The columns at these positions (negative counts from the end):
+  ## `select(nth(0, -1))`.
+  var ix = newSeq[int64](indices.len)
+  for i, v in indices: ix[i] = v.int64
+  wrap nq_expr_nth(ix.firstOrNil, ix.len.csize_t, true)
+
+proc cumulativeEval*(e: Expr, expr: Expr, minSamples = 1): Expr =
+  ## Runs `expr` (on `element()`) over the growing window of values up to each
+  ## row: `col.x.cumulativeEval(element().sum)` is a cumulative sum.
+  win(e, nqwCumulativeEval, expr, i = minSamples.int64)
+
+proc roundSigFigs*(e: Expr, digits: int): Expr = win(e, nqwRoundSigFigs, i = digits.int64)
+  ## Rounds to `digits` significant figures.
+
+proc century*(d: DtNameSpace): Expr = win(Expr(d), nqwCentury)
+  ## The century (2001-2100 is the 21st).
+proc millennium*(d: DtNameSpace): Expr = win(Expr(d), nqwMillennium)
+  ## The millennium (2001-3000 is the 3rd).
+proc dstOffset*(d: DtNameSpace): Expr = win(Expr(d), nqwDstOffset)
+  ## The daylight saving time offset of a zoned datetime, as a Duration.
+proc baseUtcOffset*(d: DtNameSpace): Expr = win(Expr(d), nqwBaseUtcOffset)
+  ## The base offset from UTC of a zoned datetime, as a Duration.
+
+proc escapeRegex*(s: StrNameSpace): Expr = win(Expr(s), nqwEscapeRegex)
+  ## The strings with regex metacharacters escaped.
+
+proc timeRange*(start, stop: TimeOfDay | Expr, interval: string | TimeInterval = "1h",
+                closed = ClosedWindow.Both): Expr =
+  ## One time of day per `interval` from `start` to `stop`.
+  wrap nq_expr_time_range(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                          NqClosedWindow(ord(closed)), false)
+proc timeRanges*(start, stop: TimeOfDay | Expr, interval: string | TimeInterval = "1h",
+                 closed = ClosedWindow.Both): Expr =
+  ## One list of times per row, from `start` to `stop` every `interval`.
+  wrap nq_expr_time_range(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                          NqClosedWindow(ord(closed)), true)
+
+proc concatArr*(exprs: varargs[Expr]): Expr =
+  ## Fixed-size arrays from the values (or arrays) of several columns, per row.
+  let raws = exprs.mapIt(it.raw)
+  wrap nq_expr_concat_arr(raws.firstOrNil, raws.len.csize_t)
+
+proc isClose*[T](e: Expr, other: T, absTol = 0.0, relTol = 1e-9, nansEqual = false): Expr =
+  ## True where `abs(a - b) <= max(relTol * max(abs(a), abs(b)), absTol)`.
+  win(e, nqwIsClose, lit(other), x = absTol, y = relTol, flag = nansEqual)
+
+proc reinterpret*(e: Expr, signed = true): Expr = win(e, nqwReinterpret, flag = signed)
+  ## The bits of 64-bit integers read as signed (`Int64`) or unsigned (`UInt64`).
+
+type
+  UnicodeForm* {.pure.} = enum
+    ## Unicode normal forms for `str.normalize`.
+    NFC, NFKC, NFD, NFKD
+
+proc normalize*(s: StrNameSpace, form = UnicodeForm.NFC): Expr =
+  ## The strings in a Unicode normal form.
+  win(Expr(s), nqwNormalize, i = ord(form).int64)
+
+type
+  Roll* {.pure.} = enum
+    ## What `addBusinessDays` does with a start date that is not a business day.
+    Raise, Forward, Backward
+
+const workweek* = [true, true, true, true, true, false, false]
+  ## Monday to Friday, the default `weekMask`.
+
+proc maskBits(m: array[7, bool]): int64 =
+  for i, d in m:
+    if d: result = result or (1'i64 shl i)
+
+proc holidaysExpr(holidays: openArray[Date]): Expr =
+  lit(series("", holidays)).implode
+
+proc addBusinessDays*(d: DtNameSpace, n: int | Expr, weekMask = workweek,
+                      holidays: openArray[Date] = [], roll = Roll.Raise): Expr =
+  ## Adds `n` business days (Monday to Friday by default, minus `holidays`).
+  win(Expr(d), nqwAddBusinessDays, lit(n), holidaysExpr(holidays), maskBits(weekMask),
+      ord(roll).int64)
+
+proc isBusinessDay*(d: DtNameSpace, weekMask = workweek,
+                    holidays: openArray[Date] = []): Expr =
+  ## True on business days.
+  win(Expr(d), nqwIsBusinessDay, b = holidaysExpr(holidays), i = maskBits(weekMask))
+
+proc businessDayCount*(start, stop: Date | Expr, weekMask = workweek,
+                       holidays: openArray[Date] = []): Expr =
+  ## Business days from `start` (included) to `stop` (excluded).
+  let h = holidaysExpr(holidays)
+  wrap nq_expr_business_day_count(lit(start).raw, lit(stop).raw, maskBits(weekMask), h.raw)
+
+# Frames
+
+type
+  QueryOptFlags* = object
+    ## Optimizations Polars applies when a query runs (Python's `pl.QueryOptFlags`).
+    ## All are on by default; `QueryOptFlags.none` turns them all off.
+    predicatePushdown* = true
+    projectionPushdown* = true
+    simplifyExpression* = true
+    slicePushdown* = true
+    commSubplanElim* = true
+    commSubexprElim* = true
+    clusterWithColumns* = true
+    typeCoercion* = true
+    typeCheck* = true
+
+proc none*(_: typedesc[QueryOptFlags]): QueryOptFlags =
+  ## Every optimization off (type coercion and checks stay on, as in Python).
+  QueryOptFlags(predicatePushdown: false, projectionPushdown: false,
+                simplifyExpression: false, slicePushdown: false, commSubplanElim: false,
+                commSubexprElim: false, clusterWithColumns: false)
+
+proc withOptimizations*(lf: LazyFrame, optimizations: QueryOptFlags): LazyFrame =
+  ## The query with these optimizations, for `collect`, `explain` and sinks.
+  let o = optimizations
+  var bits = 0'u32
+  for i, on in [o.predicatePushdown, o.projectionPushdown, o.simplifyExpression,
+                o.slicePushdown, o.commSubplanElim, o.commSubexprElim,
+                o.clusterWithColumns, o.typeCoercion, o.typeCheck]:
+    if on: bits = bits or (1'u32 shl i)
+  wrap nq_lf_with_optimizations(lf.raw, bits)
+
+proc collect*(lf: LazyFrame, optimizations: QueryOptFlags,
+              engine = Engine.Auto): DataFrame =
+  ## Runs the query with these optimizations: `collect(QueryOptFlags.none)`.
+  lf.withOptimizations(optimizations).collect(engine)
+
+proc cache*(lf: LazyFrame): LazyFrame = wrap nq_lf_cache(lf.raw)
+  ## Caches the result of this part of the query when it is used several times.
+
+proc mergeSorted*(lf, other: LazyFrame, key: string): LazyFrame =
+  ## Merges two frames sorted by `key` into one sorted frame (same columns).
+  wrap nq_lf_merge_sorted(lf.raw, other.raw, key.cstring)
+proc mergeSorted*(df, other: DataFrame, key: string): DataFrame =
+  df.lazy.mergeSorted(other.lazy, key).collect
+
+type
+  MissingColumns* {.pure.} = enum
+    ## `matchToSchema`: what to do with a column of the schema the frame lacks.
+    Raise, Insert
+  ExtraColumns* {.pure.} = enum
+    ## `matchToSchema`: what to do with a column the schema lacks.
+    Raise, Ignore
+  CastPolicy* {.pure.} = enum
+    ## `matchToSchema`: whether numbers may be cast to a wider type.
+    Forbid, Upcast
+
+proc matchToSchema*(lf: LazyFrame, schema: openArray[(string, DataType)],
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): LazyFrame =
+  ## Brings the frame to `schema`: its columns in that order and with those types,
+  ## raising when they do not match unless told to insert missing columns (as
+  ## nulls), drop extra ones, or upcast integers and floats.
+  var names: seq[cstring]
+  var ts: seq[DataType]
+  for p in schema:
+    names.add p[0].cstring
+    ts.add p[1]
+  let sp = toSpecs(ts)
+  wrap nq_lf_match_to_schema(lf.raw, names.firstOrNil, sp.specs.firstOrNil,
+                             names.len.csize_t, ord(missingColumns).int32,
+                             ord(extraColumns).int32, ord(integerCast).int32,
+                             ord(floatCast).int32)
+proc matchToSchema*(lf: LazyFrame, schema: Schema,
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): LazyFrame =
+  lf.matchToSchema(toSeq(schema.pairs), missingColumns, extraColumns, integerCast, floatCast)
+proc matchToSchema*(df: DataFrame, schema: openArray[(string, DataType)],
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): DataFrame =
+  df.lazy.matchToSchema(schema, missingColumns, extraColumns, integerCast,
+                        floatCast).collect
+proc matchToSchema*(df: DataFrame, schema: Schema,
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): DataFrame =
+  df.lazy.matchToSchema(schema, missingColumns, extraColumns, integerCast,
+                        floatCast).collect
+
+proc rechunk*(df: DataFrame): DataFrame = wrap nq_df_rechunk(df.raw)
+  ## The frame with each column in one contiguous chunk.
+proc shrinkToFit*(df: DataFrame): DataFrame = wrap nq_df_shrink_to_fit(df.raw)
+  ## The frame with no spare capacity in its buffers.
+proc nChunks*(df: DataFrame): int = nq_df_n_chunks(df.raw).int
+  ## The largest number of chunks of any column (1 after `rechunk`).
+
+proc readOds*(path: string, sheetName = "", sheetId = 1, hasHeader = true, headerRow = 0,
+              skipRows = 0, columns: openArray[string] = [],
+              schemaOverrides: openArray[(string, DataType)] = []): DataFrame =
+  ## Reads one sheet of an OpenDocument spreadsheet (.ods), as `readExcel`.
+  readExcel(path, sheetName, sheetId, hasHeader, headerRow, skipRows, columns,
+            schemaOverrides)
+
+proc readIpcStream*(path: string): DataFrame =
+  ## Reads an Arrow IPC stream (not the IPC file format of `readIpc`).
+  wrap nq_read_ipc_stream(path.cstring, nil, 0)
+proc readIpcStream*(source: Stream): DataFrame =
+  ## Reads Arrow IPC stream bytes from a stream.
+  var data = source.readAll
+  wrap nq_read_ipc_stream(nil, cast[ptr uint8](data.cstring), data.len.csize_t)
+proc writeIpcStream*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed) =
+  ## Writes `df` as an Arrow IPC stream.
+  if not nq_df_write_ipc_stream(df.raw, path.cstring, NqIpcCompression(ord(compression))):
+    raiseLast()

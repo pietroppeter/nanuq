@@ -22,9 +22,12 @@ leaves: Arrow memory shared with other libraries (and with Nim code, without cop
 Excel workbooks, SQLite databases, saved query plans, and two new column types for
 raw bytes and exact decimals.
 
-It came in nine OpenSpec changes, two of which are the functions the Nanuq Book ports
-still missed. Two ideas from the plan did not make it, and the last section says why.
-Every snippet below runs, on a few made-up rows about bear sightings.
+It came in fourteen OpenSpec changes. Nine were planned; then the book ports and the
+go explainer asked for more, Pietro asked to build on the same Polars that py-polars
+2.1 ships and to add cloud storage after all, and the new Polars coverage map turned
+up thirty small functions worth adding now. Two ideas from the plan did not make it,
+and the last section says why. Every snippet below runs, on a few made-up rows about
+bear sightings.
 """
 
 nbCode:
@@ -49,8 +52,8 @@ one-argument `collect`. `collectAll` runs several queries together, so Polars ca
 share the parts they have in common.
 
 There is no `profile`: py-polars 2.0 removed `LazyFrame.profile`, as its timings were
-misleading under the streaming engine, and the Polars Nanuq now builds on (see the
-last section) no longer has it. Calling it is a compile-time error that says so.
+misleading under the streaming engine, and the Polars Nanuq now builds on (section 10)
+no longer has it. Calling it is a compile-time error that says so.
 """
 
 nbCode:
@@ -250,6 +253,65 @@ nbCode:
     echo key[0], ": ", part.height, " rows"
 
 nbText: """
+## 10. The same Polars as py-polars
+
+Until 0.5 Nanuq used the newest Polars crate on crates.io. The Rust crates are released
+by hand every few months, and the newest one, 0.55.2, matches py-polars 1.43, while the
+book and the explainers compare against py-polars 2.1, about 940 commits later. Every
+port found a few cells that differed for that reason alone: SQL table functions, hash
+values, sampling order, Decimal `mod`.
+
+So 0.6 builds Polars from the git tag `py-2.1.0`, the commit py-polars 2.1.0 was
+released from. Two things a git dependency does not inherit had to be copied: the
+workspace's `[patch.crates-io]` entries (forks of hashbrown, jemalloc and
+color-backtrace) and the nightly toolchain the tag pins for release builds. The crate
+version inside the tag still reads 0.55.1, so the tag, not the version, is what we
+track. In exchange, Nanuq follows Polars 2: `profile` and `cat.getCategories` are gone,
+CSV columns read without a header are `column_0`, `column_1`, ..., and `topK` and joins
+without `maintainOrder` no longer promise an order. The spec examples caught each of
+these.
+
+## 11. Cloud storage
+
+The plan put cloud storage in 0.7, with the shared library, as "distribution". Then
+the cost turned out to be tiny: Polars' streaming engine already compiles the object
+store client, TLS and the async runtime into the library, and turning on S3, Google
+Cloud Storage, Azure and HTTP adds about 2%. So every scan and read of CSV, Parquet,
+IPC and NDJSON accepts a cloud URI, and they, the sinks and the writes take
+`storageOptions`, the key/value pairs Python calls `storage_options`. Without them
+Polars reads credentials from the environment, as in Python.
+
+The one design question was writing. Polars' eager writers write local files; Python
+routes a cloud `write_parquet` through a sink. Nanuq does the same, so
+`df.writeParquet("s3://bucket/x.parquet")` just works. The tests run against a local
+HTTP server and, in CI, a local S3 (moto).
+"""
+
+nbCode:
+  echo isCloudPath("s3://polar-bears/census.parquet"), " ", isCloudPath(tmp / "x.parquet")
+  let toS3 = sightings.lazy.sinkParquet("s3://polar-bears/sightings.parquet", lazy = true,
+                                        storageOptions = {"aws_region": "eu-west-1"})
+  echo toS3 is LazyFrame  # collecting it would upload the file
+
+nbText: """
+## 12. Thirty small functions from the coverage map
+
+The Polars coverage map, a new page of the site, lists every function of Python Polars
+and whether Nanuq has it. Sorted by effort, it showed thirty that each take an hour or
+two: empty frames (`newDataFrame(schema = {...})`, `clear`), `isClose` and the
+null-aware `eqMissing`, business days, `timeRange`, `cumulativeEval`, `matchToSchema`,
+`mergeSorted`, query optimization flags, IPC streams, `readOds`, table styles, and more.
+Most are one bridge call on a Polars feature that was already compiled in; six needed
+one more feature each. They went in as one change, so the map starts its 0.6 column
+greener.
+"""
+
+nbCode:
+  let empty = newDataFrame(schema = {"bear": String, "kg": Float64})
+  echo empty.isEmpty, " ", empty.columns
+  echo sightings.select(col("kg").isClose(415.0, absTol = 3.0).alias("about 415")).head(3)
+
+nbText: """
 ## What did not make it
 
 - **A formula macro.** Datamancer writes `f{"kg" * 2}`, and the plan proposed something
@@ -260,8 +322,8 @@ nbText: """
   or Altair. Nim's options are nim-plotly (used by the El Niño explainer) and ggplotnim
   (through `toDatamancer`); both work today with a line of conversion. A `plot`
   namespace waits until we know which one to wrap.
-- **Cloud storage and a shared library.** Reading from S3 and shipping Nanuq as a
-  dynamic library are about distribution, the theme of 0.7.
+- **A shared library.** Shipping Nanuq as a dynamic library is about distribution,
+  the theme of 0.7.
 """
 
 nbSave
