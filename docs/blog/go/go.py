@@ -60,6 +60,12 @@ import figs  # Plotly charts and boards; the Nim post redoes them with nim-plotl
 # column and the row, from `a` (left, top) to `s` (right, bottom). `pd` is the fourth
 # point from the right and the fourth from the top. Our database packs the moves of each
 # game into one **Binary** value, two bytes per move. Binary columns are new in 0.6.
+#
+# Why bytes and not a string? A move is not text, it is two small numbers. In a Binary
+# value move *n* always sits at bytes 2*n* and 2*n*+1, `bin.get` hands back a byte as a
+# number we can compute with (`a` is 97, so a column is the byte minus 97), and looking
+# for an opening is a prefix match on bytes. The bytes happen to be letters, so they
+# stay readable when printed, but Polars never treats them as text.
 
 # %%
 # id: s01_read
@@ -665,7 +671,8 @@ titles = pl.read_database_uri(
     """,
     "sqlite://italian_go.db",
 )
-titles
+with pl.Config(tbl_rows=-1):  # all fourteen
+    print(titles)
 
 # %% [markdown]
 # Fourteen champions in 45 championships, and the first six hold 34 titles between them.

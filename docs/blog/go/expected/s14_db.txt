@@ -10,7 +10,8 @@ shape: (14, 4)
 │ Enzo Burlini       ┆ 5      ┆ 1981  ┆ 2000 │
 │ Davide Bernardis   ┆ 4      ┆ 2021  ┆ 2025 │
 │ Sergio Parimbelli  ┆ 3      ┆ 1982  ┆ 1988 │
-│ …                  ┆ …      ┆ …     ┆ …    │
+│ Primo Garofalo     ┆ 2      ┆ 1986  ┆ 1990 │
+│ Enzo Pedrini       ┆ 2      ┆ 1995  ┆ 1996 │
 │ Davide Minieri     ┆ 2      ┆ 2007  ┆ 2008 │
 │ Roberto Mercadante ┆ 1      ┆ 1980  ┆ 1980 │
 │ Fulvio Savagnone   ┆ 1      ┆ 1985  ┆ 1985 │
