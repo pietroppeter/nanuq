@@ -1,0 +1,43 @@
+shape: (36, 4)
+┌───────────────────────────────────┬────────────┬──────────────────────┬──────┐
+│ race                              ┆ start      ┆ winner               ┆ days │
+│ ---                               ┆ ---        ┆ ---                  ┆ ---  │
+│ str                               ┆ date       ┆ str                  ┆ i64  │
+╞═══════════════════════════════════╪════════════╪══════════════════════╪══════╡
+│ Tour Down Under                   ┆ 2026-01-20 ┆ Jay Vine             ┆ 6    │
+│ Cadel Evans Great Ocean Road Race ┆ 2026-02-01 ┆ Tobias Lund Andresen ┆ 1    │
+│ UAE Tour                          ┆ 2026-02-16 ┆ Isaac del Toro       ┆ 7    │
+│ Omloop Het Nieuwsblad             ┆ 2026-02-28 ┆ Mathieu van der Poel ┆ 1    │
+│ Strade Bianche                    ┆ 2026-03-07 ┆ Tadej Pogačar        ┆ 1    │
+│ Paris–Nice                        ┆ 2026-03-08 ┆ Jonas Vingegaard     ┆ 8    │
+│ Tirreno–Adriatico                 ┆ 2026-03-09 ┆ Isaac del Toro       ┆ 7    │
+│ Milan–San Remo                    ┆ 2026-03-21 ┆ Tadej Pogačar        ┆ 1    │
+│ Volta a Catalunya                 ┆ 2026-03-23 ┆ Jonas Vingegaard     ┆ 7    │
+│ Tour of Bruges                    ┆ 2026-03-25 ┆ Dylan Groenewegen    ┆ 1    │
+│ E3 Saxo Classic                   ┆ 2026-03-27 ┆ Mathieu van der Poel ┆ 1    │
+│ Gent–Wevelgem                     ┆ 2026-03-29 ┆ Jasper Philipsen     ┆ 1    │
+│ Dwars door Vlaanderen             ┆ 2026-04-01 ┆ Filippo Ganna        ┆ 1    │
+│ Tour of Flanders                  ┆ 2026-04-05 ┆ Tadej Pogačar        ┆ 1    │
+│ Tour of the Basque Country        ┆ 2026-04-06 ┆ Paul Seixas          ┆ 6    │
+│ Paris–Roubaix                     ┆ 2026-04-12 ┆ Wout van Aert        ┆ 1    │
+│ Amstel Gold Race                  ┆ 2026-04-19 ┆ Remco Evenepoel      ┆ 1    │
+│ La Flèche Wallonne                ┆ 2026-04-22 ┆ Paul Seixas          ┆ 1    │
+│ Liège–Bastogne–Liège              ┆ 2026-04-26 ┆ Tadej Pogačar        ┆ 1    │
+│ Tour de Romandie                  ┆ 2026-04-28 ┆ Tadej Pogačar        ┆ 6    │
+│ Eschborn–Frankfurt                ┆ 2026-05-01 ┆ Georg Zimmermann     ┆ 1    │
+│ Giro d'Italia                     ┆ 2026-05-08 ┆ Jonas Vingegaard     ┆ 24   │
+│ Tour Auvergne-Rhône-Alpes         ┆ 2026-06-07 ┆ Isaac del Toro       ┆ 8    │
+│ Copenhagen Sprint                 ┆ 2026-06-14 ┆ Jasper Philipsen     ┆ 1    │
+│ Tour de Suisse                    ┆ 2026-06-17 ┆ Tadej Pogačar        ┆ 5    │
+│ Tour de France                    ┆ 2026-07-04 ┆ Tadej Pogačar        ┆ 23   │
+│ Clásica de San Sebastián          ┆ 2026-08-01 ┆ Remco Evenepoel      ┆ 1    │
+│ Tour de Pologne                   ┆ 2026-08-03 ┆ Marco Brenner        ┆ 7    │
+│ Hamburg Cyclassics                ┆ 2026-08-16 ┆ Paul Magnier         ┆ 1    │
+│ Renewi Tour                       ┆ 2026-08-19 ┆ Jasper Philipsen     ┆ 5    │
+│ Vuelta a España                   ┆ 2026-08-22 ┆ Enric Mas            ┆ 23   │
+│ Bretagne Classic                  ┆ 2026-08-30 ┆ Alex Aranburu        ┆ 1    │
+│ Grand Prix Cycliste de Québec     ┆ 2026-09-11 ┆ Remco Evenepoel      ┆ 1    │
+│ Grand Prix Cycliste de Montréal   ┆ 2026-09-13 ┆ Isaac del Toro       ┆ 1    │
+│ Il Lombardia                      ┆ 2026-10-10 ┆ Paul Seixas          ┆ 1    │
+│ Tour of Guangxi                   ┆ 2026-10-13 ┆ Jarno Widar          ┆ 6    │
+└───────────────────────────────────┴────────────┴──────────────────────┴──────┘

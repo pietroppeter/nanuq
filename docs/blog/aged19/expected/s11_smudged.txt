@@ -1,0 +1,11 @@
+InvalidOperationError - conversion from `str` to `date` failed in column 'date' for 1 out of 3 values: ["22/04/2026"]
+shape: (3, 2)
+┌────────────────────┬────────────┐
+│ race               ┆ date       │
+│ ---                ┆ ---        │
+│ str                ┆ date       │
+╞════════════════════╪════════════╡
+│ Paris-Roubaix      ┆ 2026-04-12 │
+│ Amstel Gold Race   ┆ 2026-04-19 │
+│ La Flèche Wallonne ┆ null       │
+└────────────────────┴────────────┘

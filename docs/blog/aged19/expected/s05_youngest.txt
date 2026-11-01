@@ -1,0 +1,24 @@
+shape: (5, 4)
+┌──────────────────────┬──────┬─────────────────────┬──────┐
+│ race                 ┆ year ┆ winner              ┆ days │
+│ ---                  ┆ ---  ┆ ---                 ┆ ---  │
+│ enum                 ┆ i64  ┆ str                 ┆ i64  │
+╞══════════════════════╪══════╪═════════════════════╪══════╡
+│ Milano-Sanremo       ┆ 1914 ┆ Ugo Agostoni        ┆ 7556 │
+│ Ronde van Vlaanderen ┆ 1944 ┆ Rik Van Steenbergen ┆ 7145 │
+│ Paris-Roubaix        ┆ 1899 ┆ Albert Champion     ┆ 7667 │
+│ Liège-Bastogne-Liège ┆ 1909 ┆ Victor Fastre       ┆ 6936 │
+│ Il Lombardia         ┆ 2026 ┆ Paul Seixas         ┆ 7321 │
+└──────────────────────┴──────┴─────────────────────┴──────┘
+shape: (5, 4)
+┌──────────────────────┬──────┬─────────────────────┬──────┐
+│ race                 ┆ year ┆ winner              ┆ days │
+│ ---                  ┆ ---  ┆ ---                 ┆ ---  │
+│ enum                 ┆ i64  ┆ str                 ┆ i64  │
+╞══════════════════════╪══════╪═════════════════════╪══════╡
+│ Liège-Bastogne-Liège ┆ 1909 ┆ Victor Fastre       ┆ 6936 │
+│ Liège-Bastogne-Liège ┆ 1925 ┆ Georges Ronsse      ┆ 7042 │
+│ Ronde van Vlaanderen ┆ 1944 ┆ Rik Van Steenbergen ┆ 7145 │
+│ Il Lombardia         ┆ 2026 ┆ Paul Seixas         ┆ 7321 │
+│ Liège-Bastogne-Liège ┆ 1927 ┆ Maurice Raes        ┆ 7388 │
+└──────────────────────┴──────┴─────────────────────┴──────┘
