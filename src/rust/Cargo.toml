@@ -1,6 +1,6 @@
 [package]
 name = "nanuq_ffi"
-version = "0.4.0"
+version = "0.5.0-dev"
 edition = "2021"
 description = "C ABI over Polars, consumed by the Nanuq Nim library"
 license = "MIT"
@@ -10,9 +10,11 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array", "dtype-struct", "cum_agg", "diff", "pct_change", "rolling_window", "rolling_window_by", "ewma", "ewma_by", "log", "sign", "dtype-decimal", "trigonometry", "propagate_nans", "moment", "mode", "unique_counts", "is_unique", "is_first_distinct", "is_last_distinct", "top_k", "interpolate", "interpolate_by", "replace", "cutqcut", "repeat_by", "pivot", "partition_by", "dynamic_group_by", "asof_join", "product", "search_sorted", "rle", "approx_unique", "arg_where", "dot_product", "peaks", "cov", "to_dummies", "index_of"] }
+polars = { version = "0.55", default-features = false, features = ["lazy", "csv", "fmt", "dtype-i8", "dtype-i16", "dtype-u8", "dtype-u16", "semi_anti_join", "cross_join", "diagonal_concat", "random", "is_in", "is_between", "abs", "round_series", "rank", "strings", "regex", "string_pad", "string_reverse", "concat_str", "temporal", "dtype-date", "dtype-datetime", "dtype-duration", "dtype-time", "timezones", "offset_by", "range", "month_start", "month_end", "parquet", "ipc", "dtype-categorical", "dtype-array", "dtype-struct", "cum_agg", "diff", "pct_change", "rolling_window", "rolling_window_by", "ewma", "ewma_by", "log", "sign", "dtype-decimal", "trigonometry", "propagate_nans", "moment", "mode", "unique_counts", "is_unique", "is_first_distinct", "is_last_distinct", "top_k", "interpolate", "interpolate_by", "replace", "cutqcut", "repeat_by", "pivot", "partition_by", "dynamic_group_by", "asof_join", "product", "search_sorted", "rle", "approx_unique", "arg_where", "dot_product", "peaks", "cov", "to_dummies", "index_of", "list_eval", "list_gather", "list_count", "list_sets", "list_drop_nulls", "list_sample", "list_to_struct", "list_filter", "list_arithmetic", "array_count", "array_to_struct", "extract_groups", "extract_jsonpath", "find_many", "json", "sql", "meta", "row_hash", "cumulative_eval", "iejoin"] }
 # Only for polars_core::random::set_global_random_seed, which polars does not re-export.
 polars-core = { version = "0.55", default-features = false }
+# Only for FunctionFlags (re-entrant and scalar Nim callbacks), which polars does not re-export.
+polars-plan = { version = "0.55", default-features = false }
 either = "1"
 tikv-jemallocator = { version = "0.6", optional = true }
 

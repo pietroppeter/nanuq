@@ -62,7 +62,7 @@ echo t.sort("level").toList("level", string)
 ```
 
 ```text
-{"team": cat, "level": enum}
+{"team": Categorical, "level": Enum(["low", "high"])}
 @["low", "high", "high"]
 ```
 

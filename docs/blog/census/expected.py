@@ -13,8 +13,11 @@ pl.Config(tbl_rows=25, tbl_cols=12, tbl_width_chars=120, tbl_hide_dataframe_shap
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 os.makedirs("expected", exist_ok=True)
 
-def short(t):  # Nanuq's `$` on a DataType prints Polars' short name
-    return t._string_repr()
+def short(t):  # Nanuq's `$` on a DataType prints Nanuq code: Int64, String, ...
+    simple = str(t)
+    if "(" in simple:
+        raise ValueError(f"no Nanuq name for {simple} in this scene")
+    return simple
 
 def first_line(e):
     return str(e).splitlines()[0]

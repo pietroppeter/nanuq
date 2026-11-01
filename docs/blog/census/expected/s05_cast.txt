@@ -1,2 +1,2 @@
-@[i64, str, str, i64, u8, f64, bool, i64, i64, i64]
+@[Int64, String, String, Int64, UInt8, Float64, Boolean, Int64, Int64, Int64]
 bear counts we couldn't read: 2

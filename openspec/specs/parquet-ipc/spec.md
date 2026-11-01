@@ -87,7 +87,7 @@ echo readIpc(path).schema
 ```
 
 ```text
-{"rider": str, "start": time}
+{"rider": String, "start": TimeOfDay}
 ```
 
 #### Scenario: Round trip

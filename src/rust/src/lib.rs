@@ -669,6 +669,9 @@ pub enum NqDtype {
     Time,
     Categorical,
     Enum,
+    List,
+    Array,
+    Struct,
     Other,
 }
 
@@ -708,6 +711,8 @@ pub struct NqDtypeSpec {
     pub time_zone: *const c_char,
     pub categories: *const *const c_char,
     pub n_categories: usize,
+    /// For List, Array and Struct: the whole type, as a handle (`nq_dtype_*`).
+    pub nested: *const DataType,
 }
 
 unsafe fn time_zone(tz: *const c_char) -> Result<Option<TimeZone>, String> {
@@ -732,6 +737,7 @@ unsafe fn dtype_from_spec(spec: &NqDtypeSpec) -> Result<DataType, String> {
             let cats = names(spec.categories, spec.n_categories)?;
             DataType::from_frozen_categories(FrozenCategories::new(cats).map_err(pe)?)
         }
+        NqDtype::List | NqDtype::Array | NqDtype::Struct => borrow(spec.nested, "nested dtype")?.clone(),
         c => dtype_from_code(c)?,
     })
 }
@@ -761,6 +767,9 @@ fn dtype_code(d: &DataType) -> NqDtype {
         DataType::Time => NqDtype::Time,
         DataType::Categorical(_, _) => NqDtype::Categorical,
         DataType::Enum(_, _) => NqDtype::Enum,
+        DataType::List(_) => NqDtype::List,
+        DataType::Array(_, _) => NqDtype::Array,
+        DataType::Struct(_) => NqDtype::Struct,
         _ => NqDtype::Other,
     }
 }
@@ -785,7 +794,10 @@ fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
         | NqDtype::Duration
         | NqDtype::Time
         | NqDtype::Categorical
-        | NqDtype::Enum => return Err("this dtype needs its parameters".into()),
+        | NqDtype::Enum
+        | NqDtype::List
+        | NqDtype::Array
+        | NqDtype::Struct => return Err("this dtype needs its parameters".into()),
         NqDtype::Other => return Err("cannot cast to a dtype Nanuq does not model".into()),
     })
 }
@@ -3613,4 +3625,1236 @@ pub unsafe extern "C" fn nq_expr_any_all(e: *const Expr, all: bool, ignore_nulls
         let e = borrow(e, "expression")?.clone();
         Ok(if all { e.all(ignore_nulls) } else { e.any(ignore_nulls) })
     }))
+}
+
+/// Entropy of the values, as an aggregation (`-sum(p * ln(p)) / ln(base)`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_entropy(e: *const Expr, base: f64, normalize: bool) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().entropy(base, normalize))))
+}
+
+/// Each value repeated `by` times, as a list.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_repeat_by(e: *const Expr, by: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let by = borrow(by, "repeat count")?.clone();
+        Ok(e.repeat_by(by))
+    }))
+}
+
+/// The number of rows (Python's `pl.len()`), named `len`.
+#[no_mangle]
+pub extern "C" fn nq_expr_len() -> *mut Expr {
+    boxed(Some(len()))
+}
+
+// ---------------------------------------------------------------------------
+// Data type handles (0.5): any data type, nested ones included, as an opaque
+// `DataType`, so Nim can read and build types at any depth.
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_free(d: *mut DataType) {
+    if !d.is_null() {
+        drop(Box::from_raw(d));
+    }
+}
+
+/// The data type of a column, as a handle. Free with `nq_dtype_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_dtype_handle(df: *const DataFrame, name: *const c_char) -> *mut DataType {
+    boxed(guard(|| Ok(borrow(df, "DataFrame")?.column(cstr(name)?).map_err(pe)?.dtype().clone())))
+}
+
+/// A data type from a spec (any kind; nested kinds clone `spec.nested`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_from_spec(spec: *const NqDtypeSpec) -> *mut DataType {
+    boxed(guard(|| dtype_from_spec(borrow(spec, "dtype")?)))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_list(inner: *const DataType) -> *mut DataType {
+    boxed(guard(|| Ok(DataType::List(Box::new(borrow(inner, "dtype")?.clone())))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_array(inner: *const DataType, width: usize) -> *mut DataType {
+    boxed(guard(|| Ok(DataType::Array(Box::new(borrow(inner, "dtype")?.clone()), width))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_struct(
+    names_: *const *const c_char,
+    dtypes: *const *const DataType,
+    n: usize,
+) -> *mut DataType {
+    boxed(guard(|| {
+        let ns = names(names_, n)?;
+        let ds = slice(dtypes, n)?;
+        let mut fields = Vec::with_capacity(n);
+        for (name, d) in ns.iter().zip(ds) {
+            fields.push(Field::new((*name).into(), borrow(*d, "dtype")?.clone()));
+        }
+        Ok(DataType::Struct(fields))
+    }))
+}
+
+/// Kind code (`NqDtype`) of a data type, or -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_kind(d: *const DataType) -> i32 {
+    guard(|| Ok(dtype_code(borrow(d, "dtype")?) as i32)).unwrap_or(-1)
+}
+
+/// Polars' name of a data type (`list[i64]`). Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_name(d: *const DataType) -> *mut c_char {
+    guard(|| Ok(to_c_string(borrow(d, "dtype")?.to_string()))).unwrap_or(ptr::null_mut())
+}
+
+/// Time unit code of a Datetime or Duration, or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_time_unit(d: *const DataType) -> i32 {
+    guard(|| match borrow(d, "dtype")? {
+        DataType::Datetime(u, _) | DataType::Duration(u) => Ok(time_unit_code(u) as i32),
+        other => Err(format!("{other} has no time unit")),
+    })
+    .unwrap_or(-1)
+}
+
+/// Time zone of a Datetime ("" for none). Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_time_zone(d: *const DataType) -> *mut c_char {
+    guard(|| match borrow(d, "dtype")? {
+        DataType::Datetime(_, tz) => Ok(to_c_string(tz.as_ref().map(|t| t.to_string()).unwrap_or_default())),
+        _ => Ok(to_c_string(String::new())),
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+fn enum_categories(d: &DataType) -> Result<Vec<String>, String> {
+    match d {
+        DataType::Enum(fc, _) => Ok(fc.categories().values_iter().map(|s| s.to_string()).collect()),
+        other => Err(format!("{other} is not an Enum")),
+    }
+}
+
+/// Number of categories of an Enum, or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_n_categories(d: *const DataType) -> i64 {
+    guard(|| Ok(enum_categories(borrow(d, "dtype")?)?.len() as i64)).unwrap_or(-1)
+}
+
+/// Category `i` of an Enum. Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_category(d: *const DataType, i: usize) -> *mut c_char {
+    guard(|| {
+        let cats = enum_categories(borrow(d, "dtype")?)?;
+        cats.get(i).cloned().map(to_c_string).ok_or_else(|| format!("no category {i}"))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Element type of a List or Array, as a new handle.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_inner(d: *const DataType) -> *mut DataType {
+    boxed(guard(|| match borrow(d, "dtype")? {
+        DataType::List(inner) | DataType::Array(inner, _) => Ok((**inner).clone()),
+        other => Err(format!("{other} has no inner type")),
+    }))
+}
+
+/// Width of an Array, or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_width(d: *const DataType) -> i64 {
+    guard(|| match borrow(d, "dtype")? {
+        DataType::Array(_, w) => Ok(*w as i64),
+        other => Err(format!("{other} is not an Array")),
+    })
+    .unwrap_or(-1)
+}
+
+fn struct_fields(d: &DataType) -> Result<&Vec<Field>, String> {
+    match d {
+        DataType::Struct(fs) => Ok(fs),
+        other => Err(format!("{other} is not a Struct")),
+    }
+}
+
+/// Number of fields of a Struct, or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_n_fields(d: *const DataType) -> i64 {
+    guard(|| Ok(struct_fields(borrow(d, "dtype")?)?.len() as i64)).unwrap_or(-1)
+}
+
+/// Name of field `i` of a Struct. Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_field_name(d: *const DataType, i: usize) -> *mut c_char {
+    guard(|| {
+        let fs = struct_fields(borrow(d, "dtype")?)?;
+        fs.get(i).map(|f| to_c_string(f.name().to_string())).ok_or_else(|| format!("no field {i}"))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Data type of field `i` of a Struct, as a new handle.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_field(d: *const DataType, i: usize) -> *mut DataType {
+    boxed(guard(|| {
+        let fs = struct_fields(borrow(d, "dtype")?)?;
+        fs.get(i).map(|f| f.dtype().clone()).ok_or_else(|| format!("no field {i}"))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Nested Series from their parts, and back (0.5)
+// ---------------------------------------------------------------------------
+
+unsafe fn validity<'a>(valid: *const bool, n: usize) -> Result<Option<&'a [bool]>, String> {
+    if valid.is_null() { Ok(None) } else { Ok(Some(slice(valid, n)?)) }
+}
+
+/// A List Series of `n` rows: row i holds `inner[offsets[i] .. offsets[i+1]]`,
+/// or null where `valid` (may be NULL) is false.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_list_from_parts(
+    name: *const c_char,
+    inner: *const Series,
+    offsets: *const i64,
+    valid: *const bool,
+    n: usize,
+) -> *mut Series {
+    boxed(guard(|| {
+        let inner = borrow(inner, "series")?;
+        let offs = slice(offsets, n + 1)?;
+        let valid = validity(valid, n)?;
+        let mut b = polars::chunked_array::builder::get_list_builder(inner.dtype(), inner.len(), n, cstr(name)?.into());
+        for i in 0..n {
+            if valid.map(|v| v[i]).unwrap_or(true) {
+                let (a, z) = (offs[i] as usize, offs[i + 1] as usize);
+                b.append_series(&inner.slice(a as i64, z - a)).map_err(pe)?;
+            } else {
+                b.append_null();
+            }
+        }
+        let s = b.finish().into_series();
+        Ok(s)
+    }))
+}
+
+/// A Struct Series from field Series of equal length, with null rows where
+/// `valid` (may be NULL) is false.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_struct_from_fields(
+    name: *const c_char,
+    fields: *const *const Series,
+    n_fields: usize,
+    valid: *const bool,
+    n: usize,
+) -> *mut Series {
+    boxed(guard(|| {
+        let fs: Vec<Series> = slice(fields, n_fields)?
+            .iter()
+            .map(|f| borrow(*f, "series").cloned())
+            .collect::<Result<_, _>>()?;
+        let ca = StructChunked::from_series(cstr(name)?.into(), n, fs.iter()).map_err(pe)?;
+        let ca = match validity(valid, n)? {
+            Some(v) => ca.with_outer_validity(Some(v.iter().copied().collect())),
+            None => ca,
+        };
+        Ok(ca.into_series())
+    }))
+}
+
+/// Writes whether each of the `n` rows of `s` is not null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_validity(s: *const Series, out: *mut bool, n: usize) -> bool {
+    guard(|| {
+        let s = borrow(s, "series")?;
+        if s.len() != n {
+            return Err(format!("series has {} rows, not {n}", s.len()));
+        }
+        let out = std::slice::from_raw_parts_mut(out, n);
+        let nn = s.is_not_null();
+        for (o, v) in out.iter_mut().zip(nn.iter()) {
+            *o = v.unwrap_or(false);
+        }
+        Ok(())
+    })
+    .is_some()
+}
+
+fn as_list(s: &Series) -> Result<ListChunked, String> {
+    match s.dtype() {
+        DataType::List(_) => Ok(s.list().map_err(pe)?.rechunk().into_owned()),
+        DataType::Array(inner, _) => {
+            let l = s.cast(&DataType::List(inner.clone())).map_err(pe)?;
+            Ok(l.list().map_err(pe)?.rechunk().into_owned())
+        }
+        other => Err(format!("{other} is not a list or array")),
+    }
+}
+
+/// Writes the `n + 1` offsets of a List (or Array) Series of `n` rows, from 0;
+/// null rows are empty.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_list_offsets(s: *const Series, out: *mut i64, n: usize) -> bool {
+    guard(|| {
+        let ca = as_list(borrow(s, "series")?)?;
+        if ca.len() != n {
+            return Err(format!("series has {} rows, not {n}", ca.len()));
+        }
+        let out = std::slice::from_raw_parts_mut(out, n + 1);
+        out[0] = 0;
+        if n > 0 {
+            let offs = ca.downcast_as_array().offsets().as_slice();
+            let base = offs[0];
+            for i in 0..=n {
+                out[i] = offs[i] - base;
+            }
+        }
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The values of all lists of a List (or Array) Series, one after the other.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_inner(s: *const Series) -> *mut Series {
+    boxed(guard(|| {
+        let ca = as_list(borrow(s, "series")?)?;
+        let inner = ca.get_inner();
+        if ca.is_empty() {
+            return Ok(inner.slice(0, 0));
+        }
+        let offs = ca.downcast_as_array().offsets().as_slice();
+        let (a, z) = (offs[0] as usize, offs[offs.len() - 1] as usize);
+        Ok(inner.slice(a as i64, z - a))
+    }))
+}
+
+/// Number of fields of a Struct Series, or -1.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_n_fields(s: *const Series) -> i64 {
+    guard(|| Ok(borrow(s, "series")?.struct_().map_err(pe)?.struct_fields().len() as i64)).unwrap_or(-1)
+}
+
+/// Field `i` of a Struct Series (values of null rows are unspecified).
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_struct_field(s: *const Series, i: usize) -> *mut Series {
+    boxed(guard(|| {
+        let fs = borrow(s, "series")?.struct_().map_err(pe)?.fields_as_series();
+        fs.get(i).cloned().ok_or_else(|| format!("no field {i}"))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: the list namespace, explode, implode (add-list-namespace)
+// ---------------------------------------------------------------------------
+
+/// List functions. Keep in sync with `NqListOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqListOp {
+    Len = 0,
+    Sum,
+    Min,
+    Max,
+    Mean,
+    Median,
+    Std,
+    Var,
+    First,
+    Last,
+    ArgMin,
+    ArgMax,
+    NUnique,
+    Any,
+    All,
+    Get,
+    Gather,
+    GatherEvery,
+    Slice,
+    Head,
+    Tail,
+    Contains,
+    CountMatches,
+    Join,
+    Sort,
+    Reverse,
+    Unique,
+    DropNulls,
+    Diff,
+    Shift,
+    SampleN,
+    SampleFraction,
+    Filter,
+    Union,
+    SetDifference,
+    SetIntersection,
+    SetSymmetricDifference,
+    ToArray,
+    ToStruct,
+    Eval,
+    Agg,
+    Explode,
+}
+
+/// One entry point for the `list` namespace. `a` and `b` are expression
+/// arguments (NULL: a null literal), `f1`..`f3` boolean options, `n` a count
+/// (ddof, width, diff periods) and `names`/`n_names` the `to_struct` fields.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_list(
+    e: *const Expr,
+    op: NqListOp,
+    a: *const Expr,
+    b: *const Expr,
+    f1: bool,
+    f2: bool,
+    f3: bool,
+    n: i64,
+    seed: i64,
+    names_: *const *const c_char,
+    n_names: usize,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ex = borrow(e, "expression")?.clone();
+        let ns = ex.clone().list();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        let seed = (seed >= 0).then_some(seed as u64);
+        Ok(match op {
+            NqListOp::Len => ns.len(),
+            NqListOp::Sum => ns.sum(),
+            NqListOp::Min => ns.min(),
+            NqListOp::Max => ns.max(),
+            NqListOp::Mean => ns.mean(),
+            NqListOp::Median => ns.median(),
+            NqListOp::Std => ns.std(n as u8),
+            NqListOp::Var => ns.var(n as u8),
+            NqListOp::First => ns.first(),
+            NqListOp::Last => ns.last(),
+            NqListOp::ArgMin => ns.arg_min(),
+            NqListOp::ArgMax => ns.arg_max(),
+            NqListOp::NUnique => ns.agg(element().n_unique()),
+            NqListOp::Any => ns.agg(element().any(true)),
+            NqListOp::All => ns.agg(element().all(true)),
+            NqListOp::Get => ns.get(a, f1),
+            NqListOp::Gather => ns.gather(a, f1),
+            NqListOp::GatherEvery => ns.gather_every(a, b),
+            NqListOp::Slice => ns.slice(a, b),
+            NqListOp::Head => ns.head(a),
+            NqListOp::Tail => ns.tail(a),
+            NqListOp::Contains => ns.contains(a, f1),
+            NqListOp::CountMatches => ns.count_matches(a),
+            NqListOp::Join => ns.join(a, f1),
+            NqListOp::Sort => ns.sort(
+                SortOptions::default().with_order_descending(f1).with_nulls_last(f2).with_maintain_order(f3),
+            ),
+            NqListOp::Reverse => ns.eval(element().reverse()),
+            NqListOp::Unique => if f1 { ns.eval(element().unique_stable()) } else { ns.eval(element().unique()) },
+            NqListOp::DropNulls => ns.drop_nulls(),
+            NqListOp::Diff => {
+                let nb = if f1 { polars_core::series::ops::NullBehavior::Drop } else { polars_core::series::ops::NullBehavior::Ignore };
+                ns.diff(n, nb)
+            }
+            NqListOp::Shift => ns.shift(a),
+            NqListOp::SampleN => ns.sample_n(a, f1, Some(f2), seed),
+            NqListOp::SampleFraction => ns.sample_fraction(a, f1, Some(f2), seed),
+            NqListOp::Filter => ns.eval(element().filter(a)),
+            NqListOp::Union => ns.union(a),
+            NqListOp::SetDifference => ns.set_difference(a),
+            NqListOp::SetIntersection => ns.set_intersection(a),
+            NqListOp::SetSymmetricDifference => ns.set_symmetric_difference(a),
+            NqListOp::ToArray => ns.to_array(n as usize),
+            NqListOp::ToStruct => {
+                let fs: Vec<PlSmallStr> = names(names_, n_names)?.into_iter().map(PlSmallStr::from).collect();
+                ns.to_struct(fs.into())
+            }
+            NqListOp::Eval => ns.eval(a),
+            NqListOp::Agg => ns.agg(a),
+            NqListOp::Explode => ex.explode(ExplodeOptions { empty_as_null: f1, keep_nulls: f2 }),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_implode(e: *const Expr) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().implode(true))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_concat_list(es: *const *const Expr, n: usize) -> *mut Expr {
+    boxed(guard(|| {
+        let es: Vec<Expr> = slice(es, n)?.iter().map(|e| borrow(*e, "expression").cloned()).collect::<Result<_, _>>()?;
+        concat_list(es).map_err(pe)
+    }))
+}
+
+/// One row per value of the list columns `names_` (which must have lists of
+/// equal lengths in each row).
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_explode(
+    lf_: *const LazyFrame,
+    names_: *const *const c_char,
+    n: usize,
+    empty_as_null: bool,
+    keep_nulls: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let ns = names(names_, n)?;
+        Ok(lf(lf_)?.explode(cols(ns), ExplodeOptions { empty_as_null, keep_nulls }))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: string functions that give lists and structs (add-nested-strings)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqStrNestedOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqStrNestedOp {
+    Split = 0,
+    SplitExact,
+    SplitN,
+    ExtractAll,
+    ExtractGroups,
+    ContainsAny,
+    ReplaceMany,
+    ExtractMany,
+    FindMany,
+    JsonDecode,
+    JsonPathMatch,
+}
+
+/// `a`, `b`: expression arguments (by, patterns, replacements, path); `f1`,
+/// `f2`: inclusive / ascii_case_insensitive, overlapping; `n` a count; `pat`
+/// the extract_groups regex; `spec` the json_decode dtype.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_str_nested(
+    e: *const Expr,
+    op: NqStrNestedOp,
+    a: *const Expr,
+    b: *const Expr,
+    f1: bool,
+    f2: bool,
+    f3: bool,
+    n: usize,
+    pat: *const c_char,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ns = borrow(e, "expression")?.clone().str();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        Ok(match op {
+            NqStrNestedOp::Split => if f1 { ns.split_inclusive(a) } else { ns.split(a) },
+            NqStrNestedOp::SplitExact => if f1 { ns.split_exact_inclusive(a, n) } else { ns.split_exact(a, n) },
+            NqStrNestedOp::SplitN => ns.splitn(a, n),
+            NqStrNestedOp::ExtractAll => ns.extract_all(a),
+            NqStrNestedOp::ExtractGroups => ns.extract_groups(cstr(pat)?).map_err(pe)?,
+            NqStrNestedOp::ContainsAny => ns.contains_any(a, f1),
+            NqStrNestedOp::ReplaceMany => ns.replace_many(a, b, f1, f3),
+            NqStrNestedOp::ExtractMany => ns.extract_many(a, f1, f2, f3),
+            NqStrNestedOp::FindMany => ns.find_many(a, f1, f2, f3),
+            NqStrNestedOp::JsonDecode => ns.json_decode(dtype_from_spec(borrow(spec, "dtype")?)?),
+            NqStrNestedOp::JsonPathMatch => ns.json_path_match(a),
+        })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: structs, unnest, value_counts and the arr namespace (add-struct-namespace)
+// ---------------------------------------------------------------------------
+
+unsafe fn exprs_of(es: *const *const Expr, n: usize) -> Result<Vec<Expr>, String> {
+    slice(es, n)?.iter().map(|e| borrow(*e, "expression").cloned()).collect()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_as_struct(es: *const *const Expr, n: usize) -> *mut Expr {
+    boxed(guard(|| Ok(as_struct(exprs_of(es, n)?))))
+}
+
+/// Keep in sync with `NqStructOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqStructOp {
+    FieldByName = 0,
+    FieldByNames,
+    FieldByIndex,
+    RenameFields,
+    WithFields,
+    JsonEncode,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_struct(
+    e: *const Expr,
+    op: NqStructOp,
+    names_: *const *const c_char,
+    n_names: usize,
+    es: *const *const Expr,
+    n_es: usize,
+    index: i64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ns = borrow(e, "expression")?.clone().struct_();
+        let ns_ = names(names_, n_names)?;
+        Ok(match op {
+            NqStructOp::FieldByName => ns.field_by_name(ns_.first().ok_or("no field name")?),
+            NqStructOp::FieldByNames => ns.field_by_names(ns_.iter().map(|s| PlSmallStr::from(*s))),
+            NqStructOp::FieldByIndex => ns.field_by_index(index),
+            NqStructOp::RenameFields => ns.rename_fields(ns_.iter().map(|s| PlSmallStr::from(*s))),
+            NqStructOp::WithFields => ns.with_fields(exprs_of(es, n_es)?),
+            NqStructOp::JsonEncode => ns.json_encode(),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_value_counts(
+    e: *const Expr,
+    sort: bool,
+    parallel: bool,
+    name: *const c_char,
+    normalize: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let name = cstr(name)?;
+        let name = if name.is_empty() { if normalize { "proportion" } else { "count" } } else { name };
+        Ok(borrow(e, "expression")?.clone().value_counts(sort, parallel, name, normalize))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_unnest(
+    lf_: *const LazyFrame,
+    names_: *const *const c_char,
+    n: usize,
+    separator: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let ns = names(names_, n)?;
+        let sep = if separator.is_null() { None } else { Some(PlSmallStr::from(cstr(separator)?)) };
+        Ok(lf(lf_)?.unnest(cols(ns), sep))
+    }))
+}
+
+/// Keep in sync with `NqArrOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqArrOp {
+    Len = 0,
+    Sum,
+    Min,
+    Max,
+    Mean,
+    Median,
+    Std,
+    Var,
+    ArgMin,
+    ArgMax,
+    Get,
+    Join,
+    Contains,
+    CountMatches,
+    Sort,
+    Slice,
+    Head,
+    Tail,
+    Shift,
+    ToList,
+    ToStruct,
+    Explode,
+    Eval,
+    Agg,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_arr(
+    e: *const Expr,
+    op: NqArrOp,
+    a: *const Expr,
+    b: *const Expr,
+    f1: bool,
+    f2: bool,
+    n: i64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ns = borrow(e, "expression")?.clone().arr();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        Ok(match op {
+            NqArrOp::Len => ns.len(),
+            NqArrOp::Sum => ns.sum(),
+            NqArrOp::Min => ns.min(),
+            NqArrOp::Max => ns.max(),
+            NqArrOp::Mean => ns.mean(),
+            NqArrOp::Median => ns.median(),
+            NqArrOp::Std => ns.std(n as u8),
+            NqArrOp::Var => ns.var(n as u8),
+            NqArrOp::ArgMin => ns.arg_min(),
+            NqArrOp::ArgMax => ns.arg_max(),
+            NqArrOp::Get => ns.get(a, f1),
+            NqArrOp::Join => ns.join(a, f1),
+            NqArrOp::Contains => ns.contains(a, f1),
+            NqArrOp::CountMatches => ns.count_matches(a),
+            NqArrOp::Sort => ns.sort(SortOptions::default().with_order_descending(f1).with_nulls_last(f2)),
+            NqArrOp::Slice => ns.slice(a, b, f1).map_err(pe)?,
+            NqArrOp::Head => ns.head(a, f1).map_err(pe)?,
+            NqArrOp::Tail => ns.tail(a, f1).map_err(pe)?,
+            NqArrOp::Shift => ns.shift(a),
+            NqArrOp::ToList => ns.to_list(),
+            NqArrOp::ToStruct => ns.to_struct(None),
+            NqArrOp::Explode => ns.explode(ExplodeOptions { empty_as_null: f1, keep_nulls: f2 }),
+            NqArrOp::Eval => ns.eval(a, f1),
+            NqArrOp::Agg => ns.agg(a),
+        })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: JSON and NDJSON (add-json-io)
+// ---------------------------------------------------------------------------
+
+unsafe fn schema_of(
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+) -> Result<Option<SchemaRef>, String> {
+    if n == 0 {
+        return Ok(None);
+    }
+    let ns = names(names_, n)?;
+    let ds = dtypes_from_specs(specs, n)?;
+    Ok(Some(Arc::new(Schema::from_iter(
+        ns.iter().zip(ds).map(|(n, d)| Field::new((*n).into(), d)),
+    ))))
+}
+
+/// Reads JSON (an array of objects, or with `lines` NDJSON) from `path`, or
+/// from `data_len` bytes at `data` when `data` is not NULL. `full_schema`
+/// says whether the named dtypes are the whole schema or overrides.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_read_json(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    lines: bool,
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+    full_schema: bool,
+    infer_schema_length: i64,
+    ignore_errors: bool,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let bytes: Vec<u8> = if data.is_null() {
+            std::fs::read(cstr(path)?).map_err(ioe)?
+        } else {
+            std::slice::from_raw_parts(data, data_len).to_vec()
+        };
+        let schema = schema_of(names_, specs, n)?;
+        let fmt = if lines { JsonFormat::JsonLines } else { JsonFormat::Json };
+        let infer = if infer_schema_length < 0 {
+            None
+        } else {
+            std::num::NonZeroUsize::new(infer_schema_length as usize)
+        };
+        let mut r = JsonReader::new(std::io::Cursor::new(bytes))
+            .with_json_format(fmt)
+            .infer_schema_len(infer)
+            .with_ignore_errors(ignore_errors);
+        let ov;
+        match (&schema, full_schema) {
+            (Some(s), true) => r = r.with_schema(s.clone()),
+            (Some(s), false) => {
+                ov = s.clone();
+                r = r.with_schema_overwrite(&ov);
+                return r.finish().map_err(pe);
+            }
+            _ => {}
+        }
+        r.finish().map_err(pe)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_scan_ndjson(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    n_rows: i64,
+    row_index_name: *const c_char,
+    row_index_offset: u32,
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+    full_schema: bool,
+    infer_schema_length: i64,
+    ignore_errors: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let sources = scan_sources(path, data, data_len)?;
+        let schema = schema_of(names_, specs, n)?;
+        let infer = if infer_schema_length < 0 {
+            None
+        } else {
+            std::num::NonZeroUsize::new(infer_schema_length as usize)
+        };
+        let mut r = LazyJsonLineReader::new_with_sources(sources)
+            .with_n_rows((n_rows >= 0).then_some(n_rows as usize))
+            .with_row_index(row_index(row_index_name, row_index_offset)?)
+            .with_infer_schema_length(infer)
+            .with_ignore_errors(ignore_errors);
+        r = if full_schema { r.with_schema(schema) } else { r.with_schema_overwrite(schema) };
+        r.finish().map_err(pe)
+    }))
+}
+
+/// Writes `df` as JSON (with `lines`, NDJSON) to `path`, or, when `path` is
+/// NULL, returns the text (free with `nq_string_free`). Returns "" after
+/// writing a file, NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_write_json(df: *const DataFrame, path: *const c_char, lines: bool) -> *mut c_char {
+    guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let fmt = if lines { JsonFormat::JsonLines } else { JsonFormat::Json };
+        if path.is_null() {
+            let mut buf: Vec<u8> = Vec::new();
+            JsonWriter::new(&mut buf).with_json_format(fmt).finish(&mut df).map_err(pe)?;
+            Ok(to_c_string(String::from_utf8(buf).map_err(|e| e.to_string())?))
+        } else {
+            let file = File::create(cstr(path)?).map_err(ioe)?;
+            JsonWriter::new(file).with_json_format(fmt).finish(&mut df).map_err(pe)?;
+            Ok(to_c_string(String::new()))
+        }
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: SQL (add-sql)
+// ---------------------------------------------------------------------------
+
+use polars::sql::SQLContext;
+
+#[no_mangle]
+pub extern "C" fn nq_sql_new() -> *mut SQLContext {
+    Box::into_raw(Box::new(SQLContext::new()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_free(c: *mut SQLContext) {
+    if !c.is_null() {
+        drop(Box::from_raw(c));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_register(c: *const SQLContext, name: *const c_char, lf_: *const LazyFrame) -> bool {
+    guard(|| {
+        borrow(c, "SQLContext")?.register(cstr(name)?, lf(lf_)?);
+        Ok(())
+    })
+    .is_some()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_unregister(c: *const SQLContext, name: *const c_char) -> bool {
+    guard(|| {
+        borrow(c, "SQLContext")?.unregister(cstr(name)?);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The registered table names, joined by "\n". Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_tables(c: *const SQLContext) -> *mut c_char {
+    guard(|| {
+        let mut t = borrow(c, "SQLContext")?.get_tables();
+        t.sort();
+        Ok(to_c_string(t.join("\n")))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_execute(c: *mut SQLContext, query: *const c_char) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let ctx = c.as_mut().ok_or("SQLContext is NULL")?;
+        ctx.execute(cstr(query)?).map_err(pe)
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: Nim callbacks (add-nim-callbacks)
+// ---------------------------------------------------------------------------
+
+use std::ffi::c_void;
+use std::sync::Mutex;
+
+/// A Nim function on Series: gets `n` borrowed Series, returns a new Series
+/// (from `nq_series_clone`) or NULL after `nq_udf_set_error`.
+pub type NqUdfFn = unsafe extern "C" fn(env: *mut c_void, args: *const *const Series, n: usize) -> *mut Series;
+/// A Nim function on a name: returns false after `nq_udf_set_error`, else
+/// sets the result with `nq_udf_set_result`.
+pub type NqNameFn = unsafe extern "C" fn(env: *mut c_void, name: *const c_char) -> bool;
+/// Releases the Nim closure behind `env`.
+pub type NqDropFn = unsafe extern "C" fn(env: *mut c_void);
+
+/// Nim code is not thread-safe the way Rust closures are, and Polars may call
+/// a UDF from several worker threads: every call into Nim takes this lock.
+static NIM_LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static NIM_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static UDF_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
+    static UDF_RESULT: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Runs `f` holding `NIM_LOCK`, unless this thread already holds it (a Nim
+/// callback that itself runs or drops callbacks).
+fn with_nim<R>(f: impl FnOnce() -> R) -> R {
+    let depth = NIM_DEPTH.with(|d| d.get());
+    let _g = if depth == 0 { Some(NIM_LOCK.lock().unwrap_or_else(|p| p.into_inner())) } else { None };
+    NIM_DEPTH.with(|d| d.set(depth + 1));
+    let r = f();
+    NIM_DEPTH.with(|d| d.set(depth));
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_udf_set_error(msg: *const c_char) {
+    let m = cstr(msg).unwrap_or("error in a Nim callback").to_string();
+    UDF_ERROR.with(|e| *e.borrow_mut() = m);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_udf_set_result(s: *const c_char) {
+    let m = cstr(s).unwrap_or("").to_string();
+    UDF_RESULT.with(|e| *e.borrow_mut() = m);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_clone(s: *const Series) -> *mut Series {
+    boxed(guard(|| Ok(borrow(s, "series")?.clone())))
+}
+
+struct NimFn {
+    f: Option<NqUdfFn>,
+    name_f: Option<NqNameFn>,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+}
+unsafe impl Send for NimFn {}
+unsafe impl Sync for NimFn {}
+
+impl Drop for NimFn {
+    fn drop(&mut self) {
+        let (d, env) = (self.drop_f, self.env);
+        with_nim(|| unsafe { d(env) })
+    }
+}
+
+fn udf_error() -> PolarsError {
+    let m = UDF_ERROR.with(|e| std::mem::take(&mut *e.borrow_mut()));
+    PolarsError::ComputeError(format!("Nim callback failed: {m}").into())
+}
+
+impl NimFn {
+    fn call(&self, args: &[Series]) -> PolarsResult<Series> {
+        let ptrs: Vec<*const Series> = args.iter().map(|s| s as *const Series).collect();
+        let r = with_nim(|| unsafe { (self.f.unwrap())(self.env, ptrs.as_ptr(), ptrs.len()) });
+        if r.is_null() {
+            Err(udf_error())
+        } else {
+            Ok(unsafe { *Box::from_raw(r) })
+        }
+    }
+    fn call_name(&self, name: &str) -> PolarsResult<PlSmallStr> {
+        let c = CString::new(name).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        let ok = with_nim(|| unsafe { (self.name_f.unwrap())(self.env, c.as_ptr()) });
+        if ok {
+            Ok(UDF_RESULT.with(|e| std::mem::take(&mut *e.borrow_mut())).into())
+        } else {
+            Err(udf_error())
+        }
+    }
+}
+
+unsafe fn opt_dtype(has: bool, spec: *const NqDtypeSpec) -> Result<Option<DataType>, String> {
+    if has { Ok(Some(dtype_from_spec(borrow(spec, "dtype")?)?)) } else { Ok(None) }
+}
+
+/// `e` mapped through a Nim function on the whole column (`map_batches`).
+/// The output dtype is `spec` when `has_dtype`, else the input's.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_map_batches(
+    e: *const Expr,
+    f: NqUdfFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+    has_dtype: bool,
+    spec: *const NqDtypeSpec,
+    returns_scalar: bool,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: Some(f), name_f: None, drop_f, env });
+    boxed(guard(|| {
+        let dt = opt_dtype(has_dtype, spec)?;
+        let e = borrow(e, "expression")?.clone();
+        Ok(udf_flags(e.apply(
+            move |c: Column| nf.call(&[c.as_materialized_series().clone()]).map(Column::from),
+            move |_s: &Schema, fld: &Field| {
+                Ok(match &dt {
+                    Some(d) => Field::new(fld.name().clone(), d.clone()),
+                    None => fld.clone(),
+                })
+            },
+        ), returns_scalar))
+    }))
+}
+
+/// Nim callbacks run Polars themselves (the Series methods), so they are
+/// re-entrant; `returns_scalar` gives one value per group, not a list.
+fn udf_flags(e: Expr, returns_scalar: bool) -> Expr {
+    match e {
+        Expr::AnonymousFunction { input, function, mut options, fmt_str } => {
+            options.flags |= polars_plan::prelude::FunctionFlags::OPTIONAL_RE_ENTRANT;
+            if returns_scalar {
+                options.flags |= polars_plan::prelude::FunctionFlags::RETURNS_SCALAR;
+            }
+            Expr::AnonymousFunction { input, function, options, fmt_str }
+        }
+        other => other,
+    }
+}
+
+/// Horizontal folds with a Nim function of (accumulator, column): `kind` 0
+/// fold, 1 reduce, 2 cum_fold, 3 cum_reduce.
+#[no_mangle]
+pub unsafe extern "C" fn nq_fold(
+    kind: i32,
+    acc: *const Expr,
+    f: NqUdfFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+    es: *const *const Expr,
+    n: usize,
+    include_init: bool,
+    has_dtype: bool,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: Some(f), name_f: None, drop_f, env });
+    boxed(guard(|| {
+        let exprs = exprs_of(es, n)?;
+        let dt = opt_dtype(has_dtype, spec)?.map(DataTypeExpr::Literal);
+        let cb: PlanCallback<(Series, Series), Series> =
+            PlanCallback::Rust(SpecialEq::new(Arc::new(move |(a, b): (Series, Series)| nf.call(&[a, b]))));
+        Ok(match kind {
+            0 => fold_exprs(borrow(acc, "expression")?.clone(), cb, exprs, false, dt),
+            1 => reduce_exprs(cb, exprs, false, dt),
+            2 => cum_fold_exprs(borrow(acc, "expression")?.clone(), cb, exprs, false, dt, include_init),
+            _ => cum_reduce_exprs(cb, exprs, false, dt),
+        })
+    }))
+}
+
+/// Output names mapped through a Nim function (`name.map`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_name_map(
+    e: *const Expr,
+    f: NqNameFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: None, name_f: Some(f), drop_f, env });
+    boxed(guard(|| {
+        let cb: PlanCallback<PlSmallStr, PlSmallStr> =
+            PlanCallback::Rust(SpecialEq::new(Arc::new(move |s: PlSmallStr| nf.call_name(s.as_str()))));
+        Ok(borrow(e, "expression")?.clone().name().map(cb))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: smaller functions (add-frame-utilities)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqUtilOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqUtilOp {
+    Shuffle = 0,
+    SampleN,
+    SampleFraction,
+    Hash,
+    Get,
+    ArgTrue,
+    UpperBound,
+    LowerBound,
+    ExtendConstant,
+    Rle,
+    NameToLowercase,
+    NameToUppercase,
+    UndoAliases,
+}
+
+/// `a`, `b`: expression arguments; `f1`, `f2`: with_replacement, shuffle;
+/// `seed` (-1: none); `dims` for reshape.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_util(
+    e: *const Expr,
+    op: NqUtilOp,
+    a: *const Expr,
+    b: *const Expr,
+    f1: bool,
+    f2: bool,
+    seed: i64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        let sd = (seed >= 0).then_some(seed as u64);
+        Ok(match op {
+            NqUtilOp::Shuffle => e.shuffle(sd),
+            NqUtilOp::SampleN => e.sample_n(a, f1, Some(f2), sd),
+            NqUtilOp::SampleFraction => e.sample_frac(a, f1, Some(f2), sd),
+            NqUtilOp::Hash => {
+                let s = seed.max(0) as u64;
+                e.hash(s, s, s, s)
+            }
+            NqUtilOp::Get => e.get(a, f1),
+            NqUtilOp::ArgTrue => arg_where(e),
+            NqUtilOp::UpperBound => e.upper_bound(),
+            NqUtilOp::LowerBound => e.lower_bound(),
+            NqUtilOp::ExtendConstant => e.extend_constant(a, b),
+            NqUtilOp::Rle => e.rle(),
+            NqUtilOp::NameToLowercase => e.name().to_lowercase(),
+            NqUtilOp::NameToUppercase => e.name().to_uppercase(),
+            NqUtilOp::UndoAliases => e.meta().undo_aliases(),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_reshape(e: *const Expr, dims: *const i64, n: usize) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().reshape(slice(dims, n)?))))
+}
+
+/// `over` with a mapping strategy: 0 group_to_rows, 1 join, 2 explode.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_over_mapping(
+    e: *const Expr,
+    parts: *const *const Expr,
+    n: usize,
+    mapping: i32,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ps = exprs_of(parts, n)?;
+        let m = match mapping {
+            1 => WindowMapping::Join,
+            2 => WindowMapping::Explode,
+            _ => WindowMapping::GroupsToRows,
+        };
+        borrow(e, "expression")?.clone().over_with_options(Some(ps), None, m).map_err(pe)
+    }))
+}
+
+/// Meta information on an expression: 0 output name, 1 root names (joined by
+/// "\n"). Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_str(e: *const Expr, what: i32) -> *mut c_char {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let m = e.meta();
+        Ok(to_c_string(match what {
+            0 => m.output_name().map_err(pe)?.to_string(),
+            _ => m.root_names().iter().map(|s| s.to_string()).collect::<Vec<_>>().join("\n"),
+        }))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// 0 has_multiple_outputs, 1 is_column, 2 is_literal. -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_bool(e: *const Expr, what: i32) -> i32 {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let m = e.meta();
+        Ok(match what {
+            0 => m.has_multiple_outputs(),
+            1 => m.is_column(),
+            _ => m.is_literal(false),
+        } as i32)
+    })
+    .unwrap_or(-1)
+}
+
+/// Whether two frames have the same names, dtypes and values (nulls equal
+/// when `null_equal`). -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_equals(a: *const DataFrame, b: *const DataFrame, null_equal: bool) -> i32 {
+    guard(|| {
+        let (a, b) = (borrow(a, "DataFrame")?, borrow(b, "DataFrame")?);
+        if a.shape() != b.shape() || a.get_column_names() != b.get_column_names() {
+            return Ok(0);
+        }
+        for (x, y) in a.columns().iter().zip(b.columns()) {
+            if x.dtype() != y.dtype() {
+                return Ok(0);
+            }
+            let same = if null_equal { x.equals_missing(y) } else { x.equals(y) };
+            if !same {
+                return Ok(0);
+            }
+        }
+        Ok(1)
+    })
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_estimated_size(df: *const DataFrame) -> i64 {
+    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size() as i64)).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_upsample(
+    df: *const DataFrame,
+    time_column: *const c_char,
+    every: *const c_char,
+    by: *const *const c_char,
+    n_by: usize,
+    maintain_order: bool,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let by: Vec<PlSmallStr> = names(by, n_by)?.into_iter().map(PlSmallStr::from).collect();
+        let every = polars::time::Duration::try_parse(cstr(every)?).map_err(pe)?;
+        let tc = cstr(time_column)?;
+        if maintain_order {
+            df.upsample_stable(by, tc, every).map_err(pe)
+        } else {
+            df.upsample(by, tc, every).map_err(pe)
+        }
+    }))
+}
+
+/// Collects several plans at once (common subplans run once).
+#[no_mangle]
+pub unsafe extern "C" fn nq_collect_all(lfs: *const *const LazyFrame, n: usize, out: *mut *mut DataFrame) -> bool {
+    guard(|| {
+        let plans: Vec<DslPlan> = slice(lfs, n)?.iter().map(|l| lf(*l).map(|x| x.logical_plan)).collect::<Result<_, _>>()?;
+        let dfs = LazyFrame::collect_all_with_engine(plans, Engine::Auto, OptFlags::default()).map_err(pe)?;
+        let out = std::slice::from_raw_parts_mut(out, n);
+        for (o, d) in out.iter_mut().zip(dfs) {
+            *o = Box::into_raw(Box::new(d));
+        }
+        Ok(())
+    })
+    .is_some()
 }

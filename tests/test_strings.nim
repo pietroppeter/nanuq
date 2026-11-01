@@ -98,3 +98,38 @@ suite "concatStr and format":
   test "next to strutils":
     check "$1".format("x") == "x"
     check "{}" notin $format("{}!", col.m)
+
+suite "nested strings (0.5)":
+  test "split and extract":
+    let df = newDataFrame:
+      station: ["Lima, Peru", "Piura, Peru", "Darwin"]
+    let r = df.select(col("station").str.split(", ").alias("parts"),
+                      col("station").str.splitExact(", ", 1).alias("exact"),
+                      col("station").str.splitn(", ", 2).alias("n"),
+                      col("station").str.extractAll(r"[A-Z]").alias("caps"),
+                      col("station").str.extractGroups(r"(?<city>\w+)(, (?<country>\w+))?").alias("g"))
+    check r.toList("parts", seq[string]) == @[@["Lima", "Peru"], @["Piura", "Peru"], @["Darwin"]]
+    check r.toList("exact", tuple[field_0: string, field_1: Option[string]])[2] == (field_0: "Darwin", field_1: none(string))
+    check r.toList("caps", seq[string]) == @[@["L", "P"], @["P", "P"], @["D"]]
+    check r.toList("g", tuple[city: string, country: Option[string]])[0] == (city: "Lima", country: some("Peru"))
+    check df.select(col("station").str.split(", ", inclusive = true)).toList("station", seq[string])[0] == @["Lima, ", "Peru"]
+
+  test "many patterns":
+    let df = newDataFrame:
+      note: ["sea ice thin", "no ice", "open water"]
+    let r = df.select(col("note").str.containsAny(["ice", "water"]).alias("any"),
+                      col("note").str.replaceMany({"ice": "ICE", "water": "WATER"}).alias("loud"),
+                      col("note").str.extractMany(["ice", "sea", "water"]).alias("found"),
+                      col("note").str.replaceMany(["a", "e"], "_").alias("u"))
+    check r.toList("any", bool) == @[true, true, true]
+    check r.toList("loud", string) == @["sea ICE thin", "no ICE", "open WATER"]
+    check r.toList("found", seq[string]) == @[@["sea", "ice"], @["ice"], @["water"]]
+    check r.toList("u", string)[0] == "s__ ic_ thin"
+
+  test "json":
+    let df = newDataFrame:
+      json: ["""{"bear": "Ada", "kg": 410}""", """{"bear": "Bo", "kg": null}"""]
+    let r = df.select(col("json").str.jsonDecode(tuple[bear: string, kg: Option[int]]).alias("v"),
+                      col("json").str.jsonPathMatch("$.bear").alias("bear"))
+    check r.toList("v", tuple[bear: string, kg: Option[int]]) == @[(bear: "Ada", kg: some(410)), (bear: "Bo", kg: none(int))]
+    check r.toList("bear", string) == @["Ada", "Bo"]

@@ -69,7 +69,7 @@ shape: (2, 3)
 │ North   ┆ 410.0  ┆ 3     │
 │ South   ┆ 380.0  ┆ null  │
 └─────────┴────────┴───────┘
-{"stage": i64, "day": date, "start": time}
+{"stage": Int64, "day": Date, "start": TimeOfDay}
 ```
 
 #### Scenario: Semicolons and null words

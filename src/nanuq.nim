@@ -161,13 +161,14 @@ type
     ## model yet.
     Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
     UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Categorical,
-    Enum, Other
+    Enum, List, Array, Struct, Other
 
   DataType* = object
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
-    ## with a Nim type (`dtype == Date`, `dtype == DateTime`). Dtypes Nanuq does
-    ## not model yet (lists, ...) have kind `DataTypeKind.Other` and keep
-    ## Polars' name.
+    ## with a Nim type (`dtype == Date`, `dtype == DateTime`). Nested types are
+    ## built with `List(inner)`, `Array(inner, width)` and `Struct(fields)`.
+    ## Dtypes Nanuq does not model yet (decimals, binary, ...) have kind
+    ## `DataTypeKind.Other` and keep Polars' name.
     case kind*: DataTypeKind
     of DataTypeKind.Other: name*: string
     of DataTypeKind.Datetime, DataTypeKind.Duration:
@@ -175,7 +176,19 @@ type
       timeZone*: string     ## IANA name, "" for none; always "" for Duration
     of DataTypeKind.Enum:
       categories*: seq[string]  ## The allowed values, in order
+    of DataTypeKind.List:
+      listInner: seq[DataType]  # one element: a seq keeps the object a value
+    of DataTypeKind.Array:
+      arrayInner: seq[DataType]
+      width*: int               ## Number of values in each array
+    of DataTypeKind.Struct:
+      fields*: seq[Field]       ## The fields, in order
     else: discard
+
+  Field* = object
+    ## A field of a Struct data type (Python's `pl.Field`).
+    name*: string
+    dtype*: DataType
 
   Schema* = OrderedTable[string, DataType]
     ## Column names and data types, in column order.
@@ -210,14 +223,66 @@ const
     ## Strings stored as numbers, with categories found in the data (Polars'
     ## global categories). For a fixed set of values use `Enum`.
 
-proc `==`*(a, b: DataType): bool =
+proc `==`*(a, b: DataType): bool {.noSideEffect.} =
   if a.kind != b.kind: return false
   case a.kind
   of DataTypeKind.Other: a.name == b.name
   of DataTypeKind.Datetime, DataTypeKind.Duration:
     a.timeUnit == b.timeUnit and a.timeZone == b.timeZone
   of DataTypeKind.Enum: a.categories == b.categories
+  of DataTypeKind.List: a.listInner[0] == b.listInner[0]
+  of DataTypeKind.Array: a.width == b.width and a.arrayInner[0] == b.arrayInner[0]
+  of DataTypeKind.Struct:
+    if a.fields.len != b.fields.len: return false
+    for i in 0 ..< a.fields.len:
+      if a.fields[i].name != b.fields[i].name or a.fields[i].dtype != b.fields[i].dtype:
+        return false
+    true
   else: true
+
+proc `==`*(a, b: Field): bool = a.name == b.name and a.dtype == b.dtype
+
+proc List*(inner: DataType): DataType =
+  ## Polars' `List`: lists of any length of `inner` values (`List(Int64)`). Nim
+  ## seqs map to it: `dataType(seq[int])`.
+  DataType(kind: DataTypeKind.List, listInner: @[inner])
+
+proc Array*(inner: DataType, width: int): DataType =
+  ## Polars' `Array`: arrays of exactly `width` values (`Array(Float64, 3)`).
+  ## Nim arrays map to it: `dataType(array[3, float])`.
+  if width < 0: raise newException(ValueError, "Array width must not be negative")
+  DataType(kind: DataTypeKind.Array, arrayInner: @[inner], width: width)
+
+proc Array*(inner: DataType, shape: openArray[int]): DataType =
+  ## Nested arrays: `Array(Int64, [2, 3])` holds 2 arrays of 3 values
+  ## (Python's `pl.Array(pl.Int64, (2, 3))`).
+  if shape.len == 0: raise newException(ValueError, "Array shape must not be empty")
+  result = inner
+  for i in countdown(shape.high, 0): result = Array(result, shape[i])
+
+proc Struct*(fields: openArray[Field]): DataType =
+  ## Polars' `Struct`: named fields of their own types.
+  DataType(kind: DataTypeKind.Struct, fields: @fields)
+
+proc Struct*(fields: openArray[(string, DataType)]): DataType =
+  ## `Struct({"x": Float64, "y": Float64})`.
+  var fs: seq[Field]
+  for (n, d) in fields: fs.add Field(name: n, dtype: d)
+  Struct(fs)
+
+proc inner*(t: DataType): DataType =
+  ## The element type of a List or Array.
+  case t.kind
+  of DataTypeKind.List: t.listInner[0]
+  of DataTypeKind.Array: t.arrayInner[0]
+  else: raise newException(InvalidOperationError, "a " & $t.kind & " data type has no inner type")
+
+proc shape*(t: DataType): seq[int] =
+  ## The widths of nested arrays, outermost first: `@[2, 3]` for `Array(Int64, [2, 3])`.
+  var d = t
+  while d.kind == DataTypeKind.Array:
+    result.add d.width
+    d = d.arrayInner[0]
 
 proc Enum*(categories: openArray[string]): DataType =
   ## Polars' `Enum`: strings from a fixed set of `categories`, ordered as given
@@ -242,8 +307,8 @@ proc checkUnit(u: TimeUnit) =
     raise newException(ValueError, "Polars time units are Nanoseconds, Microseconds and " &
                        "Milliseconds, not " & $u)
 
-proc `$`*(t: DataType): string =
-  ## Polars' short name, e.g. "i64", "str", "datetime[μs, Europe/Rome]".
+proc shortName(t: DataType): string =
+  ## Polars' short name, as in table headers: "i64", "str", "datetime[μs, Europe/Rome]".
   case t.kind
   of DataTypeKind.Boolean: "bool"
   of DataTypeKind.Int8: "i8"
@@ -265,7 +330,42 @@ proc `$`*(t: DataType): string =
   of DataTypeKind.Time: "time"
   of DataTypeKind.Categorical: "cat"
   of DataTypeKind.Enum: "enum"
+  of DataTypeKind.List: "list[" & shortName(t.listInner[0]) & "]"
+  of DataTypeKind.Array:
+    var d = t
+    while d.kind == DataTypeKind.Array: d = d.arrayInner[0]
+    let sh = t.shape
+    "array[" & shortName(d) & ", " & (if sh.len == 1: $sh[0] else: "(" & sh.join(", ") & ")") & "]"
+  of DataTypeKind.Struct: "struct[" & $t.fields.len & "]"
   of DataTypeKind.Other: t.name
+
+proc `$`*(t: DataType): string =
+  ## The data type as Nanuq code: `Int64`, `List(String)`, `Array(Float64, 3)`,
+  ## `Struct({"x": Int64})`, `Enum(["a", "b"])`. Temporal types print as the Nim
+  ## types they cast to: `Date`, `TimeOfDay`, `DateTime(Microseconds, "UTC")`,
+  ## `Duration(Milliseconds)`. Tables keep Polars' short names (`i64`).
+  case t.kind
+  of DataTypeKind.Date: "Date"
+  of DataTypeKind.Time: "TimeOfDay"
+  of DataTypeKind.Datetime:
+    "DateTime(" & $t.timeUnit & (if t.timeZone.len > 0: ", " & t.timeZone.escape else: "") & ")"
+  of DataTypeKind.Duration: "Duration(" & $t.timeUnit & ")"
+  of DataTypeKind.Enum:
+    var cs: seq[string]
+    for c in t.categories: cs.add c.escape
+    "Enum([" & cs.join(", ") & "])"
+  of DataTypeKind.List: "List(" & $t.listInner[0] & ")"
+  of DataTypeKind.Array:
+    var d = t
+    while d.kind == DataTypeKind.Array: d = d.arrayInner[0]
+    let sh = t.shape
+    "Array(" & $d & ", " & (if sh.len == 1: $sh[0] else: "[" & sh.join(", ") & "]") & ")"
+  of DataTypeKind.Struct:
+    var fs: seq[string]
+    for f in t.fields: fs.add f.name.escape & ": " & $f.dtype
+    "Struct({" & fs.join(", ") & "})"
+  of DataTypeKind.Other: t.name
+  else: $t.kind
 
 proc isSignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.Int8 .. DataTypeKind.Int64}
 proc isUnsignedInteger*(t: DataType): bool = t.kind in {DataTypeKind.UInt8 .. DataTypeKind.UInt64}
@@ -280,7 +380,9 @@ proc dataType*(T: typedesc, timeUnit = TimeUnit.Microseconds, timeZone = ""): Da
   ## with `timeUnit` and `timeZone`), `Duration` (with `timeUnit`) and
   ## `TimeOfDay` (Time), and Nim enums (Enum, with `$` of each value as the
   ## categories). `int` and `float` give `Int64` and `Float64`, as
-  ## `series` builds them. Other types do not compile.
+  ## `series` builds them. `seq[T]` gives a List, `array[N, T]` an Array, and
+  ## objects and named tuples a Struct of their fields; `Option[T]` gives the
+  ## type of `T`. Other types do not compile.
   when T is int8: Int8
   elif T is int16: Int16
   elif T is int32: Int32
@@ -301,6 +403,18 @@ proc dataType*(T: typedesc, timeUnit = TimeUnit.Microseconds, timeZone = ""): Da
     var cats: seq[string]
     for v in T: cats.add $v
     Enum(cats)
+  elif T is Option:
+    dataType(typeof(default(T).get), timeUnit, timeZone)
+  elif T is seq:
+    List(dataType(typeof(items(default(T))), timeUnit, timeZone))
+  elif T is array:
+    Array(dataType(typeof(items(default(T))), timeUnit, timeZone), len(default(T)))
+  elif T is object or T is tuple:
+    var fs: seq[Field]
+    var proto: T
+    for n, f in proto.fieldPairs:
+      fs.add Field(name: n, dtype: dataType(typeof(f), timeUnit, timeZone))
+    Struct(fs)
   else: {.error: "nanuq: no Polars data type for " & $T.}
 
 proc `==`*(t: DataType, T: typedesc): bool =
@@ -311,10 +425,23 @@ proc `==`*(t: DataType, T: typedesc): bool =
   else: t == dataType(T)
 
 type DtypeSpecs = object
-  ## Specs for the C ABI, with the strings they point to kept alive.
+  ## Specs for the C ABI, with the strings and nested type handles they point
+  ## to kept alive (the handles are freed with the specs).
   specs: seq[NqDtypeSpec]
   zones: seq[string]
   cats: seq[seq[cstring]]
+  handles: seq[ptr NqDataType]
+
+proc `=destroy`(x: DtypeSpecs) =
+  for h in x.handles:
+    if h != nil: nq_dtype_free(h)
+  `=destroy`(x.specs)
+  `=destroy`(x.zones)
+  `=destroy`(x.cats)
+  `=destroy`(x.handles)
+proc `=copy`(a: var DtypeSpecs, b: DtypeSpecs) {.error.}
+
+proc toHandle(t: DataType): ptr NqDataType
 
 proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
   result.specs = newSeq[NqDtypeSpec](ts.len)
@@ -331,10 +458,76 @@ proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
       result.zones[i] = t.timeZone
     if t.kind == DataTypeKind.Enum:
       result.cats[i] = cstrings(t.categories)   # points into ts, alive for the call
+    if t.kind in {DataTypeKind.List, DataTypeKind.Array, DataTypeKind.Struct}:
+      let h = toHandle(t)
+      result.handles.add h
+      result.specs[i].nested = h
   for i in 0 ..< ts.len:
     result.specs[i].timeZone = result.zones[i].cstring
     result.specs[i].categories = result.cats[i].firstOrNil
     result.specs[i].nCategories = result.cats[i].len.csize_t
+
+proc toHandle(t: DataType): ptr NqDataType =
+  ## A new C ABI handle for `t` (free it with `nq_dtype_free`).
+  case t.kind
+  of DataTypeKind.List, DataTypeKind.Array:
+    let i = toHandle(t.inner)
+    result = if t.kind == DataTypeKind.List: nq_dtype_list(i)
+             else: nq_dtype_array(i, t.width.csize_t)
+    nq_dtype_free(i)
+  of DataTypeKind.Struct:
+    var names = newSeq[cstring](t.fields.len)
+    var hs = newSeq[ptr NqDataType](t.fields.len)
+    for i, f in t.fields:
+      names[i] = f.name.cstring
+      hs[i] = toHandle(f.dtype)
+    result = nq_dtype_struct(names.firstOrNil, hs.firstOrNil, hs.len.csize_t)
+    for h in hs: nq_dtype_free(h)
+  else:
+    let sp = toSpecs([t])
+    result = nq_dtype_from_spec(sp.specs[0].unsafeAddr)
+  if result == nil: raiseLast()
+
+proc fromHandle(h: ptr NqDataType): DataType =
+  ## The data type behind a C ABI handle (which stays owned by the caller).
+  let k = nq_dtype_kind(h)
+  if k < 0: raiseLast()
+  case DataTypeKind(k)
+  of DataTypeKind.Other: DataType(kind: DataTypeKind.Other, name: takeString nq_dtype_name(h))
+  of DataTypeKind.Datetime, DataTypeKind.Duration:
+    let code = nq_dtype_time_unit(h)
+    if code < 0: raiseLast()
+    let u = TimeUnit(code)
+    if DataTypeKind(k) == DataTypeKind.Datetime:
+      DataType(kind: DataTypeKind.Datetime, timeUnit: u, timeZone: takeString nq_dtype_time_zone(h))
+    else:
+      DataType(kind: DataTypeKind.Duration, timeUnit: u)
+  of DataTypeKind.Enum:
+    let n = nq_dtype_n_categories(h)
+    if n < 0: raiseLast()
+    var cats = newSeq[string](n)
+    for i in 0 ..< n:
+      let c = nq_dtype_category(h, i.csize_t)
+      if c == nil: raiseLast()
+      cats[i] = takeString(c)
+    DataType(kind: DataTypeKind.Enum, categories: cats)
+  of DataTypeKind.List, DataTypeKind.Array:
+    let i = check nq_dtype_inner(h)
+    let inner = fromHandle(i)
+    nq_dtype_free(i)
+    if DataTypeKind(k) == DataTypeKind.List: List(inner)
+    else: Array(inner, nq_dtype_width(h).int)
+  of DataTypeKind.Struct:
+    let n = nq_dtype_n_fields(h)
+    if n < 0: raiseLast()
+    var fs = newSeq[Field](n)
+    for i in 0 ..< n:
+      let f = check nq_dtype_field(h, i.csize_t)
+      fs[i] = Field(name: takeString nq_dtype_field_name(h, i.csize_t), dtype: fromHandle(f))
+      nq_dtype_free(f)
+    Struct(fs)
+  else:
+    DataType(kind: DataTypeKind(k))
 
 # ---------------------------------------------------------------------------
 # Temporal values: Date and TimeOfDay, and conversions to Polars' physical values
@@ -421,6 +614,9 @@ proc fromPhysical(v: int64, _: typedesc[times.Duration], u: TimeUnit): times.Dur
   initDuration(nanoseconds = v * unitScale(u))
 
 type TemporalValue = Date | DateTime | times.Duration | TimeOfDay
+type SizedNumber = int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | float32
+  ## Nim number types other than `int` and `float`; they map to the Polars type
+  ## of the same size (`int32` is Int32).
 
 proc temporalType(T: typedesc, timeUnit: TimeUnit, timeZone: string): DataType =
   dataType(T, timeUnit, timeZone)
@@ -483,6 +679,30 @@ proc castSeries(s: Series, t: DataType): Series =
   let sp = toSpecs([t])
   wrap nq_series_cast(s.raw, sp.specs[0].unsafeAddr)
 
+proc castTo*(s: Series, dtype: DataType, strict = true): Series
+
+proc series*[T: SizedNumber](name: string, data: openArray[T]): Series =
+  ## A column of the Polars type with the size of `T`: `series("a", [1'i32, 2])`
+  ## is Int32, `float32` gives Float32.
+  when T is float32:
+    var buf = newSeq[float](data.len)
+    for i, x in data: buf[i] = x.float
+  else:
+    var buf = newSeq[int](data.len)
+    for i, x in data: buf[i] = x.int
+  series(name, buf).castTo(dataType(T))
+
+proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
+  when T is float32:
+    var buf = newSeq[Option[float]](data.len)
+    for i, x in data:
+      if x.isSome: buf[i] = some(x.get.float)
+  else:
+    var buf = newSeq[Option[int]](data.len)
+    for i, x in data:
+      if x.isSome: buf[i] = some(x.get.int)
+  series(name, buf).castTo(dataType(T))
+
 proc series*[T: NimEnum](name: string, data: openArray[T]): Series =
   ## An Enum column from Nim enum values; the categories are all values of `T`.
   var strs = newSeq[string](data.len)
@@ -524,6 +744,69 @@ proc series*[T: TemporalValue](name: string, data: openArray[Option[T]],
       valid[i] = true
   temporalSeries(name, vals, valid, temporalType(T, timeUnit, timeZone))
 
+type StructValue = (object | tuple) and not (TemporalValue | Option)
+  ## Nim values that map to Polars' Struct: objects and named tuples.
+
+proc listSeries[T](name: string, data: openArray[seq[T]], valid: seq[bool]): Series =
+  var flat: seq[T]
+  var offsets = newSeq[int64](data.len + 1)
+  for i, x in data:
+    flat.add x
+    offsets[i + 1] = flat.len.int64
+  let inner = series("", flat)
+  wrap nq_series_list_from_parts(name.cstring, inner.raw, offsets.firstOrNil,
+                                 valid.firstOrNil, data.len.csize_t)
+
+proc series*[T](name: string, data: openArray[seq[T]]): Series =
+  ## A List column from Nim seqs (`@[@[1, 2], @[]]`), at any depth; seqs of
+  ## `Option` give null values inside the lists.
+  listSeries(name, data, @[])
+
+proc series*[T](name: string, data: openArray[Option[seq[T]]]): Series =
+  ## A List column with null rows where `data` is `none`.
+  var vals = newSeq[seq[T]](data.len)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      vals[i] = x.get
+      valid[i] = true
+  listSeries(name, vals, valid)
+
+proc series*[N: static int, T](name: string, data: openArray[array[N, T]]): Series =
+  ## An Array column from Nim arrays (`[[1, 2], [3, 4]]` is `array[i64, 2]`).
+  var rows = newSeq[seq[T]](data.len)
+  for i, x in data: rows[i] = @x
+  let l = listSeries(name, rows, @[])
+  l.castSeries(Array(dataType(T), N))
+
+proc structSeries[T](name: string, data: openArray[T], valid: seq[bool]): Series =
+  var proto: T
+  var fields: seq[Series]
+  for fname, field in proto.fieldPairs:
+    var vals = newSeq[typeof(field)](data.len)
+    for i, r in data:
+      for n2, f2 in r.fieldPairs:
+        when n2 == fname: vals[i] = f2
+    fields.add series(fname, vals)
+  var raws = newSeq[ptr NqSeries](fields.len)
+  for i, f in fields: raws[i] = f.raw
+  wrap nq_series_struct_from_fields(name.cstring, raws.firstOrNil, raws.len.csize_t,
+                                    valid.firstOrNil, data.len.csize_t)
+
+proc series*[T: StructValue](name: string, data: openArray[T]): Series =
+  ## A Struct column from Nim objects or named tuples, one field per field.
+  structSeries(name, data, @[])
+
+proc series*[T: StructValue](name: string, data: openArray[Option[T]]): Series =
+  ## A Struct column with null rows where `data` is `none`.
+  var vals = newSeq[T](data.len)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      vals[i] = x.get
+      valid[i] = true
+  structSeries(name, vals, valid)
+
 proc newDataFrameOf(columns: varargs[Series]): DataFrame =
   var buf = newSeq[ptr NqSeries](columns.len)
   for i, c in columns: buf[i] = c.raw
@@ -548,14 +831,20 @@ proc blockColumn(line: NimNode): NimNode =
   if vals.kind == nnkBracket:
     for v in vals:
       if v.kind == nnkNilLit: hasNil = true
-      elif sample.isNil: sample = v
+      elif sample.isNil and not (v.kind == nnkPrefix and v[1].kind == nnkBracket and
+                                 v[1].len == 0):
+        sample = v
   if hasNil:
     if sample.isNil:
       error("column " & name.strVal & " holds only nil: there is no type to infer", vals)
     let opts = newNimNode(nnkBracket, vals)
     for v in vals:
+      let isEmptySeq = v.kind == nnkPrefix and v[0].eqIdent("@") and
+                       v[1].kind == nnkBracket and v[1].len == 0
       opts.add(if v.kind == nnkNilLit:
                  newCall(nnkBracketExpr.newTree(bindSym"none", newCall(ident"typeof", sample)))
+               elif isEmptySeq:   # `@[]` has no type of its own
+                 newCall(bindSym"some", newCall(newCall(ident"typeof", sample), v))
                else: newCall(bindSym"some", v))
     vals = opts
   newCall(bindSym("series", brOpen), name, vals)
@@ -598,31 +887,9 @@ proc columns*(df: DataFrame): seq[string] =
 
 proc dtype*(df: DataFrame, column: string): DataType =
   ## Data type of a column, e.g. `Int64`; `$` gives Polars' name ("i64").
-  let k = nq_df_column_dtype_kind(df.raw, column.cstring)
-  if k < 0: raiseLast()
-  case DataTypeKind(k)
-  of DataTypeKind.Other:
-    DataType(kind: DataTypeKind.Other, name: takeString nq_df_column_dtype(df.raw, column.cstring))
-  of DataTypeKind.Datetime, DataTypeKind.Duration:
-    let code = nq_df_column_time_unit(df.raw, column.cstring)
-    if code < 0: raiseLast()
-    let u = TimeUnit(code)
-    if DataTypeKind(k) == DataTypeKind.Datetime:
-      DataType(kind: DataTypeKind.Datetime, timeUnit: u,
-               timeZone: takeString nq_df_column_time_zone(df.raw, column.cstring))
-    else:
-      DataType(kind: DataTypeKind.Duration, timeUnit: u)
-  of DataTypeKind.Enum:
-    let n = nq_df_column_n_categories(df.raw, column.cstring)
-    if n < 0: raiseLast()
-    var cats = newSeq[string](n)
-    for i in 0 ..< n:
-      let c = nq_df_column_category(df.raw, column.cstring, i.csize_t)
-      if c == nil: raiseLast()
-      cats[i] = takeString(c)
-    DataType(kind: DataTypeKind.Enum, categories: cats)
-  else:
-    DataType(kind: DataTypeKind(k))
+  let h = check nq_df_column_dtype_handle(df.raw, column.cstring)
+  try: fromHandle(h)
+  finally: nq_dtype_free(h)
 
 proc dtypes*(df: DataFrame): seq[DataType] =
   ## Data types of all columns, in order.
@@ -734,7 +1001,7 @@ proc toHtml*(df: DataFrame, maxRows = 10, maxCols = 75): string =
     result.add "<th>" & (if c == -1: "&hellip;" else: htmlEscape(names[c])) & "</th>"
   result.add "</tr><tr>"
   for c in cols:
-    result.add "<td>" & (if c == -1: "&hellip;" else: $df.dtype(names[c])) & "</td>"
+    result.add "<td>" & (if c == -1: "&hellip;" else: shortName(df.dtype(names[c]))) & "</td>"
   result.add "</tr></thead><tbody>"
   for r in rows:
     result.add "<tr>"
@@ -765,17 +1032,29 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if valid[i]: vals[i] = fromPhysical(x, T, u)
     (vals, valid)
   elif T is int:
-    var buf = newSeq[int64](n)
-    if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
-      raiseLast()
-    var vals = newSeq[int](n)
-    for i, x in buf: vals[i] = x.int
+    when sizeof(int) == 8:   # read straight into the result
+      var vals = newSeq[int](n)
+      let p = (if n > 0: cast[ptr int64](vals[0].addr) else: nil)
+      if not nq_df_column_i64(df.raw, column.cstring, p, valid.firstOrNil, n.csize_t):
+        raiseLast()
+    else:
+      var buf = newSeq[int64](n)
+      if not nq_df_column_i64(df.raw, column.cstring, buf.firstOrNil, valid.firstOrNil, n.csize_t):
+        raiseLast()
+      var vals = newSeq[int](n)
+      for i, x in buf: vals[i] = x.int
     (vals, valid)
   elif T is float:
     var vals = newSeq[float](n)
     if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
     (vals, valid)
+  elif T is SizedNumber:
+    let (wide, ok) = readColumn(df, column, (when T is float32: float else: int))
+    var vals = newSeq[T](n)
+    for i, x in wide:
+      if ok[i]: vals[i] = T(x)
+    (vals, ok)
   elif T is enum and T isnot bool:
     let (strs, ok) = readColumn(df, column, string)
     valid = ok
@@ -809,7 +1088,7 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
       if b > a: copyMem(vals[i][0].addr, data[a].addr, b - a)
     (vals, valid)
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](df: DataFrame, column: string,
                                                             _: typedesc[T]): seq[T] =
   ## Copies a whole column into a Nim seq. Raises `InvalidOperationError` if the column has
   ## nulls: read it as `Option[T]`, or `fillNull` first.
@@ -825,7 +1104,7 @@ proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataF
       " null(s); read it as Option[" & $T & "] or fill them first")
   vals
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](df: DataFrame, column: string,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](df: DataFrame, column: string,
                                                             _: typedesc[Option[T]]): seq[Option[T]] =
   ## Copies a whole column into a Nim seq, with `none` for nulls.
   let (vals, valid) = readColumn(df, column, T)
@@ -1013,6 +1292,16 @@ proc fillNan*[T: SomeNumber | Expr](e: Expr, value: T): Expr =
 proc fillNan*(e: Expr, value: typeof(nil)): Expr =
   ## Turns NaN into null: `fillNan(nil)` (Python's `fill_nan(None)`).
   binaryFn(e, lit(nil), nqbFillNan)
+
+proc entropy*(e: Expr, base = E, normalize = true): Expr =
+  ## The entropy of the values, `-sum(p * ln(p)) / ln(base)`, as an
+  ## aggregation; with `normalize` the values are first divided by their sum.
+  wrap nq_expr_entropy(e.raw, base.cdouble, normalize)
+
+proc len*(): Expr =
+  ## The number of rows, in a column named `len` (Python's `pl.len()`); in a
+  ## group-by, the size of each group.
+  wrap nq_expr_len()
 
 proc any*(e: Expr, ignoreNulls = true): Expr =
   ## Whether any value of a boolean column is true (an aggregation). With
@@ -1934,7 +2223,7 @@ proc glimpse*(df: DataFrame, maxItemsPerColumn = 10, maxColnameLength = 50): str
             break
         vals.add x
       else: vals.add v.get
-    rows.add (shown, "<" & $dt & ">", vals.join(", "))
+    rows.add (shown, "<" & shortName(dt) & ">", vals.join(", "))
   var wName, wType = 0
   for (n, t, _) in rows:
     wName = max(wName, n.runeLen)
@@ -3200,11 +3489,11 @@ proc rename*(s: Series, name: string): Series = s.alias(name)
 proc dtype*(s: Series): DataType = s.toFrame.dtype(s.name)
 proc nullCount*(s: Series): int = s.toFrame.nullCount(s.name)
 
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](s: Series,
     _: typedesc[T]): seq[T] =
   ## The values as a seq; raises `InvalidOperationError` on nulls.
   s.toFrame.toList(s.name, T)
-proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum | SizedNumber](s: Series,
     _: typedesc[Option[T]]): seq[Option[T]] =
   s.toFrame.toList(s.name, Option[T])
 proc `[]`*[T](s: Series, row: int, _: typedesc[T]): T =
@@ -3230,7 +3519,14 @@ proc eval*(s: Series, e: Expr): Series =
   s.toFrame.select(e).toSeries(0)
 
 proc pairFrame(a, b: Series): DataFrame =
-  newDataFrame(a, b.alias("__nq_rhs"))
+  ## `a` and `b` (as `__nq_rhs`) side by side; a Series of length 1 is
+  ## broadcast to the other's length, as in Polars.
+  if a.len == b.len: newDataFrame(a, b.alias("__nq_rhs"))
+  elif b.len == 1:
+    a.toFrame.select(col(a.name), lit(b).first.alias("__nq_rhs"))
+  elif a.len == 1:
+    b.alias("__nq_rhs").toFrame.select(lit(a).first.alias(a.name), col("__nq_rhs"))
+  else: newDataFrame(a, b.alias("__nq_rhs"))
 
 proc filter*(s: Series, mask: Series): Series =
   ## The values where `mask` is true.
@@ -3307,6 +3603,103 @@ proc describe*(s: Series, percentiles: openArray[float] = [0.25, 0.5, 0.75]): Da
   s.toFrame.describe(percentiles)
 
 # ---------------------------------------------------------------------------
+# Nested values back to Nim (0.5)
+# ---------------------------------------------------------------------------
+
+type NestedValue = seq | array | StructValue
+
+proc readValues[T](s: Series, what: string): (seq[T], seq[bool])
+
+proc readAny[T](s: Series, what: string, rowValid: seq[bool] = @[]): seq[T] =
+  ## The values of `s` as `T`. `Option[U]` reads nulls as `none`; for other
+  ## types a null raises, except in rows where `rowValid` (if given) is false.
+  when T is Option:
+    let (vals, valid) = readValues[typeof(default(T).get)](s, what)
+    result = newSeq[T](vals.len)
+    for i, v in vals:
+      if valid[i]: result[i] = some(v)
+  else:
+    let (vals, valid) = readValues[T](s, what)
+    var nulls = 0
+    for i, ok in valid:
+      if not ok and (rowValid.len == 0 or rowValid[i]): inc nulls
+    if nulls > 0:
+      raise newException(InvalidOperationError, what & " has " & $nulls &
+        " null(s); read it as Option[" & $T & "] or fill them first")
+    vals
+
+proc validity(s: Series): seq[bool] =
+  result = newSeq[bool](s.len)
+  if not nq_series_validity(s.raw, result.firstOrNil, result.len.csize_t): raiseLast()
+
+proc readValues[T](s: Series, what: string): (seq[T], seq[bool]) =
+  ## Values and validity of `s` read as `T`, at any depth.
+  let n = s.len
+  when T is seq or T is array:
+    let valid = s.validity
+    var offs = newSeq[int64](n + 1)
+    if not nq_series_list_offsets(s.raw, offs.firstOrNil, n.csize_t): raiseLast()
+    let inner = wrap nq_series_inner(s.raw)
+    let flat = readAny[typeof(items(default(T)))](inner, what & " (values)")
+    var vals = newSeq[T](n)
+    for i in 0 ..< n:
+      let (a, z) = (offs[i].int, offs[i + 1].int)
+      when T is seq:
+        vals[i] = flat[a ..< z]
+      else:
+        if valid[i]:
+          if z - a != len(default(T)):
+            raise newException(InvalidOperationError, what & " row " & $i & " has " &
+                               $(z - a) & " values, not " & $len(default(T)))
+          var j = 0
+          for x in vals[i].mitems:
+            x = flat[a + j]
+            inc j
+    (vals, valid)
+  elif T is StructValue:
+    let valid = s.validity
+    let dt = s.dtype
+    if dt.kind != DataTypeKind.Struct:
+      raise newException(InvalidOperationError, what & " is " & $dt & ", not a struct")
+    var vals = newSeq[T](n)
+    var proto: T
+    for fname, field in proto.fieldPairs:
+      var idx = -1
+      for i, f in dt.fields:
+        if f.name == fname: idx = i
+      if idx < 0:
+        raise newException(ColumnNotFoundError, what & " has no struct field '" & fname & "'")
+      let fs = wrap nq_series_struct_field(s.raw, idx.csize_t)
+      let fv = readAny[typeof(field)](fs, what & " field '" & fname & "'", valid)
+      for i in 0 ..< n:
+        for n2, f2 in vals[i].fieldPairs:
+          when n2 == fname: f2 = fv[i]
+    (vals, valid)
+  else:
+    readColumn(s.toFrame, s.name, T)
+
+proc toList*[T: NestedValue](df: DataFrame, column: string, _: typedesc[T]): seq[T] =
+  ## A List, Array or Struct column as Nim seqs, arrays, objects or named
+  ## tuples (struct fields match object fields by name), at any depth.
+  readAny[T](df[column], "column '" & column & "'")
+proc toList*[T: NestedValue](df: DataFrame, column: string, _: typedesc[Option[T]]): seq[Option[T]] =
+  readAny[Option[T]](df[column], "column '" & column & "'")
+proc toList*[T: NestedValue](s: Series, _: typedesc[T]): seq[T] =
+  readAny[T](s, "series '" & s.name & "'")
+proc toList*[T: NestedValue](s: Series, _: typedesc[Option[T]]): seq[Option[T]] =
+  readAny[Option[T]](s, "series '" & s.name & "'")
+proc `[]`*[T: NestedValue](df: DataFrame, column: string, row: int, _: typedesc[T]): T =
+  ## One nested value: `df["tags", 0, seq[string]]`.
+  df.slice(row, 1).toList(column, T)[0]
+proc `[]`*[T: NestedValue](df: DataFrame, column: string, row: int,
+                           _: typedesc[Option[T]]): Option[T] =
+  df.slice(row, 1).toList(column, Option[T])[0]
+
+proc lit*[T](v: seq[T]): Expr =
+  ## A list literal: `lit(@[1, 2])` is one value of type `list[i64]`.
+  wrap nq_expr_lit_series(series("literal", v).raw)
+
+# ---------------------------------------------------------------------------
 # Row objects (0.4)
 # ---------------------------------------------------------------------------
 
@@ -3347,3 +3740,949 @@ proc toDataFrame*[T: object | tuple](rows: openArray[T]): DataFrame =
         when n2 == name: vals.add f2
     cols.add series(name, vals)
   newDataFrameOf(cols)
+
+# ---------------------------------------------------------------------------
+# The list namespace, explode and implode (0.5)
+# ---------------------------------------------------------------------------
+
+type
+  ListNameSpace* = distinct Expr
+    ## `e.list`: functions on each list of a List (or Array) column, as Polars'
+    ## `Expr.list`.
+
+proc list*(e: Expr): ListNameSpace = ListNameSpace(e)
+  ## List functions: `col("cubs").list.len`.
+
+proc raw(x: Expr | typeof(nil)): ptr NqExpr =
+  when x is typeof(nil): nil
+  else: (if x.isNil: nil else: x.raw)
+
+proc listOp(l: ListNameSpace, op: NqListOp, a: Expr = nil, b: Expr = nil, f1 = false,
+            f2 = false, f3 = false, n = 0, seed = -1, names: openArray[string] = []): Expr =
+  let ns = cstrings(names)
+  wrap nq_expr_list(Expr(l).raw, op, raw(a), raw(b), f1, f2, f3, n.int64, seed.int64,
+                    ns.firstOrNil, ns.len.csize_t)
+
+type ListArg = SomeNumber | string | bool | Expr
+
+proc len*(l: ListNameSpace): Expr = listOp(l, nqlLen)
+  ## Number of values in each list (u32).
+proc sum*(l: ListNameSpace): Expr = listOp(l, nqlSum)
+proc min*(l: ListNameSpace): Expr = listOp(l, nqlMin)
+proc max*(l: ListNameSpace): Expr = listOp(l, nqlMax)
+proc mean*(l: ListNameSpace): Expr = listOp(l, nqlMean)
+proc median*(l: ListNameSpace): Expr = listOp(l, nqlMedian)
+proc std*(l: ListNameSpace, ddof = 1): Expr = listOp(l, nqlStd, n = ddof)
+proc `var`*(l: ListNameSpace, ddof = 1): Expr = listOp(l, nqlVar, n = ddof)
+proc first*(l: ListNameSpace): Expr = listOp(l, nqlFirst)
+  ## The first value of each list, null for an empty list.
+proc last*(l: ListNameSpace): Expr = listOp(l, nqlLast)
+proc argMin*(l: ListNameSpace): Expr = listOp(l, nqlArgMin)
+proc argMax*(l: ListNameSpace): Expr = listOp(l, nqlArgMax)
+proc nUnique*(l: ListNameSpace): Expr = listOp(l, nqlNUnique)
+proc any*(l: ListNameSpace): Expr = listOp(l, nqlAny)
+  ## Whether any value of each boolean list is true.
+proc all*(l: ListNameSpace): Expr = listOp(l, nqlAll)
+
+proc get*(l: ListNameSpace, index: int | Expr, nullOnOob = false): Expr =
+  ## The value at `index` in each list (negative counts from the end). Out of
+  ## bounds raises `ComputeError`, or gives null with `nullOnOob`.
+  listOp(l, nqlGet, lit(index), f1 = nullOnOob)
+proc gather*(l: ListNameSpace, indices: openArray[int], nullOnOob = false): Expr =
+  ## The values at `indices` in each list, as a list.
+  listOp(l, nqlGather, lit(@indices), f1 = nullOnOob)
+proc gather*(l: ListNameSpace, indices: Expr, nullOnOob = false): Expr =
+  listOp(l, nqlGather, indices, f1 = nullOnOob)
+proc gatherEvery*(l: ListNameSpace, n: int | Expr, offset: int | Expr = 0): Expr =
+  ## Every `n`-th value of each list, from `offset`.
+  listOp(l, nqlGatherEvery, lit(n), lit(offset))
+proc slice*(l: ListNameSpace, offset: int | Expr, length: int | Expr): Expr =
+  ## `length` values of each list from `offset` (negative from the end).
+  listOp(l, nqlSlice, lit(offset), lit(length))
+proc slice*(l: ListNameSpace, offset: int | Expr): Expr =
+  ## The values of each list from `offset` to the end.
+  listOp(l, nqlSlice, lit(offset), nil)
+proc head*(l: ListNameSpace, n: int | Expr = 5): Expr = listOp(l, nqlHead, lit(n))
+proc tail*(l: ListNameSpace, n: int | Expr = 5): Expr = listOp(l, nqlTail, lit(n))
+proc contains*[T: ListArg](l: ListNameSpace, item: T, nullsEqual = true): Expr =
+  ## Whether each list holds `item`.
+  listOp(l, nqlContains, lit(item), f1 = nullsEqual)
+proc countMatches*[T: ListArg](l: ListNameSpace, item: T): Expr =
+  ## How often `item` occurs in each list.
+  listOp(l, nqlCountMatches, lit(item))
+proc join*(l: ListNameSpace, separator: string | Expr, ignoreNulls = true): Expr =
+  ## The strings of each list joined with `separator`.
+  listOp(l, nqlJoin, lit(separator), f1 = ignoreNulls)
+
+proc sort*(l: ListNameSpace, descending = false, nullsLast = false, maintainOrder = false): Expr =
+  listOp(l, nqlSort, f1 = descending, f2 = nullsLast, f3 = maintainOrder)
+proc reverse*(l: ListNameSpace): Expr = listOp(l, nqlReverse)
+proc unique*(l: ListNameSpace, maintainOrder = false): Expr =
+  listOp(l, nqlUnique, f1 = maintainOrder)
+proc dropNulls*(l: ListNameSpace): Expr = listOp(l, nqlDropNulls)
+proc diff*(l: ListNameSpace, n = 1, nullBehavior = NullBehavior.Ignore): Expr =
+  listOp(l, nqlDiff, f1 = nullBehavior == NullBehavior.Drop, n = n)
+proc shift*(l: ListNameSpace, n: int | Expr = 1): Expr = listOp(l, nqlShift, lit(n))
+proc sample*(l: ListNameSpace, n: int | Expr, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  ## `n` random values of each list.
+  listOp(l, nqlSampleN, lit(n), f1 = withReplacement, f2 = shuffle, seed = seed.get(-1))
+proc sample*(l: ListNameSpace, fraction: float, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  ## A random `fraction` of the values of each list.
+  listOp(l, nqlSampleFraction, lit(fraction), f1 = withReplacement, f2 = shuffle,
+         seed = seed.get(-1))
+proc sample*(l: ListNameSpace, n: int | Expr, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  l.sample(n, withReplacement, shuffle, some(seed))
+proc sample*(l: ListNameSpace, fraction: float, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  l.sample(fraction, withReplacement, shuffle, some(seed))
+proc filter*(l: ListNameSpace, predicate: Expr): Expr =
+  ## The values of each list where `predicate` (on `element()`) is true.
+  listOp(l, nqlFilter, predicate)
+proc union*(l: ListNameSpace, other: Expr): Expr = listOp(l, nqlUnion, other)
+  ## The values in either list, in order of first occurrence.
+proc setDifference*(l: ListNameSpace, other: Expr): Expr = listOp(l, nqlSetDifference, other)
+proc setIntersection*(l: ListNameSpace, other: Expr): Expr = listOp(l, nqlSetIntersection, other)
+proc setSymmetricDifference*(l: ListNameSpace, other: Expr): Expr =
+  listOp(l, nqlSetSymmetricDifference, other)
+proc toArray*(l: ListNameSpace, width: int): Expr = listOp(l, nqlToArray, n = width)
+  ## Lists of `width` values to an Array column.
+proc toStruct*(l: ListNameSpace, fields: openArray[string]): Expr =
+  ## The values of each list as the fields of a struct, named `fields`.
+  listOp(l, nqlToStruct, names = fields)
+proc eval*(l: ListNameSpace, e: Expr): Expr =
+  ## Evaluates `e` on the values of each list, which `e` refers to as `element()`:
+  ## `col("w").list.eval(element().rank)`.
+  listOp(l, nqlEval, e)
+proc agg*(l: ListNameSpace, e: Expr): Expr =
+  ## Like `eval` for an aggregation: one value per list.
+  listOp(l, nqlAgg, e)
+proc explode*(l: ListNameSpace, emptyAsNull = true, keepNulls = true): Expr =
+  ## One row per value (Python's `list.explode`).
+  listOp(l, nqlExplode, f1 = emptyAsNull, f2 = keepNulls)
+
+proc explode*(e: Expr, emptyAsNull = true, keepNulls = true): Expr =
+  ## One row per value of each list: an empty list gives a null (unless
+  ## `emptyAsNull = false`, which drops it), and so does a null list (unless
+  ## `keepNulls = false`).
+  e.list.explode(emptyAsNull, keepNulls)
+proc implode*(e: Expr): Expr = wrap nq_expr_implode(e.raw)
+  ## All values of a column as one list.
+proc concatList*(exprs: varargs[Expr]): Expr =
+  ## One list per row with the values and lists of `exprs`, in order.
+  var raws = newSeq[ptr NqExpr](exprs.len)
+  for i, e in exprs: raws[i] = e.raw
+  wrap nq_concat_list(raws.firstOrNil, raws.len.csize_t)
+
+proc explode*(lf: LazyFrame, columns: ColumnNames, emptyAsNull = true, keepNulls = true): LazyFrame =
+  ## One row per list value of `columns` (lists in one row must have equal
+  ## lengths), repeating the other columns.
+  let ns = cstrings(columns.names)
+  wrap nq_lf_explode(lf.raw, ns.firstOrNil, ns.len.csize_t, emptyAsNull, keepNulls)
+proc explode*(df: DataFrame, columns: ColumnNames, emptyAsNull = true, keepNulls = true): DataFrame =
+  df.lazy.explode(columns, emptyAsNull, keepNulls).collect
+
+# ---------------------------------------------------------------------------
+# String functions that give lists and structs (0.5)
+# ---------------------------------------------------------------------------
+
+proc strNested(s: StrNameSpace, op: NqStrNestedOp, a: Expr = nil, b: Expr = nil, f1 = false,
+               f2 = false, f3 = false, n = 0, pat = "", dtype = Null): Expr =
+  let sp = toSpecs([dtype])
+  wrap nq_expr_str_nested(Expr(s).raw, op, raw(a), raw(b), f1, f2, f3, n.csize_t, pat.cstring,
+                          sp.specs[0].unsafeAddr)
+
+proc patternsExpr(patterns: openArray[string]): Expr = lit(@patterns)
+
+proc split*(s: StrNameSpace, by: string | Expr, inclusive = false): Expr =
+  ## Each string split at `by`, as a `list[str]`; with `inclusive`, the parts
+  ## keep `by` at their end.
+  strNested(s, nqsSplit, lit(by), f1 = inclusive)
+proc splitExact*(s: StrNameSpace, by: string | Expr, n: int, inclusive = false): Expr =
+  ## The first `n + 1` parts as a struct with fields `field_0` .. `field_n`
+  ## (null where a string has fewer parts).
+  strNested(s, nqsSplitExact, lit(by), f1 = inclusive, n = n)
+proc splitn*(s: StrNameSpace, by: string | Expr, n: int): Expr =
+  ## At most `n` parts (the last one keeps the rest) as a struct of `n` fields.
+  strNested(s, nqsSplitN, lit(by), n = n)
+proc extractAll*(s: StrNameSpace, pattern: string | Expr): Expr =
+  ## All matches of the regex `pattern`, as a `list[str]`.
+  strNested(s, nqsExtractAll, lit(pattern))
+proc extractGroups*(s: StrNameSpace, pattern: string): Expr =
+  ## The capture groups of the first match of `pattern`, as a struct with one
+  ## field per group (named groups keep their names, others are "1", "2", ...).
+  strNested(s, nqsExtractGroups, pat = pattern)
+proc containsAny*(s: StrNameSpace, patterns: openArray[string], asciiCaseInsensitive = false): Expr =
+  ## Whether each string contains any of the literal `patterns`.
+  strNested(s, nqsContainsAny, patternsExpr(patterns), f1 = asciiCaseInsensitive)
+proc containsAny*(s: StrNameSpace, patterns: Expr, asciiCaseInsensitive = false): Expr =
+  strNested(s, nqsContainsAny, patterns, f1 = asciiCaseInsensitive)
+proc replaceMany*(s: StrNameSpace, patterns: openArray[string],
+                  replaceWith: openArray[string], asciiCaseInsensitive = false,
+                  leftmost = false): Expr =
+  ## Replaces each of the literal `patterns` with the value at the same place
+  ## in `replaceWith`, in one pass (with `leftmost`, the leftmost-longest match
+  ## wins; otherwise the first pattern that matches).
+  strNested(s, nqsReplaceMany, patternsExpr(patterns), patternsExpr(replaceWith),
+            f1 = asciiCaseInsensitive, f3 = leftmost)
+proc replaceMany*(s: StrNameSpace, patterns: openArray[string], replaceWith: string,
+                  asciiCaseInsensitive = false, leftmost = false): Expr =
+  ## Replaces all of `patterns` with the same string.
+  strNested(s, nqsReplaceMany, patternsExpr(patterns), patternsExpr([replaceWith]),
+            f1 = asciiCaseInsensitive, f3 = leftmost)
+proc replaceMany*(s: StrNameSpace, mapping: openArray[(string, string)],
+                  asciiCaseInsensitive = false, leftmost = false): Expr =
+  ## `replaceMany({"ice": "ICE", "water": "WATER"})`.
+  var pats, repls: seq[string]
+  for (p, r) in mapping:
+    pats.add p
+    repls.add r
+  s.replaceMany(pats, repls, asciiCaseInsensitive, leftmost)
+proc extractMany*(s: StrNameSpace, patterns: openArray[string], asciiCaseInsensitive = false,
+                  overlapping = false, leftmost = false): Expr =
+  ## The literal `patterns` found in each string, in order, as a `list[str]`.
+  strNested(s, nqsExtractMany, patternsExpr(patterns), f1 = asciiCaseInsensitive,
+            f2 = overlapping, f3 = leftmost)
+proc findMany*(s: StrNameSpace, patterns: openArray[string], asciiCaseInsensitive = false,
+               overlapping = false, leftmost = false): Expr =
+  ## The byte positions of the literal `patterns` found in each string.
+  strNested(s, nqsFindMany, patternsExpr(patterns), f1 = asciiCaseInsensitive,
+            f2 = overlapping, f3 = leftmost)
+proc jsonDecode*(s: StrNameSpace, dtype: DataType): Expr =
+  ## Parses each string as JSON into a value of `dtype` (a struct, list, ...).
+  strNested(s, nqsJsonDecode, dtype = dtype)
+proc jsonDecode*(s: StrNameSpace, T: typedesc): Expr =
+  ## Parses JSON into the data type of a Nim type: `jsonDecode(tuple[bear: string])`.
+  s.jsonDecode(dataType(T))
+proc jsonPathMatch*(s: StrNameSpace, path: string | Expr): Expr =
+  ## The value at a JSONPath (`"$.bear"`) as a string, null where there is none.
+  strNested(s, nqsJsonPathMatch, lit(path))
+
+# ---------------------------------------------------------------------------
+# Structs, unnest, valueCounts and the arr namespace (0.5)
+# ---------------------------------------------------------------------------
+
+proc rawExprs(es: openArray[Expr]): seq[ptr NqExpr] =
+  result = newSeq[ptr NqExpr](es.len)
+  for i, e in es: result[i] = e.raw
+
+proc asStruct*(exprs: varargs[Expr]): Expr =
+  ## A struct column with one field per expression, named after its output
+  ## name (Python's `pl.struct`): `asStruct(col("bear"), col("kg"))`.
+  let rs = rawExprs(exprs)
+  wrap nq_as_struct(rs.firstOrNil, rs.len.csize_t)
+
+type
+  StructNameSpace* = distinct Expr
+    ## `e.struct`: functions on struct columns, as Polars' `Expr.struct`.
+  ArrayNameSpace* = distinct Expr
+    ## `e.arr`: functions on each array of an Array column, as Polars' `Expr.arr`.
+
+proc struct*(e: Expr): StructNameSpace = StructNameSpace(e)
+  ## Struct functions: `col("den").struct.field("lat")`.
+proc arr*(e: Expr): ArrayNameSpace = ArrayNameSpace(e)
+  ## Array functions: `col("rgb").arr.sum`.
+
+proc structOp(s: StructNameSpace, op: NqStructOp, names: openArray[string] = [],
+              exprs: openArray[Expr] = [], index = 0): Expr =
+  let ns = cstrings(names)
+  let es = rawExprs(exprs)
+  wrap nq_expr_struct(Expr(s).raw, op, ns.firstOrNil, ns.len.csize_t, es.firstOrNil,
+                      es.len.csize_t, index.int64)
+
+proc field*(s: StructNameSpace, name: string): Expr = structOp(s, nqfFieldByName, [name])
+  ## The field `name` as a column.
+proc `[]`*(s: StructNameSpace, name: string): Expr = s.field(name)
+  ## `col("p").struct["x"]`.
+proc field*(s: StructNameSpace, names: openArray[string]): Expr =
+  ## Several fields as columns.
+  structOp(s, nqfFieldByNames, names)
+proc field*(s: StructNameSpace, index: int): Expr = structOp(s, nqfFieldByIndex, index = index)
+  ## The field at `index` (negative from the end).
+proc `[]`*(s: StructNameSpace, index: int): Expr = s.field(index)
+proc unnest*(s: StructNameSpace): Expr = structOp(s, nqfFieldByNames, ["*"])
+  ## All fields as columns: `df.select(col("p").struct.unnest)`.
+proc renameFields*(s: StructNameSpace, names: openArray[string]): Expr =
+  ## The same struct with its fields renamed, in order.
+  structOp(s, nqfRenameFields, names)
+proc withFields*(s: StructNameSpace, exprs: varargs[Expr]): Expr =
+  ## Adds or replaces fields; inside, `col("p").struct.field("x")` reads the
+  ## current ones.
+  structOp(s, nqfWithFields, exprs = exprs)
+proc jsonEncode*(s: StructNameSpace): Expr = structOp(s, nqfJsonEncode)
+  ## Each struct as a JSON string.
+
+proc valueCounts*(e: Expr, sort = false, parallel = false, name = "", normalize = false): Expr =
+  ## The distinct values and their counts, as a struct column of the value and
+  ## `count` (`proportion` with `normalize`, or `name`). Unnest it to get columns.
+  wrap nq_expr_value_counts(e.raw, sort, parallel, name.cstring, normalize)
+
+proc unnest*(lf: LazyFrame, columns: ColumnNames, separator = none(string)): LazyFrame =
+  ## Replaces each struct column by its fields; with `separator`, the new
+  ## columns are named `<column><separator><field>`.
+  let ns = cstrings(columns.names)
+  wrap nq_lf_unnest(lf.raw, ns.firstOrNil, ns.len.csize_t,
+                    (if separator.isSome: separator.get.cstring else: nil))
+proc unnest*(lf: LazyFrame, columns: ColumnNames, separator: string): LazyFrame =
+  lf.unnest(columns, some(separator))
+proc unnest*(df: DataFrame, columns: ColumnNames, separator = none(string)): DataFrame =
+  df.lazy.unnest(columns, separator).collect
+proc unnest*(df: DataFrame, columns: ColumnNames, separator: string): DataFrame =
+  df.lazy.unnest(columns, some(separator)).collect
+
+proc arrOp(a: ArrayNameSpace, op: NqArrOp, x: Expr = nil, y: Expr = nil, f1 = false,
+           f2 = false, n = 0): Expr =
+  wrap nq_expr_arr(Expr(a).raw, op, raw(x), raw(y), f1, f2, n.int64)
+
+proc len*(a: ArrayNameSpace): Expr = arrOp(a, nqaLen)
+proc sum*(a: ArrayNameSpace): Expr = arrOp(a, nqaSum)
+proc min*(a: ArrayNameSpace): Expr = arrOp(a, nqaMin)
+proc max*(a: ArrayNameSpace): Expr = arrOp(a, nqaMax)
+proc mean*(a: ArrayNameSpace): Expr = arrOp(a, nqaMean)
+proc median*(a: ArrayNameSpace): Expr = arrOp(a, nqaMedian)
+proc std*(a: ArrayNameSpace, ddof = 1): Expr = arrOp(a, nqaStd, n = ddof)
+proc `var`*(a: ArrayNameSpace, ddof = 1): Expr = arrOp(a, nqaVar, n = ddof)
+proc argMin*(a: ArrayNameSpace): Expr = arrOp(a, nqaArgMin)
+proc argMax*(a: ArrayNameSpace): Expr = arrOp(a, nqaArgMax)
+proc get*(a: ArrayNameSpace, index: int | Expr, nullOnOob = false): Expr =
+  arrOp(a, nqaGet, lit(index), f1 = nullOnOob)
+proc first*(a: ArrayNameSpace): Expr = a.get(0, nullOnOob = true)
+proc last*(a: ArrayNameSpace): Expr = a.get(-1, nullOnOob = true)
+proc join*(a: ArrayNameSpace, separator: string | Expr, ignoreNulls = true): Expr =
+  arrOp(a, nqaJoin, lit(separator), f1 = ignoreNulls)
+proc contains*[T: ListArg](a: ArrayNameSpace, item: T, nullsEqual = true): Expr =
+  arrOp(a, nqaContains, lit(item), f1 = nullsEqual)
+proc countMatches*[T: ListArg](a: ArrayNameSpace, item: T): Expr =
+  arrOp(a, nqaCountMatches, lit(item))
+proc sort*(a: ArrayNameSpace, descending = false, nullsLast = false): Expr =
+  arrOp(a, nqaSort, f1 = descending, f2 = nullsLast)
+proc slice*(a: ArrayNameSpace, offset: int | Expr, length: int | Expr, asArray = false): Expr =
+  ## A slice of each array, as a list (or an array with `asArray`).
+  arrOp(a, nqaSlice, lit(offset), lit(length), f1 = asArray)
+proc head*(a: ArrayNameSpace, n: int | Expr = 5, asArray = false): Expr =
+  arrOp(a, nqaHead, lit(n), f1 = asArray)
+proc tail*(a: ArrayNameSpace, n: int | Expr = 5, asArray = false): Expr =
+  arrOp(a, nqaTail, lit(n), f1 = asArray)
+proc shift*(a: ArrayNameSpace, n: int | Expr = 1): Expr = arrOp(a, nqaShift, lit(n))
+proc toList*(a: ArrayNameSpace): Expr = arrOp(a, nqaToList)
+  ## The arrays as lists.
+proc toStruct*(a: ArrayNameSpace): Expr = arrOp(a, nqaToStruct)
+  ## Each array as a struct with fields `field_0`, `field_1`, ...
+proc explode*(a: ArrayNameSpace, emptyAsNull = true, keepNulls = true): Expr =
+  arrOp(a, nqaExplode, f1 = emptyAsNull, f2 = keepNulls)
+proc eval*(a: ArrayNameSpace, e: Expr, asList = false): Expr =
+  ## Evaluates `e` on the values of each array (`element()`).
+  arrOp(a, nqaEval, e, f1 = asList)
+proc agg*(a: ArrayNameSpace, e: Expr): Expr = arrOp(a, nqaAgg, e)
+
+# ---------------------------------------------------------------------------
+# JSON and NDJSON (0.5)
+# ---------------------------------------------------------------------------
+
+type SchemaArg = openArray[(string, DataType)]
+
+proc schemaArgs(schema, overrides: SchemaArg): (seq[cstring], DtypeSpecs, bool) =
+  if schema.len > 0 and overrides.len > 0:
+    raise newException(ValueError, "give schema or schemaOverrides, not both")
+  let full = schema.len > 0
+  var names: seq[cstring]
+  var ts: seq[DataType]
+  for (n, t) in (if full: schema else: overrides):
+    names.add n.cstring
+    ts.add t
+  (names, toSpecs(ts), full)
+
+proc readJsonImpl(path: string, data: ptr string, lines: bool, schema, overrides: SchemaArg,
+                  inferSchemaLength: Option[int], ignoreErrors: bool): DataFrame =
+  let (dp, dl) = dataArg(data)
+  let (names, specs, full) = schemaArgs(schema, overrides)
+  wrap nq_df_read_json(path.cstring, dp, dl, lines, names.firstOrNil, specs.specs.firstOrNil,
+                       names.len.csize_t, full, inferSchemaLength.toC, ignoreErrors)
+
+proc readJson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+               inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads a JSON file holding an array of objects, one row each; nested
+  ## values become List and Struct columns. `schema` fixes all column types,
+  ## `schemaOverrides` some of them (`{"kg": Float64}`); `none(int)` infers from
+  ## all rows.
+  readJsonImpl(path, nil, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readJson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+               inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads JSON from a stream: `readJson(newStringStream(text))`.
+  var data = source.readAll
+  readJsonImpl("", addr data, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readNdjson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads newline-delimited JSON, one object per line (options as in `readJson`).
+  readJsonImpl(path, nil, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  var data = source.readAll
+  readJsonImpl("", addr data, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+
+proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
+                 rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): LazyFrame =
+  ## Lazily reads newline-delimited JSON files (a path or a glob).
+  let (names, specs, full) = schemaArgs(schema, schemaOverrides)
+  wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC, cOrNil(rowIndexName),
+                         rowIndexOffset.uint32, names.firstOrNil, specs.specs.firstOrNil,
+                         names.len.csize_t, full, toOpt(inferSchemaLength).toC, ignoreErrors)
+
+proc writeJsonImpl(df: DataFrame, path: cstring, lines: bool): string =
+  let r = nq_df_write_json(df.raw, path, lines)
+  if r == nil: raiseLast()
+  takeString r
+
+proc toJson*(df: DataFrame): string = writeJsonImpl(df, nil, false)
+  ## The frame as a JSON array of row objects.
+proc toNdjson*(df: DataFrame): string = writeJsonImpl(df, nil, true)
+  ## The frame as newline-delimited JSON, one object per row.
+proc writeJson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, false)
+  ## Writes the frame as a JSON array of row objects.
+proc writeJson*(df: DataFrame, dest: Stream) = dest.write(df.toJson)
+proc writeNdjson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, true)
+  ## Writes the frame as newline-delimited JSON.
+proc writeNdjson*(df: DataFrame, dest: Stream) = dest.write(df.toNdjson)
+
+# ---------------------------------------------------------------------------
+# SQL (0.5)
+# ---------------------------------------------------------------------------
+
+type
+  SQLContextObj = object
+    raw: ptr NqSQLContext
+  SQLContext* = ref SQLContextObj
+    ## Frames registered under table names, for SQL queries (Polars' `SQLContext`).
+
+proc `=destroy`(x: SQLContextObj) =
+  if x.raw != nil: nq_sql_free(x.raw)
+proc `=copy`(a: var SQLContextObj, b: SQLContextObj) {.error.}
+
+proc register*(ctx: SQLContext, name: string, frame: LazyFrame) =
+  ## Makes `frame` the table `name` (replacing a table of that name).
+  if not nq_sql_register(ctx.raw, name.cstring, frame.raw): raiseLast()
+proc register*(ctx: SQLContext, name: string, frame: DataFrame) = ctx.register(name, frame.lazy)
+proc register*(ctx: SQLContext, frames: openArray[(string, LazyFrame)]) =
+  for (n, f) in frames: ctx.register(n, f)
+proc register*(ctx: SQLContext, frames: openArray[(string, DataFrame)]) =
+  for (n, f) in frames: ctx.register(n, f)
+proc unregister*(ctx: SQLContext, name: string) =
+  if not nq_sql_unregister(ctx.raw, name.cstring): raiseLast()
+
+proc newSQLContext*(): SQLContext = SQLContext(raw: nq_sql_new())
+  ## An empty context.
+proc newSQLContext*(frames: openArray[(string, LazyFrame)]): SQLContext =
+  ## A context with `frames` registered: `newSQLContext({"bears": lf})`.
+  result = newSQLContext()
+  result.register(frames)
+proc newSQLContext*(frames: openArray[(string, DataFrame)]): SQLContext =
+  result = newSQLContext()
+  result.register(frames)
+
+proc tables*(ctx: SQLContext): seq[string] =
+  ## The registered table names, sorted.
+  let s = nq_sql_tables(ctx.raw)
+  if s == nil: raiseLast()
+  let t = takeString(s)
+  if t.len > 0: result = t.split('\n')
+
+proc execute*(ctx: SQLContext, query: string): LazyFrame =
+  ## Runs a SQL query on the registered tables, lazily.
+  wrap nq_sql_execute(ctx.raw, query.cstring)
+proc execute*(ctx: SQLContext, query: string, eager: static bool): auto =
+  ## With `eager = true`, runs the query now and gives a DataFrame; with
+  ## `eager = false`, a LazyFrame (as Python's `execute(eager=...)`).
+  when eager: ctx.execute(query).collect
+  else: ctx.execute(query)
+
+macro sqlContext*(frames: varargs[untyped]): SQLContext =
+  ## A context with each frame registered under the name of its variable:
+  ## `sqlContext(bears, dens)` (Python's `SQLContext(register_globals=...)` or
+  ## keyword arguments).
+  let ctx = genSym(nskLet, "ctx")
+  result = newStmtList(newLetStmt(ctx, newCall(bindSym"newSQLContext")))
+  for f in frames:
+    if f.kind notin {nnkIdent, nnkSym}:
+      error("sqlContext takes variables, named after the tables: use newSQLContext({\"name\": frame}) for expressions", f)
+    result.add newCall(bindSym"register", ctx, newLit(f.strVal), f)
+  result.add ctx
+  result = newBlockStmt(result)
+
+proc sql*(lf: LazyFrame, query: string, tableName = "self"): LazyFrame =
+  ## Runs a SQL query on `lf`, which the query calls `self` (or `tableName`).
+  newSQLContext({tableName: lf}).execute(query)
+proc sql*(df: DataFrame, query: string, tableName = "self"): DataFrame =
+  ## Runs a SQL query on `df` now (see the LazyFrame version).
+  df.lazy.sql(query, tableName).collect
+proc sql*(query: string, frames: openArray[(string, LazyFrame)]): LazyFrame =
+  ## Runs a SQL query on `frames` (Python's `pl.sql` with named frames).
+  newSQLContext(frames).execute(query)
+proc sql*(query: string, frames: openArray[(string, DataFrame)]): DataFrame =
+  newSQLContext(frames).execute(query).collect
+
+# ---------------------------------------------------------------------------
+# Nim callbacks (0.5): Nim procs and closures that Polars calls
+# ---------------------------------------------------------------------------
+
+type
+  UdfEnv = ref object
+    ## Keeps a Nim closure alive while Polars holds the expression using it.
+    batch: proc (args: seq[Series]): Series
+    rename: proc (name: string): string
+
+proc udfCall(env: pointer, args: ptr ptr NqSeries, n: csize_t): ptr NqSeries {.cdecl.} =
+  ## Polars calls this; a Nim exception becomes a ComputeError on the Rust side.
+  try:
+    let e = cast[UdfEnv](env)
+    let arr = cast[ptr UncheckedArray[ptr NqSeries]](args)
+    var xs = newSeq[Series](n.int)
+    for i in 0 ..< n.int: xs[i] = wrap nq_series_clone(arr[i])
+    let r = e.batch(xs)
+    if r.isNil: raise newException(ValueError, "the callback returned nil")
+    result = check nq_series_clone(r.raw)
+  except CatchableError as ex:
+    nq_udf_set_error(cstring($ex.name & ": " & ex.msg))
+    result = nil
+
+proc udfName(env: pointer, name: cstring): bool {.cdecl.} =
+  try:
+    let r = cast[UdfEnv](env).rename($name)
+    nq_udf_set_result(r.cstring)
+    result = true
+  except CatchableError as ex:
+    nq_udf_set_error(cstring($ex.name & ": " & ex.msg))
+    result = false
+
+proc udfDrop(env: pointer) {.cdecl.} =
+  GC_unref(cast[UdfEnv](env))
+
+proc newEnv(batch: proc (args: seq[Series]): Series = nil,
+            rename: proc (name: string): string = nil): pointer =
+  let e = UdfEnv(batch: batch, rename: rename)
+  GC_ref(e)   # released by udfDrop when Polars drops the function
+  cast[pointer](e)
+
+proc mapBatchesImpl(e: Expr, f: proc (args: seq[Series]): Series, dtype: Option[DataType],
+                    returnsScalar = false): Expr =
+  let sp = toSpecs([dtype.get(Null)])
+  wrap nq_expr_map_batches(e.raw, udfCall, udfDrop, newEnv(batch = f), dtype.isSome,
+                           sp.specs[0].unsafeAddr, returnsScalar)
+
+proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnsScalar = false): Expr =
+  ## The column of `e` passed to a Nim proc or closure as a whole Series (in a
+  ## group-by, each group's values); the result must have the same data type
+  ## (else give `returnDtype`). With `returnsScalar`, `f` gives one value per
+  ## group instead of a list. An exception in `f` raises a `ComputeError` when
+  ## the query runs.
+  mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), none(DataType), returnsScalar)
+proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnDtype: DataType,
+                 returnsScalar = false): Expr =
+  ## `mapBatches` with a result of type `returnDtype`.
+  mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), some(returnDtype), returnsScalar)
+
+proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
+  ## Each value passed to a typed Nim proc or closure: `proc (x: int): string`.
+  ## The values are read as `T` (an object or named tuple for a struct column,
+  ## a seq for a list), the result type is `dataType(U)`. Nulls stay null
+  ## without a call, unless `T` is an `Option`, which gets them as `none`.
+  let g = proc (args: seq[Series]): Series =
+    let s = args[0]
+    when T is Option:
+      let xs = s.toList(T)
+      var ys = newSeq[U](xs.len)
+      for i, x in xs: ys[i] = f(x)
+      series(s.name, ys)
+    elif U is Option:
+      let xs = s.toList(Option[T])
+      var ys = newSeq[U](xs.len)
+      for i, x in xs:
+        if x.isSome: ys[i] = f(x.get)
+      series(s.name, ys)
+    else:
+      if s.nullCount == 0:
+        # No nulls: plain seqs both ways, which skips the Option copies.
+        let xs = s.toList(T)
+        var ys = newSeq[U](xs.len)
+        for i, x in xs: ys[i] = f(x)
+        series(s.name, ys)
+      else:
+        let xs = s.toList(Option[T])
+        var ys = newSeq[Option[U]](xs.len)
+        for i, x in xs:
+          if x.isSome: ys[i] = some(f(x.get))
+        series(s.name, ys)
+  mapBatchesImpl(e, g, some(dataType(U)))
+
+proc foldImpl(kind: int, acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+              includeInit: bool, dtype: Option[DataType]): Expr =
+  let rs = rawExprs(exprs)
+  let sp = toSpecs([dtype.get(Null)])
+  let g = proc (args: seq[Series]): Series = f(args[0], args[1])
+  wrap nq_fold(kind.int32, raw(acc), udfCall, udfDrop, newEnv(batch = g), rs.firstOrNil,
+               rs.len.csize_t, includeInit, dtype.isSome, sp.specs[0].unsafeAddr)
+
+proc fold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  ## Folds columns left to right with a Nim function of Series:
+  ## `fold(lit(0), proc (acc, x: Series): Series = acc + x, col("*"))`.
+  foldImpl(0, acc, f, exprs, false, none(DataType))
+proc fold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+           returnDtype: DataType): Expr =
+  foldImpl(0, acc, f, exprs, false, some(returnDtype))
+proc reduce*(f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  ## Like `fold`, starting from the first column.
+  foldImpl(1, nil, f, exprs, false, none(DataType))
+proc cumFold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+              includeInit = false): Expr =
+  ## Like `fold`, keeping each step as a field of a struct.
+  foldImpl(2, acc, f, exprs, includeInit, none(DataType))
+proc cumReduce*(f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  foldImpl(3, nil, f, exprs, false, none(DataType))
+
+proc map*(n: ExprName, f: proc (name: string): string): Expr =
+  ## Renames the output with a Nim function: `col("*").name.map(capitalizeAscii)`.
+  wrap nq_expr_name_map(n.e.raw, udfName, udfDrop, newEnv(rename = f))
+
+proc mapGroups*(g: GroupBy, f: proc (df: DataFrame): DataFrame): DataFrame =
+  ## Each group as a DataFrame passed to a Nim function; the results are
+  ## concatenated (Python's `group_by(...).map_groups`). Groups come in the
+  ## order of first occurrence.
+  let lz = g.lazy
+  var keys: seq[Expr]
+  var names: seq[string]
+  for i, k in lz.by:
+    names.add "__nq_key_" & $i
+    keys.add k.alias(names[^1])
+  let keyed = lz.lf.withColumns(keys).collect
+  var parts: seq[DataFrame]
+  for part in keyed.partitionBy(names, maintainOrder = true):
+    parts.add f(part.drop(names))
+  if parts.len == 0: return lz.lf.collect.head(0)
+  concat(parts)
+
+# ---------------------------------------------------------------------------
+# Smaller expression and frame functions (0.5)
+# ---------------------------------------------------------------------------
+
+type
+  MappingStrategy* {.pure.} = enum
+    ## How `over` maps group results back to rows (Polars' `mapping_strategy`).
+    GroupToRows  ## each row gets its group's value (the default)
+    Join         ## each row gets all of its group's values, as a list
+    Explode      ## the groups' values one after the other (rows reordered by group)
+  SizeUnit* {.pure.} = enum
+    ## Units for `estimatedSize`.
+    Bytes, Kilobytes, Megabytes, Gigabytes, Terabytes
+  MetaNameSpace* = distinct Expr
+    ## `e.meta`: information about an expression itself.
+
+proc utilOp(e: Expr, op: NqUtilOp, a: Expr = nil, b: Expr = nil, f1 = false, f2 = false,
+            seed = -1): Expr =
+  wrap nq_expr_util(e.raw, op, raw(a), raw(b), f1, f2, seed.int64)
+
+proc over*(e: Expr, partitionBy: openArray[Expr], mappingStrategy: MappingStrategy): Expr =
+  ## `over` with a mapping strategy: `col("kg").over("den", MappingStrategy.Join)`.
+  let ps = raws(partitionBy)
+  wrap nq_expr_over_mapping(e.raw, ps.firstOrNil, ps.len.csize_t, ord(mappingStrategy).int32)
+proc over*(e: Expr, partitionBy: openArray[string], mappingStrategy: MappingStrategy): Expr =
+  var ks: seq[Expr]
+  for n in partitionBy: ks.add col(n)
+  e.over(ks, mappingStrategy)
+proc over*(e: Expr, partitionBy: string, mappingStrategy: MappingStrategy): Expr =
+  e.over([col(partitionBy)], mappingStrategy)
+
+proc shuffle*(e: Expr, seed = none(int)): Expr = utilOp(e, nquShuffle, seed = seed.get(-1))
+  ## The values in random order (the same order for the same `seed`).
+proc shuffle*(e: Expr, seed: int): Expr = e.shuffle(some(seed))
+proc sample*(e: Expr, n: int | Expr, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  ## `n` random values of the column.
+  utilOp(e, nquSampleN, lit(n), f1 = withReplacement, f2 = shuffle, seed = seed.get(-1))
+proc sample*(e: Expr, fraction: float, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  utilOp(e, nquSampleFraction, lit(fraction), f1 = withReplacement, f2 = shuffle,
+         seed = seed.get(-1))
+proc sample*(e: Expr, n: int | Expr, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  ## `n` random values; the same `seed` gives the same values: `sample(3, seed = 42)`.
+  e.sample(n, withReplacement, shuffle, some(seed))
+proc sample*(e: Expr, fraction: float, withReplacement = false, shuffle = false,
+             seed: int): Expr =
+  e.sample(fraction, withReplacement, shuffle, some(seed))
+proc repeatBy*(e: Expr, by: Expr | int | string): Expr =
+  ## Each value repeated `by` times, as a list (`by` is a count, a column name or
+  ## an expression).
+  let b = (when by is string: col(by) elif by is int: lit(by) else: by)
+  wrap nq_expr_repeat_by(e.raw, b.raw)
+proc hash*(e: Expr, seed = 0): Expr = utilOp(e, nquHash, seed = seed)
+  ## A u64 hash of each value (stable for a given `seed` and Polars version).
+proc get*(e: Expr, index: int | Expr, nullOnOob = false): Expr =
+  ## The value at `index` (negative from the end), as one value.
+  utilOp(e, nquGet, lit(index), f1 = nullOnOob)
+proc argTrue*(e: Expr): Expr = utilOp(e, nquArgTrue)
+  ## The positions where a boolean column is true.
+proc upperBound*(e: Expr): Expr = utilOp(e, nquUpperBound)
+  ## The largest value of the column's type (`i64::MAX`, `inf`, ...).
+proc lowerBound*(e: Expr): Expr = utilOp(e, nquLowerBound)
+proc extendConstant*[T: SomeNumber | string | bool | Expr | typeof(nil)](e: Expr, value: T, n: int | Expr): Expr =
+  ## The column with `n` copies of `value` appended.
+  utilOp(e, nquExtendConstant, lit(value), lit(n))
+proc rle*(e: Expr): Expr = utilOp(e, nquRle)
+  ## Run-length encoding: a struct of `len` and `value` per run.
+proc reshape*(e: Expr, dims: openArray[int]): Expr =
+  ## The values as nested arrays of shape `dims` (-1 infers one dimension).
+  var ds = newSeq[int64](dims.len)
+  for i, d in dims: ds[i] = d.int64
+  wrap nq_expr_reshape(e.raw, ds.firstOrNil, ds.len.csize_t)
+
+proc toLowercase*(n: ExprName): Expr = utilOp(n.e, nquNameToLowercase)
+  ## The output name in lowercase.
+proc toUppercase*(n: ExprName): Expr = utilOp(n.e, nquNameToUppercase)
+
+proc meta*(e: Expr): MetaNameSpace = MetaNameSpace(e)
+  ## Information about the expression: `e.meta.outputName`.
+proc outputName*(m: MetaNameSpace): string =
+  ## The name of the column the expression gives; raises `ComputeError` if it
+  ## has none yet (`col("*")`).
+  let s = nq_expr_meta_str(Expr(m).raw, 0)
+  if s == nil: raiseLast()
+  takeString s
+proc rootNames*(m: MetaNameSpace): seq[string] =
+  ## The columns the expression reads.
+  let s = nq_expr_meta_str(Expr(m).raw, 1)
+  if s == nil: raiseLast()
+  let t = takeString s
+  if t.len > 0: result = t.split('\n')
+proc metaBool(m: MetaNameSpace, what: int32): bool =
+  let r = nq_expr_meta_bool(Expr(m).raw, what)
+  if r < 0: raiseLast()
+  r == 1
+proc hasMultipleOutputs*(m: MetaNameSpace): bool = m.metaBool(0)
+proc isColumn*(m: MetaNameSpace): bool = m.metaBool(1)
+proc isLiteral*(m: MetaNameSpace): bool = m.metaBool(2)
+proc undoAliases*(m: MetaNameSpace): Expr = utilOp(Expr(m), nquUndoAliases)
+
+proc equals*(a, b: DataFrame, nullEqual = true): bool =
+  ## Whether the frames have the same column names, types and values (nulls
+  ## equal unless `nullEqual = false`).
+  let r = nq_df_equals(a.raw, b.raw, nullEqual)
+  if r < 0: raiseLast()
+  r == 1
+proc equals*(a, b: Series, nullEqual = true, checkNames = false): bool =
+  ## Whether the Series hold the same type and values (and names with `checkNames`).
+  if checkNames and a.name != b.name: return false
+  a.alias("s").toFrame.equals(b.alias("s").toFrame, nullEqual)
+
+proc vstack*(df, other: DataFrame): DataFrame =
+  ## The rows of `other` appended (same columns and types).
+  concat([df, other])
+proc extend*(df, other: DataFrame): DataFrame = df.vstack(other)
+  ## Like `vstack` (Nanuq frames are not changed in place).
+proc hstack*(df: DataFrame, columns: openArray[Series]): DataFrame =
+  ## The frame with `columns` added (of the frame's height).
+  df.withColumns(columns)
+proc hstack*(df, other: DataFrame): DataFrame =
+  ## The frame with the columns of `other` added.
+  concat([df, other], how = ConcatMethod.Horizontal)
+
+proc estimatedSize*(df: DataFrame): int =
+  ## An estimate of the memory the frame uses, in bytes.
+  let r = nq_df_estimated_size(df.raw)
+  if r < 0: raiseLast()
+  r.int
+proc estimatedSize*(df: DataFrame, unit: SizeUnit): float =
+  df.estimatedSize.float / pow(1024.0, ord(unit).float)
+
+proc update*(df, other: DataFrame, on: ColumnNames = ColumnNames(), how = JoinType.Left): DataFrame =
+  ## The values of `df` replaced by the non-null values of `other` in rows that
+  ## match on `on` (by row position when `on` is empty). `how` is `Left` (keep
+  ## the rows of `df`), `Inner` (only matching rows) or `Full` (also add
+  ## the other rows).
+  if how notin {JoinType.Left, JoinType.Inner, JoinType.Full}:
+    raise newException(ValueError, "update: how must be Left, Inner or Full")
+  var keys = on.names
+  var l = df
+  var r = other
+  if keys.len == 0:
+    l = df.withRowIndex("__nq_row")
+    r = other.withRowIndex("__nq_row")
+    keys = @["__nq_row"]
+  let cols0 = l.columns
+  var rcols: seq[string]
+  for c in r.columns:
+    if c in cols0: rcols.add c
+  r = r.select(rcols)
+  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true))
+  var sel: seq[Expr]
+  for c in cols0:
+    if c notin keys and c in rcols:
+      sel.add coalesce(col(c & "__nq_upd"), col(c)).alias(c)
+    else:
+      sel.add col(c)
+  result = j.select(sel)
+  if "__nq_row" in result.columns: result = result.drop("__nq_row")
+
+proc upsample*(df: DataFrame, timeColumn: string, every: string | TimeInterval,
+               groupBy: ColumnNames = ColumnNames(), maintainOrder = false): DataFrame =
+  ## Inserts rows (with nulls in the other columns) so that `timeColumn` has a
+  ## value every `every` ("1d" or `1.days`), per group of `groupBy`. The frame
+  ## must be sorted by `timeColumn` (within groups).
+  let ev = when every is string: every else: toPolarsInterval(every)
+  let b = cstrings(groupBy.names)
+  wrap nq_df_upsample(df.raw, timeColumn.cstring, ev.cstring, b.firstOrNil, b.len.csize_t,
+                      maintainOrder)
+
+proc partitionBy*(df: DataFrame, by: ColumnNames, maintainOrder = true, includeKey = true,
+                  asDict: static bool): auto =
+  ## With `asDict = true`, a table from the key values (as strings, in `by`
+  ## order) to the frames: `parts[@["Biscoe"]]`.
+  when asDict:
+    var t = initOrderedTable[seq[string], DataFrame]()
+    for part in df.partitionBy(by, maintainOrder, includeKey = true):
+      var key: seq[string]
+      for c in by.names: key.add part.getStr(c, 0)
+      t[key] = (if includeKey: part else: part.drop(by.names))
+    t
+  else:
+    df.partitionBy(by, maintainOrder, includeKey)
+
+proc collectAll*(lfs: openArray[LazyFrame]): seq[DataFrame] =
+  ## Collects several plans at once; work they share runs once.
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  var outs = newSeq[ptr NqDataFrame](lfs.len)
+  if not nq_collect_all(rs.firstOrNil, rs.len.csize_t, outs.firstOrNil): raiseLast()
+  for o in outs: result.add wrap(o)
+
+# ---------------------------------------------------------------------------
+# Book port needs (0.5): Series namespaces, Series HTML, frame helpers
+# ---------------------------------------------------------------------------
+
+type
+  SeriesListNameSpace* = distinct Series
+    ## `s.list`: the list functions of `Expr.list` on a Series.
+  SeriesArrayNameSpace* = distinct Series
+  SeriesStructNameSpace* = distinct Series
+  SeriesStrNameSpace* = distinct Series
+  SeriesDtNameSpace* = distinct Series
+  SeriesCatNameSpace* = distinct Series
+
+proc nsCall(ns: NimNode, nsName: string, field: NimNode, args: seq[NimNode]): NimNode =
+  ## `Series(ns).eval(col(Series(ns).name).<nsName>.<field>(args))`.
+  let s = genSym(nskLet, "s")
+  var call = newCall(newDotExpr(newDotExpr(newCall(bindSym"col", newDotExpr(s, ident"name")),
+                                           ident(nsName)), field))
+  for a in args: call.add a
+  result = quote do:
+    block:
+      let `s` = Series(`ns`)
+      eval(`s`, `call`)
+
+proc list*(s: Series): SeriesListNameSpace =
+  ## The list functions on a Series: `s.list.len` is `s.eval(col(s.name).list.len)`.
+  SeriesListNameSpace(s)
+proc arr*(s: Series): SeriesArrayNameSpace = SeriesArrayNameSpace(s)
+  ## The array functions on a Series.
+proc struct*(s: Series): SeriesStructNameSpace = SeriesStructNameSpace(s)
+  ## The struct functions on a Series: `s.struct.field("x")` is a Series named `x`.
+proc str*(s: Series): SeriesStrNameSpace = SeriesStrNameSpace(s)
+  ## The string functions on a Series.
+proc dt*(s: Series): SeriesDtNameSpace = SeriesDtNameSpace(s)
+  ## The temporal functions on a Series.
+proc cat*(s: Series): SeriesCatNameSpace = SeriesCatNameSpace(s)
+  ## The categorical functions on a Series.
+
+template seriesNsOps(T: untyped, nsName: static string) =
+  macro `.`*(ns: T, field: untyped): untyped =
+    nsCall(ns, nsName, field, @[])
+  macro `.()`*(ns: T, field: untyped, args: varargs[untyped]): untyped =
+    var xs: seq[NimNode]
+    for a in args: xs.add a
+    nsCall(ns, nsName, field, xs)
+
+seriesNsOps(SeriesListNameSpace, "list")
+seriesNsOps(SeriesArrayNameSpace, "arr")
+seriesNsOps(SeriesStructNameSpace, "struct")
+seriesNsOps(SeriesStrNameSpace, "str")
+seriesNsOps(SeriesDtNameSpace, "dt")
+seriesNsOps(SeriesCatNameSpace, "cat")
+
+proc toHtml*(s: Series, maxRows = 10): string =
+  ## The HTML table Python Polars shows for a Series in notebooks: the frame
+  ## table of its one column, with shape `(n,)`.
+  let n = s.len
+  result = s.toFrame.toHtml(maxRows)
+  result = result.replace("<small>shape: (" & thousands(n) & ", 1)</small>",
+                          "<small>shape: (" & thousands(n) & ",)</small>")
+
+proc asStruct*(names: varargs[string]): Expr =
+  ## A struct of the named columns (Python's `pl.struct("a", "b")`).
+  var es: seq[Expr]
+  for n in names: es.add col(n)
+  asStruct(es)
+
+proc interpolate*(lf: LazyFrame, how = InterpolationMethod.Linear): LazyFrame =
+  ## Fills the nulls of every column by interpolation (Python's
+  ## `DataFrame.interpolate`); see `Expr.interpolate`.
+  lf.select(all().toExpr.interpolate(how))
+proc interpolate*(df: DataFrame, how = InterpolationMethod.Linear): DataFrame =
+  df.lazy.interpolate(how).collect
+
+proc `cast`*(lf: LazyFrame, dtypes: openArray[(DataType, DataType)], strict = true): LazyFrame =
+  ## Casts the columns of each key type to its value type:
+  ## `lf.cast({Float64: Float32})`.
+  var es: seq[Expr]
+  for (src, dst) in dtypes: es.add dtypeSelector(src).toExpr.cast(dst, strict)
+  lf.withColumns(es)
+proc `cast`*(lf: LazyFrame, dtypes: openArray[(Selector, DataType)], strict = true): LazyFrame =
+  ## Casts the columns a selector picks: `lf.cast({col(SomeFloat): Float32})`.
+  var es: seq[Expr]
+  for (sel, dst) in dtypes: es.add sel.toExpr.cast(dst, strict)
+  lf.withColumns(es)
+proc `cast`*(df: DataFrame, dtypes: openArray[(DataType, DataType)], strict = true): DataFrame =
+  df.lazy.cast(dtypes, strict).collect
+proc `cast`*(df: DataFrame, dtypes: openArray[(Selector, DataType)], strict = true): DataFrame =
+  df.lazy.cast(dtypes, strict).collect
+
+proc explode*(lf: LazyFrame, a, b: string, more: varargs[string]): LazyFrame =
+  ## Explodes several columns given by name: `lf.explode("a", "b")`.
+  lf.explode(@[a, b] & @more)
+proc explode*(df: DataFrame, a, b: string, more: varargs[string]): DataFrame =
+  df.explode(@[a, b] & @more)
+
+# Explainer needs (0.5): frame fillNull, filter with several predicates, maintainOrder
+
+proc fillNull*[T: SomeNumber | string | bool](lf: LazyFrame, value: T): LazyFrame =
+  ## Fills the nulls of the columns `value` fits, as Python's `df.fill_null(value)`:
+  ## a number fills the numeric columns (a float turns integer columns into
+  ## Float64), a string the String columns, a bool the Boolean ones.
+  when T is SomeNumber: lf.withColumns(col(SomeNumber).toExpr.fillNull(value))
+  elif T is string: lf.withColumns(col(string).toExpr.fillNull(value))
+  else: lf.withColumns(col(bool).toExpr.fillNull(value))
+proc fillNull*[T: SomeNumber | string | bool](df: DataFrame, value: T): DataFrame =
+  df.lazy.fillNull(value).collect
+proc fillNull*(lf: LazyFrame, strategy: FillNullStrategy, limit = none(int)): LazyFrame =
+  ## Fills the nulls of every column with a strategy: `fillNull(Forward)`.
+  lf.withColumns(all().toExpr.fillNull(strategy, limit))
+proc fillNull*(df: DataFrame, strategy: FillNullStrategy, limit = none(int)): DataFrame =
+  df.lazy.fillNull(strategy, limit).collect
+
+proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
+  ## Rows where every predicate holds: `filter(col.m > 4000, col.country == "CH")`
+  ## (Python's `filter(a, b)`, joined with `and`).
+  var p = a and b
+  for m in more: p = p and m
+  lf.filter(p)
+proc filter*(df: DataFrame, a, b: Expr, more: varargs[Expr]): DataFrame =
+  df.lazy.filter(a, b, more).collect
+
+proc groupBy*(df: DataFrame, by: varargs[string], maintainOrder: bool): GroupBy =
+  ## `groupBy("a", maintainOrder = true)`, for Python parity: Nanuq always keeps
+  ## the groups in the order their keys first appear.
+  df.groupBy(by)
+proc groupBy*(lf: LazyFrame, by: varargs[string], maintainOrder: bool): LazyGroupBy =
+  lf.groupBy(by)
+proc groupBy*(df: DataFrame, by: varargs[Expr], maintainOrder: bool): GroupBy = df.groupBy(by)
+proc groupBy*(lf: LazyFrame, by: varargs[Expr], maintainOrder: bool): LazyGroupBy = lf.groupBy(by)

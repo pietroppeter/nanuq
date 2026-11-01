@@ -10,7 +10,7 @@ type
 suite "enums from Nim":
   test "dataType of a Nim enum":
     check dataType(Medal) == Enum(["Gold", "Silver", "Bronze"])
-    check $dataType(Medal) == "enum"
+    check $dataType(Medal) == """Enum(["Gold", "Silver", "Bronze"])"""
     check dataType(Monument).categories[1] == "Ronde van Vlaanderen"
 
   test "series, block syntax and reading back":
@@ -64,7 +64,7 @@ suite "run-time Enum and Categorical":
   test "Categorical":
     let df = newDataFrame(series("team", ["UAE", "Visma", "UAE"])).select(col.team.cast(Categorical))
     check df.dtype("team") == Categorical
-    check $df.dtype("team") == "cat"
+    check $df.dtype("team") == "Categorical"
     check df.toList("team", string) == @["UAE", "Visma", "UAE"]
     check df.select(col.team.nUnique).toList("team", int) == @[2]
     check df.groupBy(col.team).agg(col.team.count.alias("n")).height == 2

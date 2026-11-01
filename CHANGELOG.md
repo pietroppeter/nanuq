@@ -6,11 +6,73 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
 - Dev log post "Counting El Niños", the 0.4 explainer: what El Niño is, how NOAA counts
   it (ONI and the new RONI), and what it does to rain in Peru and to the world's
   temperature, using the 0.4 features on NOAA and NASA data. Every step and figure is
   shown in Nim (Nanuq, nim-plotly) and Python (py-polars, Plotly) tabs, and each Nim
   output is checked against the recorded Python one when the page is built.
+- Nested data types: `List(inner)`, `Array(inner, width)` (or a shape) and
+  `Struct(fields)` with `inner`, `width`, `shape`, `fields`; `dataType` maps `seq`,
+  `array`, objects and named tuples to them. Nested columns from Nim (`series`, the
+  `newDataFrame` block, `toDataFrame`, `lit(@[1, 2])`) and back (`toList(seq[int])`,
+  `toList(MyObject)`, cell reads, `rows(T)` with nested fields), at any depth, with
+  nulls; casting to nested types. The C ABI passes data types as handles. The wrapper
+  crate is `0.5.0-dev`, with the Polars features of 0.5 turned on. (add-nested-dtypes, #53)
+- The `list` namespace: aggregations, `get`, `gather`, `slice`, `head`, `tail`,
+  `contains`, `countMatches`, `join`, `sort`, `reverse`, `unique`, `dropNulls`, `diff`,
+  `shift`, `sample`, `filter`, set operations, `toArray`, `toStruct`, `eval` and `agg`
+  with `element()`; `explode` (Expr and frames), `implode` and `concatList`.
+  (add-list-namespace, #53)
+- String functions that give lists and structs: `str.split`, `splitExact`, `splitn`,
+  `extractAll`, `extractGroups`; many patterns at once with `containsAny`,
+  `replaceMany`, `extractMany`, `findMany`; `jsonDecode` and `jsonPathMatch`.
+  (add-nested-strings, #53)
+- Structs: `asStruct` (Python's `pl.struct`), the `struct` namespace (`field`,
+  `struct["x"]`, `unnest`, `renameFields`, `withFields`, `jsonEncode`), `unnest` on
+  frames, `Expr.valueCounts`, and the `arr` namespace for Array columns.
+  (add-struct-namespace, #53)
+- JSON and NDJSON: `readJson`, `readNdjson` (paths and streams), `scanNdjson`, with
+  `schema`, `schemaOverrides`, `inferSchemaLength`, `ignoreErrors`; `writeJson`,
+  `writeNdjson`, `toJson`, `toNdjson`. (add-json-io, #53)
+- SQL: `SQLContext` (`newSQLContext`, `register`, `unregister`, `tables`, `execute`,
+  eager or lazy), the `sqlContext(bears, dens)` macro that names tables after variables,
+  `df.sql`/`lf.sql` (table `self`) and `sql(query, frames)`; SQL table functions such as
+  `read_csv` work. (add-sql, #53)
+- Nim callbacks: typed `mapElements(proc (x: T): U)` (struct rows as objects, nulls
+  skipped unless `T` is an `Option`), `mapBatches` (with `returnDtype`,
+  `returnsScalar`, per group in a group-by), `fold`, `reduce`, `cumFold`, `cumReduce`,
+  `name.map` and eager `mapGroups`; exceptions become `ComputeError`. Series arithmetic
+  broadcasts a Series of length 1. (add-nim-callbacks, #53)
+- Smaller functions (from the book ports): `over(..., MappingStrategy)`, Expr
+  `shuffle`, `sample`, `hash`, `get`, `argTrue`, `upperBound`, `lowerBound`,
+  `extendConstant`, `rle`, `reshape`; `name.toLowercase`/`toUppercase`; `e.meta`
+  (`outputName`, `rootNames`, `hasMultipleOutputs`, `isColumn`, `isLiteral`,
+  `undoAliases`); frame and Series `equals`; `vstack`, `extend`, `hstack`, `update`,
+  `upsample`, `estimatedSize`, `partitionBy(asDict = true)`, `collectAll`.
+  (add-frame-utilities, #53)
+- From the 0.5 explainer port: frame `fillNull(value)` and `fillNull(strategy)`,
+  `filter(a, b, ...)` with several predicates, and `groupBy(..., maintainOrder)`.
+  (add-explainer-needs-0-5, #53)
+- `Expr.repeatBy`, and `sample(..., seed = 42)` with a plain int on expressions and
+  lists. (add-repeat-by-and-seeds, #53)
+- `benchmarks/map_elements.nim` and `.py`: `mapElements` against py-polars'
+  `map_elements` and native expressions. `mapElements` skips the `Option` copies when a
+  batch has no nulls. (#53)
+- From the 0.5 book ports: Series namespaces (`s.list`, `s.arr`, `s.struct`, `s.str`,
+  `s.dt`, `s.cat`), `toHtml(Series)`, `Expr.entropy`, `len()` (Python's `pl.len()`),
+  columns from `int32`, `uint8`, `float32` and the other sized numbers (and `toList` for
+  them), `asStruct("a", "b")`, frame `interpolate`, `cast({Float64: Float32})` and
+  `cast({col(SomeNumber): Float32})`, `explode("a", "b")`. (add-book-port-needs-0-5, #53)
+
+### Changed
+- **Breaking:** `$` on a `DataType` prints Nanuq code instead of Polars' short name:
+  `Int64`, `List(String)`, `Array(Float64, 3)`, `Struct({"x": Int64})`,
+  `Enum(["low", "high"])`, `Date`, `DateTime(Milliseconds, "Europe/Rome")`. Schemas print
+  the same way; table headers, `glimpse` and `toHtml` keep `i64`.
+  (print-dtypes-as-nanuq-code, #53)
+- New tagline in the README and on the dev-log index: "Watch out where the queries go,
+  and process well that rusty data." (#53)
 
 ## [0.4.0] - 2026-11-01
 

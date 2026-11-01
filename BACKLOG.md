@@ -64,19 +64,25 @@ two), L (more).
   - *Decided (Pietro, 2026-10-28).* Not now: `ffi.nim` stays hand-written. If taken up
     later, nbindgen would be used from our own fork, so fixes don't wait on upstream.
 - **Zero-copy columns through the Arrow C Data Interface** (L). Move whole columns
-  between Nim and Polars without copying.
+  between Nim and Polars without copying. It would also speed up `mapElements`, which
+  today copies each batch into Nim seqs and back (see `benchmarks/`). Expected: numeric
+  callbacks close to native (estimate ~3-6 ms vs 2-4 ms native for 1M ints, today ~15
+  ms); strings stay allocation-bound unless procs can take `openArray[char]` views; the
+  callback lock still keeps UDFs on one core while native expressions use all.
+- **Track the Rust Polars that py-polars ships** (M, discussion first). Nanuq pins the
+  crates.io release (0.55.2), but py-polars 2.1.0 is built from a later git commit
+  (7f902bd), and the 0.5 book ports found the drift: SQL table functions with named
+  options (`read_csv('f.csv', infer_schema => false)`) fail, `hash(seed)` gives other
+  values, and `sample(n, seed)` returns the same values in another order. Pinning
+  `polars = { git = ..., rev = ... }` at each py-polars release tag would line them up
+  (the 0.3 performance work already built from git at py-2.1.0), at the cost of git
+  builds in CI and API drift between crate releases.
 
 ## API
 
-- **More IO** (M): NDJSON, Excel, writing to streams, sink functions (streaming writes),
-  cloud storage. (CSV, Parquet, IPC and reading streams are done.)
-- **More dtypes** (M): lists, structs, decimals, binary.
-- **Smaller Polars functions found by the 0.4 book ports** (S each). `over(...,
-  mappingStrategy)`; Expr `shuffle` and `sample`; `hash`; `get(i)` (today `gather([i])`);
-  `argTrue`; `upperBound`/`lowerBound`; `extendConstant`; `partitionBy(asDict = true)`.
-- **Print dtypes as Python does** (S, discussion first). `$dtype` gives Rust's `i64`;
-  Python prints `Int64`. Matching Python would help readers who compare outputs, but
-  frame headers print `i64` in both.
+- **More IO** (M): Excel, writing to streams, sink functions (streaming writes),
+  cloud storage. (CSV, Parquet, IPC, JSON/NDJSON and reading streams are done.)
+- **More dtypes** (M): decimals, binary. (Lists, arrays and structs came in 0.5.)
 
 ## Ecosystem
 

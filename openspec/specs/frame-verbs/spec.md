@@ -242,3 +242,112 @@ shape: (2, 1)
 #### Scenario: Offset past the end
 - **WHEN** `gatherEvery(2, offset = 10)` runs on 6 rows
 - **THEN** the result has no rows
+
+### Requirement: Frame interpolation
+DataFrame and LazyFrame SHALL support `interpolate(how = InterpolationMethod.Linear)`,
+filling the nulls of every column as `Expr.interpolate` does (Python's
+`DataFrame.interpolate`).
+
+```nim
+let df = newDataFrame:
+  day: [1, 2, 3]
+  temp: [some(-2.0), none(float), some(1.0)]
+echo df.interpolate
+```
+
+```text
+shape: (3, 2)
+┌─────┬──────┐
+│ day ┆ temp │
+│ --- ┆ ---  │
+│ f64 ┆ f64  │
+╞═════╪══════╡
+│ 1.0 ┆ -2.0 │
+│ 2.0 ┆ -0.5 │
+│ 3.0 ┆ 1.0  │
+└─────┴──────┘
+```
+
+#### Scenario: Integer column
+- **WHEN** an integer column with a null between 1 and 5 is interpolated
+- **THEN** it becomes a float column holding 1.0, 3.0, 5.0
+
+### Requirement: Casting by data type
+DataFrame and LazyFrame `cast` SHALL also take a mapping from data types, or from
+selectors, to data types: `cast({Float64: Float32})` casts every Float64 column,
+`cast({col(SomeNumber): Float32})` every column the selector picks; other columns are
+kept.
+
+```nim
+let df = newDataFrame:
+  kg: [410.5, 380.0]
+  cubs: [1, 0]
+  bear: ["Ada", "Bo"]
+echo df.cast({Float64: Float32}).schema
+echo df.cast({col(SomeNumber): Float32}).schema
+```
+
+```text
+{"kg": Float32, "cubs": Int64, "bear": String}
+{"kg": Float32, "cubs": Float32, "bear": String}
+```
+
+#### Scenario: Other columns kept
+- **WHEN** `cast({Float64: Float32})` runs on a frame with an Int64 column
+- **THEN** the Int64 column is unchanged
+
+### Requirement: Several filter predicates
+DataFrame and LazyFrame `filter` SHALL take several predicates, `filter(a, b, ...)`,
+keeping the rows where all of them hold (Python's `filter(a, b)`).
+
+```nim
+let df = newDataFrame:
+  peak: ["Mont Blanc", "Monte Rosa", "Gran Paradiso"]
+  m: [4806, 4634, 4061]
+  italy: [true, true, true]
+echo df.filter(col.m > 4500, col.italy)
+```
+
+```text
+shape: (2, 3)
+┌────────────┬──────┬───────┐
+│ peak       ┆ m    ┆ italy │
+│ ---        ┆ ---  ┆ ---   │
+│ str        ┆ i64  ┆ bool  │
+╞════════════╪══════╪═══════╡
+│ Mont Blanc ┆ 4806 ┆ true  │
+│ Monte Rosa ┆ 4634 ┆ true  │
+└────────────┴──────┴───────┘
+```
+
+#### Scenario: All must hold
+- **WHEN** a row meets one predicate but not the other
+- **THEN** it is dropped
+
+### Requirement: Group order parameter
+`groupBy` on DataFrame and LazyFrame SHALL accept `maintainOrder` (Python's
+`maintain_order`), with names or expressions; the groups SHALL keep the order their keys
+first appear whatever its value.
+
+```nim
+let df = newDataFrame:
+  country: ["CH", "IT", "CH"]
+  m: [4634, 4061, 4506]
+echo df.groupBy("country", maintainOrder = true).agg(col.m.max)
+```
+
+```text
+shape: (2, 2)
+┌─────────┬──────┐
+│ country ┆ m    │
+│ ---     ┆ ---  │
+│ str     ┆ i64  │
+╞═════════╪══════╡
+│ CH      ┆ 4634 │
+│ IT      ┆ 4061 │
+└─────────┴──────┘
+```
+
+#### Scenario: Order kept
+- **WHEN** keys appear as CH, IT, CH and `maintainOrder = false` is passed
+- **THEN** the groups come out as CH, IT
