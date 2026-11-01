@@ -5395,3 +5395,122 @@ proc `cast`*(e: Expr, d: DtypeOf, strict = true): Expr =
   ## Casts to the type of another expression: `col("a").cast(dtypeOf("b"))`.
   if d.inner: raise newException(ValueError, "cast to innerDtype is not supported")
   wrap nq_expr_cast_dtype_of(e.raw, d.e.raw, strict)
+
+# ---------------------------------------------------------------------------
+# Book port needs (0.6): frame and group-by aggregations, group iteration, ...
+# ---------------------------------------------------------------------------
+
+proc frameAgg(schema: Schema, numericOnly: bool, temporalToo: bool,
+              f: proc (e: Expr): Expr): seq[Expr] =
+  for name, t in schema:
+    let ok = not numericOnly or t.isNumeric or t == Boolean or t.kind == DataTypeKind.Decimal or
+             (temporalToo and t.isTemporal)
+    result.add(if ok: f(col(name)).alias(name) else: lit(nil).cast(t).alias(name))
+
+template defFrameAgg(name: untyped, numericOnly, temporalToo: bool, body: untyped) =
+  proc name*(lf: LazyFrame): LazyFrame =
+    ## One row with the aggregation of each column (null for columns of
+    ## another kind), as Python's `LazyFrame.<name>()`.
+    lf.select(frameAgg(lf.collectSchema, numericOnly, temporalToo, proc (it {.inject.}: Expr): Expr = body))
+  proc name*(df: DataFrame): DataFrame =
+    ## One row with the aggregation of each column, as Python's `DataFrame.<name>()`.
+    df.lazy.name.collect
+
+defFrameAgg(sum, true, false, it.sum)
+defFrameAgg(mean, true, true, it.mean)
+defFrameAgg(median, true, true, it.median)
+defFrameAgg(product, true, false, it.product)
+defFrameAgg(min, false, false, it.min)
+defFrameAgg(max, false, false, it.max)
+defFrameAgg(nUnique, false, false, it.nUnique)
+defFrameAgg(count, false, false, it.count)
+
+proc std*(lf: LazyFrame, ddof = 1): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.std(ddof)))
+proc std*(df: DataFrame, ddof = 1): DataFrame = df.lazy.std(ddof).collect
+proc `var`*(lf: LazyFrame, ddof = 1): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.`var`(ddof)))
+proc `var`*(df: DataFrame, ddof = 1): DataFrame = df.lazy.`var`(ddof).collect
+proc quantile*(lf: LazyFrame, quantile: float,
+               interpolation = QuantileMethod.Nearest): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, true,
+                     proc (it: Expr): Expr = it.quantile(quantile, interpolation)))
+proc quantile*(df: DataFrame, quantile: float,
+               interpolation = QuantileMethod.Nearest): DataFrame =
+  df.lazy.quantile(quantile, interpolation).collect
+proc nullCount*(lf: LazyFrame): LazyFrame =
+  ## One row with the number of nulls in each column (Python's `null_count()`).
+  lf.select(frameAgg(lf.collectSchema, false, false, proc (it: Expr): Expr = it.nullCount))
+proc nullCount*(df: DataFrame): DataFrame = df.lazy.nullCount.collect
+
+proc fillNan*(lf: LazyFrame, value: float | Expr | typeof(nil)): LazyFrame =
+  ## NaN in float columns replaced with `value` (`nil` for null).
+  var es: seq[Expr]
+  for name, t in lf.collectSchema:
+    if t.isFloat: es.add col(name).fillNan(value)
+  if es.len == 0: lf else: lf.withColumns(es)
+proc fillNan*(df: DataFrame, value: float | Expr | typeof(nil)): DataFrame =
+  df.lazy.fillNan(value).collect
+
+proc select*(exprs: varargs[Expr]): DataFrame =
+  ## Expressions evaluated without a frame (Python's `pl.select`):
+  ## `select(lit(1).alias("one"), intRange(0, 3))`.
+  newDataFrame().select(exprs)
+
+proc keyNames(g: LazyGroupBy): seq[string] =
+  for e in g.by: result.add e.meta.outputName
+
+proc plainGroups(g: LazyGroupBy, what: string) =
+  if g.kind != gkPlain:
+    raise newException(InvalidOperationError, what & " needs a plain groupBy")
+
+template defGroupAgg(name: untyped, body: untyped) =
+  proc name*(g: LazyGroupBy): LazyFrame =
+    ## Each group's `name` of every other column (Python's `GroupBy.<name>()`).
+    let it {.inject.} = col("*")
+    g.agg(body)
+  proc name*(g: GroupBy): DataFrame = g.lazy.name.collect
+
+defGroupAgg(sum, it.sum)
+defGroupAgg(mean, it.mean)
+defGroupAgg(median, it.median)
+defGroupAgg(min, it.min)
+defGroupAgg(max, it.max)
+defGroupAgg(first, it.first)
+defGroupAgg(last, it.last)
+defGroupAgg(nUnique, it.nUnique)
+defGroupAgg(all, it)
+
+proc quantile*(g: LazyGroupBy, quantile: float, interpolation = QuantileMethod.Nearest): LazyFrame =
+  g.agg(col("*").quantile(quantile, interpolation))
+proc quantile*(g: GroupBy, quantile: float, interpolation = QuantileMethod.Nearest): DataFrame =
+  g.lazy.quantile(quantile, interpolation).collect
+proc len*(g: LazyGroupBy, name = "len"): LazyFrame =
+  ## The number of rows of each group, in column `name`.
+  g.agg(len().alias(name))
+proc len*(g: GroupBy, name = "len"): DataFrame = g.lazy.len(name).collect
+proc count*(g: LazyGroupBy): LazyFrame = g.len("count")
+  ## The number of rows of each group, in column `count`.
+proc count*(g: GroupBy): DataFrame = g.lazy.count.collect
+
+proc head*(g: LazyGroupBy, n = 5): LazyFrame =
+  ## The first `n` rows of each group, groups in order of appearance.
+  plainGroups(g, "head")
+  let rs = raws(g.by)
+  wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, false)
+proc head*(g: GroupBy, n = 5): DataFrame = g.lazy.head(n).collect
+proc tail*(g: LazyGroupBy, n = 5): LazyFrame =
+  ## The last `n` rows of each group.
+  plainGroups(g, "tail")
+  let rs = raws(g.by)
+  wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, true)
+proc tail*(g: GroupBy, n = 5): DataFrame = g.lazy.tail(n).collect
+
+iterator pairs*(g: GroupBy): tuple[key: seq[string], frame: DataFrame] =
+  ## The groups, in order of appearance: `for key, part in df.groupBy("species")`.
+  ## `key` holds the key values as strings, in `by` order (Python yields a tuple).
+  plainGroups(g.lazy, "iterating")
+  let names = keyNames(g.lazy)
+  let df = g.lazy.lf.collect
+  for k, part in df.partitionBy(names, maintainOrder = true, asDict = true):
+    yield (k, part)
