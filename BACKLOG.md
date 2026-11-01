@@ -63,6 +63,16 @@ two), L (more).
     `libnanuq_ffi.a` (`nm`), plus a Rust test of the enum values.
   - *Decided (Pietro, 2026-10-28).* Not now: `ffi.nim` stays hand-written. If taken up
     later, nbindgen would be used from our own fork, so fixes don't wait on upstream.
+- **Smaller libraries: Cargo features per area** (M). The 0.6 lib is a ~286 MB `.a`
+  (fat LTO) and a stripped Nim program linked against it is about the size of
+  py-polars' own library (178 MB `.so`). Every Polars feature in `Cargo.toml` is built
+  in whether a program uses it or not, and the linker drops only whole object files
+  (a program that never reads Excel still carries ~2 MB of calamine/xlsxwriter).
+  Options: Cargo features per area (`excel`, `sql`, `json`, `serde`, ...) selected with
+  `-d:nanuqFeatures=...` for source builds, with the Nim side hiding procs whose
+  feature is off; and/or a "lean" prebuilt variant next to `-legacy-cpu`. Measure a
+  stripped, LTO-linked binary each release, next to py-polars. (Pietro asked about
+  size and a separate Excel lib, 2026-11-01: a separate lib would link Polars twice.)
 - **Track the Rust Polars that py-polars ships** (M, discussion first). Nanuq pins the
   crates.io release (0.55.2), but py-polars 2.1.0 is built from a later git commit
   (7f902bd), and the 0.5 book ports found the drift: SQL table functions with named

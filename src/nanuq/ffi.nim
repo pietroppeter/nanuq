@@ -404,7 +404,8 @@ proc nq_lf_scan_csv*(path: cstring, data: ptr uint8, dataLen: csize_t,
                      overrideNames: ptr cstring, overrideDtypes: ptr NqDtypeSpec,
                      nOverrides: csize_t, skipRows: csize_t, nRows: int64,
                      inferSchemaLength: int64,
-                     ignoreErrors, decimalComma, tryParseDates: bool): ptr NqLazyFrame
+                     ignoreErrors, decimalComma, tryParseDates: bool,
+                     quoteChar: int32, utf8Lossy: bool): ptr NqLazyFrame
 proc nq_df_write_csv*(df: ptr NqDataFrame, path: cstring, separator: uint8,
                       includeHeader: bool, nullValue: cstring, quoteStyle: NqQuoteStyle,
                       floatPrecision: int32, decimalComma: bool): bool
@@ -755,7 +756,7 @@ proc nq_df_from_arrow_stream*(stream: ptr ArrowArrayStream): ptr NqDataFrame
 # Excel (0.6)
 proc nq_excel_sheet_names*(path: cstring): cstring
 proc nq_read_excel*(path, sheetName: cstring, sheetIndex: csize_t, hasHeader: bool,
-                    skipRows: csize_t): ptr NqDataFrame
+                    headerRow, skipRows: csize_t): ptr NqDataFrame
 proc nq_write_excel*(df: ptr NqDataFrame, path, worksheet: cstring, includeHeader,
                      autofit: bool, floatPrecision: int32): bool
 # smaller functions and book gaps (0.6)
@@ -774,6 +775,11 @@ proc nq_expr_cast_dtype_of*(e, src: ptr NqExpr, strict: bool): ptr NqExpr
 proc nq_expr_dtype_display*(src: ptr NqExpr, inner: bool): ptr NqExpr
 proc nq_lf_group_head*(lf: ptr NqLazyFrame, by: ptr ptr NqExpr, nBy: csize_t, n: int64,
                        tail: bool): ptr NqLazyFrame
+proc nq_expr_bin_slice*(e: ptr NqExpr, op: int32, a, b: ptr NqExpr, nullOnOob: bool): ptr NqExpr
+proc nq_expr_str_to_integer*(e, base: ptr NqExpr, spec: ptr NqDtypeSpec, strict: bool): ptr NqExpr
+proc nq_series_new_u64*(name: cstring, data: ptr uint64, valid: ptr bool, len: csize_t): ptr NqSeries
+proc nq_df_column_u64*(df: ptr NqDataFrame, name: cstring, values: ptr uint64, valid: ptr bool,
+                       len: csize_t): bool
 {.pop.}
 
 let compiledFor = nanuqLibVersion

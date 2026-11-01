@@ -28,9 +28,11 @@ true
 - **THEN** `IOError` is raised
 
 ### Requirement: Reading Excel
-`readExcel(path, sheetName = "", sheetId = 1, hasHeader = true, skipRows = 0, columns =
-[], schemaOverrides = [])` SHALL read one sheet (by name, else by position from 1) of an
-.xlsx, .xlsm, .xlsb, .xls or .ods file. Column types SHALL be inferred from the cells:
+`readExcel(path, sheetName = "", sheetId = 1, hasHeader = true, headerRow = 0, skipRows = 0,
+columns = [], schemaOverrides = [])` SHALL read one sheet (by name, else by position from 1)
+of an .xlsx, .xlsm, .xlsb, .xls or .ods file. Row `headerRow` SHALL hold the column names,
+and `skipRows` rows SHALL be skipped after it (from the top when `hasHeader = false`), as
+Python's default engine (fastexcel) does. Column types SHALL be inferred from the cells:
 Boolean, Int64 for whole numbers, Float64, Date for dates at midnight, Datetime[ms],
 else String; `schemaOverrides` SHALL cast columns and `columns` keep only those.
 `readExcelSheets(path)` SHALL read every sheet into a table by sheet name.
@@ -41,6 +43,7 @@ newDataFrame(series("bear", @["Ada", "Bo"]), series("kg", @[410, 380]),
              series("seen", @[date(2024, 3, 1), date(2024, 3, 9)])).writeExcel(path, worksheet = "census")
 echo readExcel(path)
 echo readExcel(path, sheetName = "census", skipRows = 1, hasHeader = false)
+echo readExcel(path, skipRows = 1)
 echo readExcelSheets(path).len
 ```
 
@@ -63,6 +66,14 @@ shape: (2, 3)
 │ Ada      ┆ 410      ┆ 2024-03-01 │
 │ Bo       ┆ 380      ┆ 2024-03-09 │
 └──────────┴──────────┴────────────┘
+shape: (1, 3)
+┌──────┬─────┬────────────┐
+│ bear ┆ kg  ┆ seen       │
+│ ---  ┆ --- ┆ ---        │
+│ str  ┆ i64 ┆ date       │
+╞══════╪═════╪════════════╡
+│ Bo   ┆ 380 ┆ 2024-03-09 │
+└──────┴─────┴────────────┘
 1
 ```
 

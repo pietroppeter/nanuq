@@ -1,4 +1,4 @@
-import std/[unittest, options, math, tables]
+import std/[unittest, options, math, tables, os]
 import nanuq
 
 suite "book needs (0.6)":
@@ -84,3 +84,23 @@ suite "book gaps, round 2":
     check r.columns == @["a"]
     check r.toList("a", bool) == @[false, true]
     check df.select(2 >= col("a")).toList("a", bool) == @[true, false]
+
+suite "book gaps, round 3":
+  test "readExcel skipRows skips after the header, as Python":
+    let path = getTempDir() / "nanuq_top.xlsx"
+    newDataFrame(series("titel", @["", "Bohemian Rhapsody"]), series("jaar", @[none(int), some(1975)]))
+      .writeExcel(path)
+    let r = readExcel(path, skipRows = 1)
+    check r.columns == @["titel", "jaar"]
+    check r.height == 1
+    check r["titel", 0, string] == "Bohemian Rhapsody"
+    check readExcel(path, headerRow = 1, hasHeader = true).columns[0] == "__UNNAMED__0"
+    removeFile path
+
+  test "rolling and groupByDynamic group by names":
+    let df = newDataFrame(series("day", @[1, 2, 3, 1, 2]), series("store", @["a", "a", "a", "b", "b"]),
+                          series("sales", @[1, 2, 3, 10, 20]))
+    let r = df.rolling("day", "2i", groupBy = "store").agg(col("sales").sum)
+    check r.toList("sales", int) == @[1, 3, 5, 10, 30]
+    check df.rolling("day", "2i", groupBy = ["store"]).agg(col("sales").sum).height == 5
+    check df.rolling("day", "2i", groupBy = [col("store")]).agg(col("sales").sum).height == 5

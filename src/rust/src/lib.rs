@@ -344,6 +344,8 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
     ignore_errors: bool,
     decimal_comma: bool,
     try_parse_dates: bool,
+    quote_char: i32,
+    utf8_lossy: bool,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let sources = scan_sources(path, data, data_len)?;
@@ -376,6 +378,8 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             .with_ignore_errors(ignore_errors)
             .with_decimal_comma(decimal_comma)
             .with_try_parse_dates(try_parse_dates)
+            .with_quote_char((quote_char >= 0).then_some(quote_char as u8))
+            .with_encoding(if utf8_lossy { CsvEncoding::LossyUtf8 } else { CsvEncoding::Utf8 })
             .finish()
             .map_err(pe)
     }))
@@ -5426,6 +5430,7 @@ pub unsafe extern "C" fn nq_read_excel(
     sheet_name: *const c_char,
     sheet_index: usize,
     has_header: bool,
+    header_row: usize,
     skip_rows: usize,
 ) -> *mut DataFrame {
     use calamine::Reader;
@@ -5438,7 +5443,15 @@ pub unsafe extern "C" fn nq_read_excel(
         } else {
             wb.worksheet_range(cstr(sheet_name)?).map_err(excel_err)?
         };
-        let rows: Vec<&[calamine::Data]> = range.rows().skip(skip_rows).collect();
+        // as fastexcel (py-polars' default engine): the header is row `header_row`,
+        // `skip_rows` are skipped after it (or from the top without a header)
+        let all: Vec<&[calamine::Data]> = range.rows().collect();
+        let rows: Vec<&[calamine::Data]> = if has_header {
+            all.iter().skip(header_row).take(1)
+                .chain(all.iter().skip(header_row + 1 + skip_rows)).copied().collect()
+        } else {
+            all.iter().skip(skip_rows).copied().collect()
+        };
         let width = rows.iter().map(|r| r.len()).max().unwrap_or(0);
         let (names, body): (Vec<String>, &[&[calamine::Data]]) = if has_header && !rows.is_empty() {
             let h = rows[0];
@@ -5715,4 +5728,62 @@ pub unsafe extern "C" fn nq_lf_group_head(
         let k = (n >= 0).then_some(n as usize);
         Ok(if tail { g.tail(k) } else { g.head(k) })
     }))
+}
+
+/// Binary slicing (binary_encoding): 0 slice(a, b), 1 head(a), 2 tail(a), 3 get(a, null_on_oob).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_bin_slice(e: *const Expr, op: i32, a: *const Expr, b: *const Expr,
+                                           null_on_oob: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let x = borrow(e, "expression")?.clone().binary();
+        let a = borrow(a, "expression")?.clone();
+        Ok(match op {
+            0 => x.slice(a, borrow(b, "expression")?.clone()),
+            1 => x.head(a),
+            2 => x.tail(a),
+            _ => x.get(a, null_on_oob),
+        })
+    }))
+}
+
+/// `str.to_integer(base, dtype, strict)`; `dtype` may be null (Int64).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_str_to_integer(e: *const Expr, base: *const Expr,
+                                                spec: *const NqDtypeSpec, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let dt = if spec.is_null() { None } else { Some(dtype_from_spec(&*spec)?) };
+        Ok(borrow(e, "expression")?.clone().str().to_integer(borrow(base, "expression")?.clone(), dt, strict))
+    }))
+}
+
+/// UInt64 columns from Nim, values above i64::MAX included; `valid` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_u64(name: *const c_char, data: *const u64, valid: *const bool,
+                                           len: usize) -> *mut Series {
+    boxed(guard(|| {
+        let vals = slice(data, len)?;
+        if valid.is_null() {
+            Ok(Series::new(cstr(name)?.into(), vals))
+        } else {
+            let ok = slice(valid, len)?;
+            let v: Vec<Option<u64>> = vals.iter().zip(ok).map(|(x, k)| if *k { Some(*x) } else { None }).collect();
+            Ok(Series::new(cstr(name)?.into(), v))
+        }
+    }))
+}
+
+/// Integer columns read as u64 (negative values raise).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_u64(
+    df: *const DataFrame,
+    name: *const c_char,
+    values: *mut u64,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::UInt64, |d| d.is_integer())?;
+        fill(s.u64().map_err(pe)?.iter(), values, valid, len)
+    })
+    .is_some()
 }

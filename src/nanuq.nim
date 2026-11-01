@@ -708,16 +708,25 @@ proc castTo*(s: Series, dtype: DataType, strict = true): Series
 proc series*[T: SizedNumber](name: string, data: openArray[T]): Series =
   ## A column of the Polars type with the size of `T`: `series("a", [1'i32, 2])`
   ## is Int32, `float32` gives Float32.
-  when T is float32:
+  when T is uint64:  # all 64 bits, above high(int64) too
+    result = wrap nq_series_new_u64(name.cstring, (if data.len > 0: data[0].unsafeAddr else: nil),
+                                  nil, data.len.csize_t)
+  elif T is float32:
     var buf = newSeq[float](data.len)
     for i, x in data: buf[i] = x.float
   else:
     var buf = newSeq[int](data.len)
     for i, x in data: buf[i] = x.int
-  series(name, buf).castTo(dataType(T))
+  when T isnot uint64: result = series(name, buf).castTo(dataType(T))
 
 proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
-  when T is float32:
+  when T is uint64:
+    var buf = newSeq[uint64](data.len)
+    var valid = newSeq[bool](data.len)
+    for i, x in data:
+      if x.isSome: (buf[i] = x.get; valid[i] = true)
+    result = wrap nq_series_new_u64(name.cstring, buf.firstOrNil, valid.firstOrNil, data.len.csize_t)
+  elif T is float32:
     var buf = newSeq[Option[float]](data.len)
     for i, x in data:
       if x.isSome: buf[i] = some(x.get.float)
@@ -725,7 +734,7 @@ proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
     var buf = newSeq[Option[int]](data.len)
     for i, x in data:
       if x.isSome: buf[i] = some(x.get.int)
-  series(name, buf).castTo(dataType(T))
+  when T isnot uint64: result = series(name, buf).castTo(dataType(T))
 
 proc series*[T: NimEnum](name: string, data: openArray[T]): Series =
   ## An Enum column from Nim enum values; the categories are all values of `T`.
@@ -936,6 +945,26 @@ proc getBool*(df: DataFrame, column: string, row: int): bool =
   if not nq_df_get_bool(df.raw, column.cstring, row.csize_t, result.addr): raiseLast()
 
 proc getStr*(df: DataFrame, column: string, row: int): string =
+  if df.dtype(column).kind == DataTypeKind.Binary:
+    # raw bytes may hold zeros, which a C string can't: read the one row as a column
+    if row < 0 or row >= df.height:
+      raise newException(IndexDefect, "row " & $row & " not in 0 ..< " & $df.height)
+    let lazyAll = wrap nq_df_lazy(df.raw)
+    let lazyOne = wrap nq_lf_slice(lazyAll.raw, row.int64, 1)
+    let one = wrap nq_lf_collect(lazyOne.raw)
+    let size = nq_df_column_str_size(one.raw, column.cstring)
+    if size < 0: raiseLast()
+    result = newString(size)
+    var offsets: array[2, uint64]
+    var valid: array[1, bool]
+    if not nq_df_column_str(one.raw, column.cstring,
+                            (if size > 0: cast[ptr uint8](result[0].addr) else: nil), size.csize_t,
+                            offsets[0].addr, valid[0].addr, 1):
+      raiseLast()
+    if not valid[0]:
+      raise newException(InvalidOperationError, "cannot read null in column '" & column & "' row " &
+                         $row & " as string")
+    return
   takeString nq_df_get_str(df.raw, column.cstring, row.csize_t)
 
 proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[int]): int = df.getInt(column, row)
@@ -1071,6 +1100,11 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
   elif T is float:
     var vals = newSeq[float](n)
     if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    (vals, valid)
+  elif T is uint64:  # all 64 bits, above high(int64) too
+    var vals = newSeq[uint64](n)
+    if not nq_df_column_u64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
     (vals, valid)
   elif T is SizedNumber:
@@ -1952,12 +1986,19 @@ proc selectColumns(lf: LazyFrame, columns: openArray[string]): LazyFrame =
   for i, c in columns: sel[i] = col(c)
   lf.select(sel)
 
+type CsvEncoding* {.pure.} = enum
+  ## Text encoding of a CSV file: `Utf8Lossy` replaces invalid UTF-8 with `�`
+  ## instead of raising (Python's `encoding="utf8-lossy"`).
+  Utf8, Utf8Lossy
+
 proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: bool,
                  nullValues: openArray[string],
                  schemaOverrides: openArray[(string, DataType)],
                  skipRows: int, nRows: Option[int], columns: openArray[string],
                  inferSchemaLength: Option[int],
-                 ignoreErrors, decimalComma, tryParseDates: bool): LazyFrame =
+                 ignoreErrors, decimalComma, tryParseDates: bool,
+                 quoteChar: Option[char], encoding: CsvEncoding,
+                 newColumns: openArray[string]): LazyFrame =
   let nulls = cstrings(nullValues)
   var names = newSeq[cstring](schemaOverrides.len)
   var ts = newSeq[DataType](schemaOverrides.len)
@@ -1971,7 +2012,17 @@ proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: boo
                                names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
                                skipRows.csize_t, nRows.toC,
                                inferSchemaLength.toC, ignoreErrors, decimalComma,
-                               tryParseDates)
+                               tryParseDates,
+                               (if quoteChar.isSome: quoteChar.get.int32 else: -1'i32),
+                               encoding == CsvEncoding.Utf8Lossy)
+  if newColumns.len > 0:
+    var pairs: seq[(string, string)]
+    var i = 0
+    for name, _ in result.collectSchema:
+      if i >= newColumns.len: break
+      pairs.add (name, newColumns[i])
+      inc i
+    result = result.rename(pairs)
   result = result.selectColumns(columns)
 
 proc scanCsv*(path: string, separator = ',', hasHeader = true,
@@ -1980,7 +2031,9 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): LazyFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = []): LazyFrame =
   ## Lazily reads a CSV file; nothing is read until the query runs. `path` may be
   ## a glob such as `"logs/*.csv"` when every file has the same columns.
   ##
@@ -1991,10 +2044,11 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## before the header, `nRows` limits the rows read and `columns` keeps only
   ## those columns, in that order. With `tryParseDates`, string columns that look
   ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
-  ## columns.
+  ## columns. `quoteChar = none(char)` turns quoting off, `newColumns` renames
+  ## the first columns (handy with `hasHeader = false`).
   scanCsvImpl(path, nil, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates)
+              tryParseDates, quoteChar, encoding, newColumns)
 
 proc readCsv*(path: string, separator = ',', hasHeader = true,
               nullValues: openArray[string] = [],
@@ -2002,14 +2056,17 @@ proc readCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = []): DataFrame =
   ## Reads a CSV file now: `scanCsv(...).collect`, with the same options.
   ##
   ## .. code-block:: nim
   ##   let df = readCsv("data.csv", separator = ';', nullValues = ["NA"],
   ##                    schemaOverrides = {"bears": Int64})
   scanCsv(path, separator, hasHeader, nullValues, schemaOverrides, skipRows, nRows,
-          columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates).collect
+          columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates, quoteChar,
+          encoding, newColumns).collect
 
 proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = true,
                nullValue = "", quoteStyle = QuoteStyle.Necessary,
@@ -2028,13 +2085,15 @@ proc readCsv*(source: Stream, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = []): DataFrame =
   ## Reads CSV from a stream (all of it, now), with the same options as reading
   ## a file: `readCsv(newStringStream("a,b\n1,2\n"))`.
   var data = source.readAll
   scanCsvImpl("", addr data, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates).collect
+              tryParseDates, quoteChar, encoding, newColumns).collect
 
 # ---------------------------------------------------------------------------
 # Parquet and IPC
@@ -3267,6 +3326,19 @@ converter toColumnNames*(x: seq[string]): ColumnNames = ColumnNames(names: x)
 converter toColumnNames*[N: static int](x: array[N, string]): ColumnNames =
   ColumnNames(names: @x)
 
+type GroupKeys* = object
+  ## Group keys for `groupBy` parameters: one name or expression, or several
+  ## (`groupBy = "store"`, `groupBy = ["store", "aisle"]`, `groupBy = [col.store]`).
+  exprs*: seq[Expr]
+converter toGroupKeys*(x: string): GroupKeys = GroupKeys(exprs: @[col(x)])
+converter toGroupKeys*(x: Expr): GroupKeys = GroupKeys(exprs: @[x])
+converter toGroupKeys*(x: seq[string]): GroupKeys =
+  for n in x: result.exprs.add col(n)
+converter toGroupKeys*[N: static int](x: array[N, string]): GroupKeys =
+  for n in x: result.exprs.add col(n)
+converter toGroupKeys*(x: seq[Expr]): GroupKeys = GroupKeys(exprs: x)
+converter toGroupKeys*[N: static int](x: array[N, Expr]): GroupKeys = GroupKeys(exprs: @x)
+
 proc element*(): Expr = wrap nq_expr_element()
   ## The values being aggregated, in a `pivot` aggregation: `element().tanh.mean`.
 proc item*(e: Expr, allowEmpty = false): Expr = wrap nq_expr_item(e.raw, allowEmpty)
@@ -3420,13 +3492,13 @@ proc groupByDynamic*(lf: LazyFrame, indexColumn: string | Expr,
                      every: string | TimeInterval, period: OptInterval = OptInterval(),
                      offset: OptInterval = OptInterval(), includeBoundaries = false,
                      closed = ClosedWindow.Left, label = Label.Left,
-                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): LazyGroupBy =
+                     groupBy: GroupKeys = GroupKeys(), startBy = StartBy.WindowBound): LazyGroupBy =
   ## Groups rows into time windows of the sorted `indexColumn`: a window starts
   ## every `every` (`1.months`, `"1y"`) and spans `period` (default `every`),
   ## shifted by `offset`. Follow with `agg`. `groupBy` groups within the windows.
   let p = period.value
   let o = offset.value
-  LazyGroupBy(lf: lf, by: @groupBy, kind: gkDynamic, index: byExpr(indexColumn),
+  LazyGroupBy(lf: lf, by: groupBy.exprs, kind: gkDynamic, index: byExpr(indexColumn),
               every: toInterval(every), period: (if p.len == 0: toInterval(every) else: p),
               offset: (if o.len == 0: "0ns" else: o), label: NqLabel(ord(label)),
               includeBoundaries: includeBoundaries, closed: NqClosedWindow(ord(closed)),
@@ -3435,22 +3507,22 @@ proc groupByDynamic*(df: DataFrame, indexColumn: string | Expr,
                      every: string | TimeInterval, period: OptInterval = OptInterval(),
                      offset: OptInterval = OptInterval(), includeBoundaries = false,
                      closed = ClosedWindow.Left, label = Label.Left,
-                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): GroupBy =
+                     groupBy: GroupKeys = GroupKeys(), startBy = StartBy.WindowBound): GroupBy =
   GroupBy(lazy: df.lazy.groupByDynamic(indexColumn, every, period, offset, includeBoundaries,
                                        closed, label, groupBy, startBy))
 
 proc rolling*(lf: LazyFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
-              groupBy: openArray[Expr] = []): LazyGroupBy =
+              groupBy: GroupKeys = GroupKeys()): LazyGroupBy =
   ## One group per row: the rows whose `indexColumn` lies in the `period` before
   ## it (shift the window with `offset`, default minus `period`). Follow with `agg`.
   let p = toInterval(period)
   let o = offset.value
-  LazyGroupBy(lf: lf, by: @groupBy, kind: gkRolling, index: byExpr(indexColumn), period: p,
+  LazyGroupBy(lf: lf, by: groupBy.exprs, kind: gkRolling, index: byExpr(indexColumn), period: p,
               offset: (if o.len == 0: negated(p) else: o), closed: NqClosedWindow(ord(closed)))
 proc rolling*(df: DataFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
-              groupBy: openArray[Expr] = []): GroupBy =
+              groupBy: GroupKeys = GroupKeys()): GroupBy =
   GroupBy(lazy: df.lazy.rolling(indexColumn, period, offset, closed, groupBy))
 
 proc joinAsofImpl(lf, other: LazyFrame, leftOn, rightOn: Expr, byLeft, byRight: seq[string],
@@ -5150,6 +5222,26 @@ proc size*(b: BinNameSpace, unit = SizeUnit.Bytes): Expr =
   if unit != SizeUnit.Bytes:
     result = result.cast(Float64) / pow(1024.0, ord(unit).float)
 
+proc slice*(b: BinNameSpace, offset: int | Expr, length: int | Expr): Expr =
+  ## `length` bytes from `offset` (negative: from the end).
+  wrap nq_expr_bin_slice(Expr(b).raw, 0, lit(offset).raw, lit(length).raw, false)
+proc head*(b: BinNameSpace, n: int | Expr): Expr =
+  ## The first `n` bytes (negative: all but the last `-n`).
+  wrap nq_expr_bin_slice(Expr(b).raw, 1, lit(n).raw, nil, false)
+proc tail*(b: BinNameSpace, n: int | Expr): Expr =
+  ## The last `n` bytes.
+  wrap nq_expr_bin_slice(Expr(b).raw, 2, lit(n).raw, nil, false)
+proc get*(b: BinNameSpace, index: int | Expr, nullOnOob = false): Expr =
+  ## The byte at `index` (negative: from the end) as UInt8; out of bounds
+  ## raises, or gives null with `nullOnOob`.
+  wrap nq_expr_bin_slice(Expr(b).raw, 3, lit(index).raw, nil, nullOnOob)
+
+proc toInteger*(s: StrNameSpace, base: int | Expr = 10, dtype = Int64, strict = true): Expr =
+  ## Parses strings as integers in `base` (2 to 36, or a column). Unparsable
+  ## values raise, or give null with `strict = false`.
+  let sp = toSpecs([dtype])
+  wrap nq_expr_str_to_integer(Expr(s).raw, lit(base).raw, sp.specs[0].unsafeAddr, strict)
+
 proc encode*(s: StrNameSpace, encoding: BinaryEncoding): Expr =
   ## The UTF-8 bytes of each string as hex or base64 text.
   wrap nq_expr_str_codec(Expr(s).raw, (if encoding == BinaryEncoding.Hex: 0 else: 1), 0)
@@ -5182,31 +5274,36 @@ proc excelSheetNames(path: string): seq[string] =
   if t.len > 0: result = t.split('\n')
 
 proc readExcelImpl(path: string, sheetName: string, sheetIndex: int, hasHeader: bool,
-                   skipRows: int, columns: openArray[string],
+                   headerRow, skipRows: int, columns: openArray[string],
                    schemaOverrides: openArray[(string, DataType)]): DataFrame =
-  if skipRows < 0: raise newException(ValueError, "skipRows must not be negative")
+  if skipRows < 0 or headerRow < 0:
+    raise newException(ValueError, "skipRows and headerRow must not be negative")
   result = wrap nq_read_excel(path.cstring, (if sheetName.len > 0: sheetName.cstring else: nil),
-                              sheetIndex.csize_t, hasHeader, skipRows.csize_t)
+                              sheetIndex.csize_t, hasHeader, headerRow.csize_t, skipRows.csize_t)
   if schemaOverrides.len > 0: result = result.cast(schemaOverrides)
   if columns.len > 0: result = result.select(columns)
 
-proc readExcel*(path: string, sheetName = "", sheetId = 1, hasHeader = true, skipRows = 0,
-                columns: openArray[string] = [],
+proc readExcel*(path: string, sheetName = "", sheetId = 1, hasHeader = true, headerRow = 0,
+                skipRows = 0, columns: openArray[string] = [],
                 schemaOverrides: openArray[(string, DataType)] = []): DataFrame =
   ## Reads one sheet of an Excel (.xlsx, .xlsm, .xlsb, .xls) or OpenDocument
   ## (.ods) file: the sheet named `sheetName`, else the `sheetId`-th (from 1).
-  ## The first row (after `skipRows`) holds the column names unless
-  ## `hasHeader = false` (`column_1`, ...). Column types are inferred from the
-  ## cells: Boolean, Int64 (whole numbers), Float64, Date (dates at midnight),
-  ## Datetime[ms], else String; `schemaOverrides` casts some columns.
+  ## Row `headerRow` (from 0) holds the column names unless `hasHeader = false`
+  ## (`column_1`, ...); `skipRows` rows are skipped after the header (from the
+  ## top without one), as Python's default engine (fastexcel) does. Column types
+  ## are inferred from the cells: Boolean, Int64 (whole numbers), Float64, Date
+  ## (dates at midnight), Datetime[ms], else String; `schemaOverrides` casts some
+  ## columns.
   if sheetName.len == 0 and sheetId < 1:
     raise newException(ValueError, "sheetId counts from 1; use readExcelSheets for all sheets")
-  readExcelImpl(path, sheetName, sheetId - 1, hasHeader, skipRows, columns, schemaOverrides)
+  readExcelImpl(path, sheetName, sheetId - 1, hasHeader, headerRow, skipRows, columns,
+                schemaOverrides)
 
-proc readExcelSheets*(path: string, hasHeader = true, skipRows = 0): OrderedTable[string, DataFrame] =
+proc readExcelSheets*(path: string, hasHeader = true, headerRow = 0,
+                      skipRows = 0): OrderedTable[string, DataFrame] =
   ## Every sheet of a workbook, by name, in order (Python's `sheet_id = 0`).
   for i, n in excelSheetNames(path):
-    result[n] = readExcelImpl(path, n, i, hasHeader, skipRows, [], [])
+    result[n] = readExcelImpl(path, n, i, hasHeader, headerRow, skipRows, [], [])
 
 proc writeExcel*(df: DataFrame, path: string, worksheet = "Sheet1", includeHeader = true,
                  autofit = false, floatPrecision: int | Option[int] = none(int)) =

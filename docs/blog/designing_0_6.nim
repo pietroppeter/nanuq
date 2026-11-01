@@ -47,6 +47,10 @@ enum, `Engine.Auto`, `Engine.Streaming` or `Engine.InMemory`, as a second argume
 the `collect` we already had. A typo is a compile error, and the default stays the
 one-argument `collect`. `collectAll` runs several queries together, so Polars can
 share the parts they have in common.
+
+`profile` (run a query and time each node) stays, for the in-memory engine. py-polars
+2.0 removed `LazyFrame.profile`, as its timings were misleading under the streaming
+engine; in Nanuq it is a cheap way to see where an in-memory query spends its time.
 """
 
 nbCode:
@@ -163,8 +167,10 @@ xlsx2csv) and writes it through XlsxWriter. Nanuq has no Python, so it uses two
 Rust crates compiled into the Nanuq library: calamine to read and rust_xlsxwriter to
 write. They add no system dependency and nothing to install.
 
-`readExcel(path, sheetName = "", sheetId = 1, hasHeader, skipRows, columns,
-schemaOverrides)` follows Python's names. Excel cells carry little type information,
+`readExcel(path, sheetName = "", sheetId = 1, hasHeader, headerRow, skipRows, columns,
+schemaOverrides)` follows Python's names, with fastexcel's meaning: `skipRows` skips
+rows after the header row, which the book found on a workbook with an empty row under
+its header. Excel cells carry little type information,
 so the column types are inferred: all booleans give Boolean, whole numbers Int64, other
 numbers Float64, dates at midnight Date, other dates Datetime, anything else String.
 `schemaOverrides` fixes the rest. `readExcelSheets` reads every sheet into an ordered
