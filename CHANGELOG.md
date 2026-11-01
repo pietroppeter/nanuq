@@ -52,6 +52,11 @@ its OpenSpec change is archived. Format based on
   of cycling's age and speed records, using every 0.3 feature on Wikipedia data. Each
   output is checked against the same steps in Python Polars when the page is built.
 
+### Changed
+- **Breaking:** Python's `method` parameter is `how` in Nanuq (`method` is a Nim keyword):
+  `rank(how = Dense)` (was `rankMethod`), `corr(a, b, how = Spearman)`,
+  `interpolate(how = Nearest)`. The rule is in api-conventions. (#51)
+
 ## [0.3.0] - 2026-11-01
 
 Nanuq 0.3 adds the data types and functions real tables need: dates, datetimes,

@@ -196,7 +196,7 @@ shape: (2, 2)
 
 ### Requirement: Interpolation
 `e.interpolate()` SHALL fill nulls that lie between two values on a straight line between
-them, or with the nearest value for `interpolate(InterpolationMethod.Nearest)`;
+them, or with the nearest value for `interpolate(how = Nearest)`;
 `e.interpolateBy(by)` SHALL interpolate linearly using the distances in column `by`.
 Nulls before the first and after the last value SHALL stay null.
 

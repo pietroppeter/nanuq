@@ -269,7 +269,7 @@ shape: (3, 3)
 - **THEN** that null stays null, instead of taking the last value of group x
 
 ### Requirement: Ranking
-`Expr` SHALL support `rank(rankMethod = Average, descending = false, seed = none(int))`
+`Expr` SHALL support `rank(how = Average, descending = false, seed = none(int))`
 with a pure enum `RankMethod` (`Average`, `Min`, `Max`, `Dense`, `Ordinal`, `Random`),
 giving each value its rank from 1. Ties SHALL be handled as Polars does: `Average` gives
 tied values the mean of their ranks (f64), `Min` and `Max` the lowest or highest (u32),

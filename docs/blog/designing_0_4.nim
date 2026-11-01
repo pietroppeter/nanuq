@@ -268,8 +268,9 @@ nbCode:
 nbText: """
 ## Small things
 
-- `corr(a, b, Spearman)`: Python's parameter is `method`, a Nim keyword, so Nanuq's is
-  `correlationMethod`, usually passed positionally.
+- `corr(a, b, how = Spearman)`, `rank(how = Dense)`, `interpolate(how = Nearest)`:
+  Python calls this parameter `method`, which is a Nim keyword. Nanuq calls it `how`,
+  the word Polars already uses for `join` and `concat`. In 0.3 `rank`'s was `rankMethod`.
 - `repeat(lit("x"), 3)`: with a plain string, std/strutils' `repeat` wins the overload, so
   strings go through `lit`.
 - `Expr.head` and `tail` default to 10 values, as in Python; frames keep 5.

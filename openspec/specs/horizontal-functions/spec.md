@@ -76,7 +76,7 @@ shape: (4, 3)
 - **THEN** `ValueError` is raised
 
 ### Requirement: Correlation
-`corr(a, b, correlationMethod = Pearson)` SHALL return the Pearson or Spearman
+`corr(a, b, how = Pearson)` SHALL return the Pearson or Spearman
 correlation of two columns as an aggregation, and `cov(a, b, ddof = 1)` their covariance.
 
 ```nim
@@ -84,7 +84,7 @@ let df = newDataFrame:
   oni: [-1.0, 0.0, 0.5, 2.0]
   world: [14.6, 14.8, 14.9, 15.2]
 echo df.select(corr("oni", "world").round(3).alias("pearson"),
-               corr("oni", "world", Spearman).alias("spearman"))
+               corr("oni", "world", how = Spearman).alias("spearman"))
 ```
 
 ```text

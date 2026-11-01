@@ -1200,17 +1200,16 @@ proc backwardFill*(e: Expr, limit = none(int)): Expr =
   e.fillNull(FillNullStrategy.Backward, limit)
 proc backwardFill*(e: Expr, limit: int): Expr = e.backwardFill(some(limit))
 
-proc rank*(e: Expr, rankMethod = RankMethod.Average, descending = false,
+proc rank*(e: Expr, how = RankMethod.Average, descending = false,
            seed = none(int)): Expr =
   ## Rank of each value, from 1: `rank(Min, descending = true)` gives tied
   ## values the same place. `Average` gives f64, the other methods u32. `seed`
-  ## makes `Random` repeatable. Python's `method` is a Nim keyword, so the
-  ## method is passed by position.
+  ## makes `Random` repeatable. Python's `method` (a Nim keyword) is `how`.
   if seed.isSome and seed.get < 0: raise newException(ValueError, "rank seed must not be negative")
-  wrap nq_expr_rank(e.raw, NqRankMethod(ord(rankMethod)), descending, seed.isSome,
+  wrap nq_expr_rank(e.raw, NqRankMethod(ord(how)), descending, seed.isSome,
                     seed.get(0).uint64)
-proc rank*(e: Expr, rankMethod: RankMethod, descending = false, seed: int): Expr =
-  e.rank(rankMethod, descending, some(seed))
+proc rank*(e: Expr, how: RankMethod, descending = false, seed: int): Expr =
+  e.rank(how, descending, some(seed))
 
 proc filter*(e: Expr, predicate: Expr): Expr =
   ## The values of `e` where `predicate` is true, usually inside `agg`:
@@ -2544,10 +2543,11 @@ proc ewmVar*(e: Expr, com = NaN, span = NaN, halfLife = NaN, alpha = NaN, adjust
   wrap nq_expr_ewm(e.raw, 2, ewmAlpha(com, span, halfLife, alpha), adjust, bias,
                    minSamples.csize_t, ignoreNulls)
 
-proc interpolate*(e: Expr, interpolation = InterpolationMethod.Linear): Expr =
-  ## Fills nulls between two values: on a straight line, or with the nearest value.
+proc interpolate*(e: Expr, how = InterpolationMethod.Linear): Expr =
+  ## Fills nulls between two values: on a straight line, or with the nearest value
+  ## (`how = Nearest`; Python's `method`, a Nim keyword).
   ## Nulls at the start and end stay null.
-  wrap nq_expr_interpolate(e.raw, interpolation == InterpolationMethod.Nearest)
+  wrap nq_expr_interpolate(e.raw, how == InterpolationMethod.Nearest)
 proc interpolateBy*(e: Expr, by: string | Expr): Expr =
   ## Linear interpolation of nulls, weighted by the distances in column `by`.
   binaryFn(e, byExpr(by), nqbInterpolateBy)
@@ -2812,13 +2812,13 @@ proc repeat*[T: SomeNumber | string | bool | TemporalValue | Expr](value: T,
   let k = lit(n)
   wrap nq_expr_repeat(v.raw, k.raw)
 
-proc corr*(a, b: Expr | string, correlationMethod = CorrelationMethod.Pearson,
+proc corr*(a, b: Expr | string, how = CorrelationMethod.Pearson,
            propagateNans = false): Expr =
-  ## Correlation of two columns, as an aggregation (Python's `pl.corr`, whose
-  ## `method` is a Nim keyword): `corr("a", "b", Spearman)`.
+  ## Correlation of two columns, as an aggregation: `corr("a", "b", how = Spearman)`.
+  ## Python's `pl.corr(method=...)`; `method` is a Nim keyword.
   let x = byExpr(a)
   let y = byExpr(b)
-  wrap nq_expr_corr(x.raw, y.raw, ord(correlationMethod).uint8, 1, propagateNans)
+  wrap nq_expr_corr(x.raw, y.raw, ord(how).uint8, 1, propagateNans)
 proc cov*(a, b: Expr | string, ddof = 1): Expr =
   ## Covariance of two columns, as an aggregation (Python's `pl.cov`).
   let x = byExpr(a)
