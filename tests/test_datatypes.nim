@@ -25,8 +25,8 @@ suite "data types":
     check dataType(float32) == Float32
     check dataType(bool) == Boolean
     check dataType(string) == String
-    check not compiles(dataType(seq[int]))
-    check not compiles(col("a").cast(seq[int]))
+    check not compiles(dataType(ref int))
+    check not compiles(col("a").cast(ref int))
 
   test "dtype and schema":
     let df = newDataFrame(series("a", [1, 2]), series("b", ["x", "y"]))

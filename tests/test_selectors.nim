@@ -22,7 +22,7 @@ suite "by type":
     check log().select(col(SomeFloat, bool)).columns == @["weight", "collared"]
 
   test "not a column type":
-    check not compiles(col(seq[int]))
+    check not compiles(col(ref int))
 
 suite "by name":
   test "several names, all, regex":

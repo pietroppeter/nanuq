@@ -189,6 +189,8 @@ type
   NqDataFrame* {.incompleteStruct.} = object
   NqLazyFrame* {.incompleteStruct.} = object
   NqExpr* {.incompleteStruct.} = object
+  NqDataType* {.incompleteStruct.} = object
+    ## A Polars data type handle (0.5), nested ones included.
   NqSeries* {.incompleteStruct.} = object
 
   NqBinOp* {.size: sizeof(cint).} = enum
@@ -233,7 +235,7 @@ type
     nqBoolean, nqInt8, nqInt16, nqInt32, nqInt64,
     nqUInt8, nqUInt16, nqUInt32, nqUInt64,
     nqFloat32, nqFloat64, nqString, nqNull, nqDate, nqDatetime, nqDuration, nqTime,
-    nqCategorical, nqEnum, nqOther
+    nqCategorical, nqEnum, nqList, nqArray, nqStruct, nqOther
   NqTimeUnit* {.size: sizeof(cint).} = enum
     nquNanoseconds, nquMicroseconds, nquMilliseconds
   NqClosedWindow* {.size: sizeof(cint).} = enum
@@ -245,6 +247,7 @@ type
     timeZone*: cstring
     categories*: ptr cstring
     nCategories*: csize_t
+    nested*: ptr NqDataType   ## for List, Array and Struct: the whole type
 
   NqJoinType* {.size: sizeof(cint).} = enum
     nqjInner, nqjLeft, nqjRight, nqjFull, nqjSemi, nqjAnti, nqjCross
@@ -293,6 +296,23 @@ type
     nqtEndsWith, nqtContains, nqtFind, nqtCountMatches, nqtExtract, nqtReplace,
     nqtReplaceAll, nqtSlice, nqtHead, nqtTail, nqtPadStart, nqtPadEnd, nqtZfill,
     nqtReverse, nqtJoin, nqtToTitlecase
+  NqListOp* {.size: sizeof(cint).} = enum
+    nqlLen, nqlSum, nqlMin, nqlMax, nqlMean, nqlMedian, nqlStd, nqlVar, nqlFirst, nqlLast,
+    nqlArgMin, nqlArgMax, nqlNUnique, nqlAny, nqlAll, nqlGet, nqlGather, nqlGatherEvery,
+    nqlSlice, nqlHead, nqlTail, nqlContains, nqlCountMatches, nqlJoin, nqlSort, nqlReverse,
+    nqlUnique, nqlDropNulls, nqlDiff, nqlShift, nqlSampleN, nqlSampleFraction, nqlFilter,
+    nqlUnion, nqlSetDifference, nqlSetIntersection, nqlSetSymmetricDifference, nqlToArray,
+    nqlToStruct, nqlEval, nqlAgg, nqlExplode
+  NqStrNestedOp* {.size: sizeof(cint).} = enum
+    nqsSplit, nqsSplitExact, nqsSplitN, nqsExtractAll, nqsExtractGroups, nqsContainsAny,
+    nqsReplaceMany, nqsExtractMany, nqsFindMany, nqsJsonDecode, nqsJsonPathMatch
+  NqStructOp* {.size: sizeof(cint).} = enum
+    nqfFieldByName, nqfFieldByNames, nqfFieldByIndex, nqfRenameFields, nqfWithFields,
+    nqfJsonEncode
+  NqArrOp* {.size: sizeof(cint).} = enum
+    nqaLen, nqaSum, nqaMin, nqaMax, nqaMean, nqaMedian, nqaStd, nqaVar, nqaArgMin, nqaArgMax,
+    nqaGet, nqaJoin, nqaContains, nqaCountMatches, nqaSort, nqaSlice, nqaHead, nqaTail,
+    nqaShift, nqaToList, nqaToStruct, nqaExplode, nqaEval, nqaAgg
 
 {.push importc, cdecl.}
 
@@ -541,6 +561,53 @@ proc nq_set_float_precision*(n: int32)
 proc nq_get_float_precision*(): int32
 proc nq_expr_lit_null*(): ptr NqExpr
 proc nq_expr_any_all*(e: ptr NqExpr, all, ignoreNulls: bool): ptr NqExpr
+
+# data type handles and nested Series (0.5)
+proc nq_dtype_free*(d: ptr NqDataType)
+proc nq_df_column_dtype_handle*(df: ptr NqDataFrame, name: cstring): ptr NqDataType
+proc nq_dtype_from_spec*(spec: ptr NqDtypeSpec): ptr NqDataType
+proc nq_dtype_list*(inner: ptr NqDataType): ptr NqDataType
+proc nq_dtype_array*(inner: ptr NqDataType, width: csize_t): ptr NqDataType
+proc nq_dtype_struct*(names: ptr cstring, dtypes: ptr ptr NqDataType, n: csize_t): ptr NqDataType
+proc nq_dtype_kind*(d: ptr NqDataType): int32
+proc nq_dtype_name*(d: ptr NqDataType): cstring
+proc nq_dtype_time_unit*(d: ptr NqDataType): int32
+proc nq_dtype_time_zone*(d: ptr NqDataType): cstring
+proc nq_dtype_n_categories*(d: ptr NqDataType): int64
+proc nq_dtype_category*(d: ptr NqDataType, i: csize_t): cstring
+proc nq_dtype_inner*(d: ptr NqDataType): ptr NqDataType
+proc nq_dtype_width*(d: ptr NqDataType): int64
+proc nq_dtype_n_fields*(d: ptr NqDataType): int64
+proc nq_dtype_field_name*(d: ptr NqDataType, i: csize_t): cstring
+proc nq_dtype_field*(d: ptr NqDataType, i: csize_t): ptr NqDataType
+proc nq_series_list_from_parts*(name: cstring, inner: ptr NqSeries, offsets: ptr int64,
+                                valid: ptr bool, n: csize_t): ptr NqSeries
+proc nq_series_struct_from_fields*(name: cstring, fields: ptr ptr NqSeries, nFields: csize_t,
+                                   valid: ptr bool, n: csize_t): ptr NqSeries
+proc nq_series_validity*(s: ptr NqSeries, outp: ptr bool, n: csize_t): bool
+proc nq_series_list_offsets*(s: ptr NqSeries, outp: ptr int64, n: csize_t): bool
+proc nq_series_inner*(s: ptr NqSeries): ptr NqSeries
+proc nq_series_n_fields*(s: ptr NqSeries): int64
+proc nq_series_struct_field*(s: ptr NqSeries, i: csize_t): ptr NqSeries
+
+# list namespace, explode, implode (0.5)
+proc nq_expr_list*(e: ptr NqExpr, op: NqListOp, a, b: ptr NqExpr, f1, f2, f3: bool, n: int64,
+                   seed: int64, names: ptr cstring, nNames: csize_t): ptr NqExpr
+proc nq_expr_implode*(e: ptr NqExpr): ptr NqExpr
+proc nq_concat_list*(es: ptr ptr NqExpr, n: csize_t): ptr NqExpr
+proc nq_lf_explode*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t,
+                    emptyAsNull, keepNulls: bool): ptr NqLazyFrame
+proc nq_expr_str_nested*(e: ptr NqExpr, op: NqStrNestedOp, a, b: ptr NqExpr, f1, f2, f3: bool,
+                         n: csize_t, pat: cstring, spec: ptr NqDtypeSpec): ptr NqExpr
+proc nq_as_struct*(es: ptr ptr NqExpr, n: csize_t): ptr NqExpr
+proc nq_expr_struct*(e: ptr NqExpr, op: NqStructOp, names: ptr cstring, nNames: csize_t,
+                     es: ptr ptr NqExpr, nEs: csize_t, index: int64): ptr NqExpr
+proc nq_expr_value_counts*(e: ptr NqExpr, sort, parallel: bool, name: cstring,
+                           normalize: bool): ptr NqExpr
+proc nq_lf_unnest*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t,
+                   separator: cstring): ptr NqLazyFrame
+proc nq_expr_arr*(e: ptr NqExpr, op: NqArrOp, a, b: ptr NqExpr, f1, f2: bool,
+                  n: int64): ptr NqExpr
 {.pop.}
 
 let compiledFor = nanuqLibVersion

@@ -6,6 +6,28 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- Nested data types: `List(inner)`, `Array(inner, width)` (or a shape) and
+  `Struct(fields)` with `inner`, `width`, `shape`, `fields`; `dataType` maps `seq`,
+  `array`, objects and named tuples to them. Nested columns from Nim (`series`, the
+  `newDataFrame` block, `toDataFrame`, `lit(@[1, 2])`) and back (`toList(seq[int])`,
+  `toList(MyObject)`, cell reads, `rows(T)` with nested fields), at any depth, with
+  nulls; casting to nested types. The C ABI passes data types as handles. The wrapper
+  crate is `0.5.0-dev`, with the Polars features of 0.5 turned on. (add-nested-dtypes, #PR)
+- The `list` namespace: aggregations, `get`, `gather`, `slice`, `head`, `tail`,
+  `contains`, `countMatches`, `join`, `sort`, `reverse`, `unique`, `dropNulls`, `diff`,
+  `shift`, `sample`, `filter`, set operations, `toArray`, `toStruct`, `eval` and `agg`
+  with `element()`; `explode` (Expr and frames), `implode` and `concatList`.
+  (add-list-namespace, #PR)
+- String functions that give lists and structs: `str.split`, `splitExact`, `splitn`,
+  `extractAll`, `extractGroups`; many patterns at once with `containsAny`,
+  `replaceMany`, `extractMany`, `findMany`; `jsonDecode` and `jsonPathMatch`.
+  (add-nested-strings, #PR)
+- Structs: `asStruct` (Python's `pl.struct`), the `struct` namespace (`field`,
+  `struct["x"]`, `unnest`, `renameFields`, `withFields`, `jsonEncode`), `unnest` on
+  frames, `Expr.valueCounts`, and the `arr` namespace for Array columns.
+  (add-struct-namespace, #PR)
+
 ## [0.4.0] - 2026-11-01
 
 Nanuq 0.4 is "a real Series, and shaping": math, cumulative and rolling windows,
