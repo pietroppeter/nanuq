@@ -41,6 +41,8 @@ its OpenSpec change is archived. Format based on
   seq of names. (add-expr-filter, #47)
 - `str.toTitlecase`, with the release libraries (it needs Polars' nightly feature).
   (build-lib-with-nightly, #47)
+- specview shows every spec in full and hides archived changes behind a checkbox
+  (except those changed since `--base`). (add-specview-full-specs, #47)
 
 ### Changed
 - **Breaking:** `/` is true division, as in Python Polars and Nim: integer columns

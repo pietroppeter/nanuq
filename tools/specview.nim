@@ -9,7 +9,12 @@
 ## - its spec deltas as requirement cards, with MODIFIED requirements shown as a word
 ##   diff against the current spec,
 ## - with `--base`, a line diff of every OpenSpec, backlog and changelog file changed
-##   since that git ref.
+##   since that git ref,
+## - every main spec in full (`openspec/specs/`), with its requirements, examples and
+##   scenarios, marking the specs that active changes touch.
+##
+## Archived changes are hidden until "Show archived changes" is ticked, except those
+## changed since `--base`.
 ##
 ## Usage:
 ##   nim r tools/specview.nim [--base:origin/main] [--out:specview.html] [--md:summary.md]
@@ -429,8 +434,39 @@ tr.gap td{color:var(--mute);text-align:center}
 .revfile{margin:.6rem 0 .2rem;font-size:.9rem}
 .hunk{border:1px solid var(--rule);border-radius:6px;padding:.5rem .8rem;margin:.4rem 0;background:var(--ice)}
 .where{font:600 .7rem/1.2 var(--mono);color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.2rem}
+.nav{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin:1rem 0 0;font:600 .8rem/1 var(--mono)}
+.nav label{color:var(--mute);cursor:pointer;display:inline-flex;gap:.4rem;align-items:center}
+body:not(.show-archived) .archived{display:none}
+.hint{font:.8rem/1.4 var(--mono);color:var(--mute)}
+.spec{background:var(--floe);border:1px solid var(--rule);border-radius:10px;padding:.6rem 1.4rem;margin:.8rem 0}
+.spec>summary{font-size:1.15rem}
+.req.CURRENT{border-left-color:var(--fjord)}
+.speclist{columns:2 16rem;font-size:.9rem;padding-left:1.1rem}
 footer{max-width:62rem;margin:3rem auto;color:var(--mute);font:.8rem var(--mono)}
 """
+
+const toggleJs = """<script>
+(function(){
+  var box = document.getElementById("show-archived"), key = "specview-show-archived";
+  function apply(on){ document.body.classList.toggle("show-archived", on); box.checked = on; }
+  var saved = false;
+  try { saved = localStorage.getItem(key) === "1"; } catch(e) {}
+  apply(saved);
+  box.addEventListener("change", function(){
+    apply(box.checked);
+    try { localStorage.setItem(key, box.checked ? "1" : "0"); } catch(e) {}
+  });
+  // a link to an archived change or a spec opens it
+  function reveal(){
+    var id = decodeURIComponent(location.hash.slice(1)); if (!id) return;
+    var el = document.getElementById(id); if (!el) return;
+    if (el.classList.contains("archived")) apply(true);
+    if (el.tagName === "DETAILS") el.open = true;
+    el.scrollIntoView();
+  }
+  window.addEventListener("hashchange", reveal); reveal();
+})();
+</script>"""
 
 proc deltaCounts(c: CapDelta): Table[string, int] =
   for s in c.delta.sections:
@@ -451,7 +487,8 @@ proc renderScenarios(r: Requirement): string =
     result.add "</ul></div>"
 
 proc renderReq(op: string, r: Requirement, current: SpecDoc): string =
-  result.add "<div class=\"req " & op & "\"><span class=\"op\">" & op & "</span><h5>" &
+  result.add "<div class=\"req " & op & "\">" &
+    (if op == "CURRENT": "" else: "<span class=\"op\">" & op & "</span>") & "<h5>" &
     inline(r.name) & "</h5>"
   if op == "MODIFIED":
     var before: Requirement
@@ -578,7 +615,9 @@ proc renderRevisions(root: string, c: Change): string =
 
 proc renderChange(c: Change, root: string): string =
   let (done, total) = c.taskCounts
-  result.add "<section class=\"change\" id=\"" & esc(c.name) & "\"><h2>" & esc(c.name) &
+  let hidden = c.archived and not c.touched
+  result.add "<section class=\"change" & (if hidden: " archived" else: "") & "\" id=\"" &
+    esc(c.name) & "\"><h2>" & esc(c.name) &
     " <span class=\"pill stage\">" & c.stage & "</span>" &
     (if c.touched: " <span class=\"pill touched\">changed in this diff</span>" else: "") & "</h2>"
   result.add "<div class=\"meta\">" & (if c.created.len > 0: "created " & esc(c.created) & " · " else: "") &
@@ -662,6 +701,39 @@ proc renderMarkdown(changes: seq[Change], base: string, files: seq[string]): str
 # Main
 # ---------------------------------------------------------------------------
 
+proc renderSpecs(root: string, changes: seq[Change], files: seq[string]): string =
+  ## Every main spec in full; specs touched by an active change, or changed since
+  ## --base, are marked.
+  var names: seq[string]
+  for kind, dir in walkDir(root / "openspec" / "specs"):
+    if kind == pcDir and fileExists(dir / "spec.md"): names.add dir.lastPathPart
+  names.sort
+  var pending = initTable[string, seq[string]]()
+  for c in changes:
+    if not c.archived:
+      for cap in c.caps: pending.mgetOrPut(cap.name, @[]).add c.name
+  result.add "<h2 id=\"specs\">Specs</h2><p class=\"hint\">The current specs in " &
+    "openspec/specs, as archived changes left them. Changes still open are not applied here.</p>"
+  result.add "<ul class=\"speclist\">"
+  for n in names:
+    result.add "<li><a href=\"#spec-" & esc(n) & "\"><code>" & esc(n) & "</code></a>" &
+      (if n in pending: " <span class=\"pill touched\">open change</span>" else: "") & "</li>"
+  result.add "</ul>"
+  for n in names:
+    let path = "openspec/specs/" & n & "/spec.md"
+    let doc = parseSpec(readFile(root / path))
+    var nreq = 0
+    for sec in doc.sections: nreq += sec.reqs.len
+    result.add "<details class=\"spec\" id=\"spec-" & esc(n) & "\"><summary><code>" & esc(n) &
+      "</code><span class=\"meta\">" & $nreq & " requirements" &
+      (if path in files: " · changed in this diff" else: "") &
+      (if n in pending: " · open change: " & pending[n].mapIt(esc(it)).join(", ") else: "") &
+      "</span></summary>"
+    if doc.purpose.len > 0: result.add "<p><em>Purpose:</em> " & inline(doc.purpose) & "</p>"
+    for sec in doc.sections:
+      for r in sec.reqs: result.add renderReq("CURRENT", r, doc)
+    result.add "</details>\n"
+
 proc main() =
   var root = getCurrentDir()
   var base, outPath, mdPath = ""
@@ -708,21 +780,27 @@ proc main() =
   html.add "<header class=\"mast\"><span class=\"eyebrow\">" & esc(root.lastPathPart) &
     " · OpenSpec review</span><h1>Where the changes stand</h1><div class=\"meta\">" & esc(head) &
     (if base.len > 0: " · compared with " & esc(base) else: "") & " · generated " &
-    now().format("yyyy-MM-dd HH:mm") & "</div></header><main>"
+    now().format("yyyy-MM-dd HH:mm") & "</div>" &
+    "<nav class=\"nav\"><a href=\"#overview\">Changes</a><a href=\"#specs\">Specs</a>" &
+    (if base.len > 0: "<a href=\"#raw-diff\">Diff</a>" else: "") &
+    "<label><input type=\"checkbox\" id=\"show-archived\"> Show archived changes (" &
+    $changes.countIt(it.archived and not it.touched) & ")</label></nav></header><main>"
 
   let active = changes.filterIt(not it.archived)
-  html.add "<h2>Overview</h2><table class=\"overview\"><tr><th>Change</th><th>Stage</th><th>Tasks</th><th>Specs</th></tr>"
+  html.add "<h2 id=\"overview\">Changes</h2><table class=\"overview\"><tr><th>Change</th><th>Stage</th><th>Tasks</th><th>Specs</th></tr>"
   for c in changes:
     let (done, total) = c.taskCounts
-    html.add "<tr><td><a href=\"#" & esc(c.name) & "\">" & esc(c.name) & "</a>" &
+    html.add "<tr" & (if c.archived and not c.touched: " class=\"archived\"" else: "") &
+      "><td><a href=\"#" & esc(c.name) & "\">" & esc(c.name) & "</a>" &
       (if c.touched: " <span class=\"pill touched\">changed</span>" else: "") & "</td><td>" & c.stage &
       "</td><td>" & $done & "/" & $total & "</td><td>" &
       c.caps.mapIt("<code>" & esc(it.name) & "</code> " & it.countsLabel).join("<br>") & "</td></tr>"
   html.add "</table>"
   if active.len == 0: html.add "<p class=\"unchanged\">No active changes.</p>"
   for c in changes: html.add renderChange(c, root)
+  html.add renderSpecs(root, changes, files)
   if base.len > 0: html.add renderRawDiff(root, base, files)
-  html.add "</main><footer>Generated by tools/specview.nim</footer></body></html>\n"
+  html.add "</main><footer>Generated by tools/specview.nim</footer>" & toggleJs & "</body></html>\n"
   writeFile(outPath, html)
   echo "wrote ", outPath
   if mdPath.len > 0:
