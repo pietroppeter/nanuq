@@ -471,7 +471,7 @@ scene "s07_sac":
     .groupBy("trek", "sac")
     .agg((col.length.sum / 1000).alias("km"))
     .pivot(on = "sac", index = "trek", values = "km", sortColumns = true)
-    .withColumns(col(float).fillNull(0.0))
+    .fillNull(0)
     .sort("trek")
   echo sac
 
@@ -587,7 +587,7 @@ terrain model says at the start and end of each stage.
 
 scene "s10_stages":
   let av1 = ways.filter(col.trek == "Alta Via 1 Aosta")
-    .groupBy("stage_id")
+    .groupBy("stage_id", maintainOrder = true)
     .agg(col.stage.first, col.itinerary.first)
     .withColumns(
       col.itinerary.list.eval(
@@ -604,7 +604,7 @@ put them in a list too, and compare the two lists element by element.
 """
 
 scene "s10_check":
-  let ends = pts.groupBy("stage").agg(
+  let ends = pts.groupBy("stage", maintainOrder = true).agg(
     concatList(col.ele.first, col.ele.last).first.alias("dem_m")
   )
   let check = av1.join(ends, on = ["stage"], maintainOrder = MaintainOrderJoin.Left).withColumns(
@@ -762,9 +762,9 @@ climbers into a list, and look at what is left.
 
 scene "s14_clean":
   let high = wd.filter(
-      not col.coord.str.startsWith("<") and
-      col.elev <= 8849 and
-      col.countries.str.contains("Nepal|China|Pakistan|India")
+      not col.coord.str.startsWith("<"),
+      col.elev <= 8849,
+      col.countries.str.contains("Nepal|China|Pakistan|India"),
     )
     .select(
       col.mLabel.alias("peak"),
