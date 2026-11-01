@@ -191,6 +191,7 @@ type
   NqExpr* {.incompleteStruct.} = object
   NqDataType* {.incompleteStruct.} = object
     ## A Polars data type handle (0.5), nested ones included.
+  NqSQLContext* {.incompleteStruct.} = object
   NqSeries* {.incompleteStruct.} = object
 
   NqBinOp* {.size: sizeof(cint).} = enum
@@ -619,6 +620,14 @@ proc nq_lf_scan_ndjson*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows:
                         specs: ptr NqDtypeSpec, n: csize_t, fullSchema: bool,
                         inferSchemaLength: int64, ignoreErrors: bool): ptr NqLazyFrame
 proc nq_df_write_json*(df: ptr NqDataFrame, path: cstring, lines: bool): cstring
+
+# SQL (0.5)
+proc nq_sql_new*(): ptr NqSQLContext
+proc nq_sql_free*(c: ptr NqSQLContext)
+proc nq_sql_register*(c: ptr NqSQLContext, name: cstring, lf: ptr NqLazyFrame): bool
+proc nq_sql_unregister*(c: ptr NqSQLContext, name: cstring): bool
+proc nq_sql_tables*(c: ptr NqSQLContext): cstring
+proc nq_sql_execute*(c: ptr NqSQLContext, query: cstring): ptr NqLazyFrame
 {.pop.}
 
 let compiledFor = nanuqLibVersion

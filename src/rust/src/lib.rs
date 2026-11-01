@@ -4412,3 +4412,58 @@ pub unsafe extern "C" fn nq_df_write_json(df: *const DataFrame, path: *const c_c
     })
     .unwrap_or(ptr::null_mut())
 }
+
+// ---------------------------------------------------------------------------
+// 0.5: SQL (add-sql)
+// ---------------------------------------------------------------------------
+
+use polars::sql::SQLContext;
+
+#[no_mangle]
+pub extern "C" fn nq_sql_new() -> *mut SQLContext {
+    Box::into_raw(Box::new(SQLContext::new()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_free(c: *mut SQLContext) {
+    if !c.is_null() {
+        drop(Box::from_raw(c));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_register(c: *const SQLContext, name: *const c_char, lf_: *const LazyFrame) -> bool {
+    guard(|| {
+        borrow(c, "SQLContext")?.register(cstr(name)?, lf(lf_)?);
+        Ok(())
+    })
+    .is_some()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_unregister(c: *const SQLContext, name: *const c_char) -> bool {
+    guard(|| {
+        borrow(c, "SQLContext")?.unregister(cstr(name)?);
+        Ok(())
+    })
+    .is_some()
+}
+
+/// The registered table names, joined by "\n". Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_tables(c: *const SQLContext) -> *mut c_char {
+    guard(|| {
+        let mut t = borrow(c, "SQLContext")?.get_tables();
+        t.sort();
+        Ok(to_c_string(t.join("\n")))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_sql_execute(c: *mut SQLContext, query: *const c_char) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let ctx = c.as_mut().ok_or("SQLContext is NULL")?;
+        ctx.execute(cstr(query)?).map_err(pe)
+    }))
+}

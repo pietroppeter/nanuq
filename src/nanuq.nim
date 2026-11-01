@@ -4056,3 +4056,79 @@ proc writeJson*(df: DataFrame, dest: Stream) = dest.write(df.toJson)
 proc writeNdjson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, true)
   ## Writes the frame as newline-delimited JSON.
 proc writeNdjson*(df: DataFrame, dest: Stream) = dest.write(df.toNdjson)
+
+# ---------------------------------------------------------------------------
+# SQL (0.5)
+# ---------------------------------------------------------------------------
+
+type
+  SQLContextObj = object
+    raw: ptr NqSQLContext
+  SQLContext* = ref SQLContextObj
+    ## Frames registered under table names, for SQL queries (Polars' `SQLContext`).
+
+proc `=destroy`(x: SQLContextObj) =
+  if x.raw != nil: nq_sql_free(x.raw)
+proc `=copy`(a: var SQLContextObj, b: SQLContextObj) {.error.}
+
+proc register*(ctx: SQLContext, name: string, frame: LazyFrame) =
+  ## Makes `frame` the table `name` (replacing a table of that name).
+  if not nq_sql_register(ctx.raw, name.cstring, frame.raw): raiseLast()
+proc register*(ctx: SQLContext, name: string, frame: DataFrame) = ctx.register(name, frame.lazy)
+proc register*(ctx: SQLContext, frames: openArray[(string, LazyFrame)]) =
+  for (n, f) in frames: ctx.register(n, f)
+proc register*(ctx: SQLContext, frames: openArray[(string, DataFrame)]) =
+  for (n, f) in frames: ctx.register(n, f)
+proc unregister*(ctx: SQLContext, name: string) =
+  if not nq_sql_unregister(ctx.raw, name.cstring): raiseLast()
+
+proc newSQLContext*(): SQLContext = SQLContext(raw: nq_sql_new())
+  ## An empty context.
+proc newSQLContext*(frames: openArray[(string, LazyFrame)]): SQLContext =
+  ## A context with `frames` registered: `newSQLContext({"bears": lf})`.
+  result = newSQLContext()
+  result.register(frames)
+proc newSQLContext*(frames: openArray[(string, DataFrame)]): SQLContext =
+  result = newSQLContext()
+  result.register(frames)
+
+proc tables*(ctx: SQLContext): seq[string] =
+  ## The registered table names, sorted.
+  let s = nq_sql_tables(ctx.raw)
+  if s == nil: raiseLast()
+  let t = takeString(s)
+  if t.len > 0: result = t.split('\n')
+
+proc execute*(ctx: SQLContext, query: string): LazyFrame =
+  ## Runs a SQL query on the registered tables, lazily.
+  wrap nq_sql_execute(ctx.raw, query.cstring)
+proc execute*(ctx: SQLContext, query: string, eager: static bool): auto =
+  ## With `eager = true`, runs the query now and gives a DataFrame; with
+  ## `eager = false`, a LazyFrame (as Python's `execute(eager=...)`).
+  when eager: ctx.execute(query).collect
+  else: ctx.execute(query)
+
+macro sqlContext*(frames: varargs[untyped]): SQLContext =
+  ## A context with each frame registered under the name of its variable:
+  ## `sqlContext(bears, dens)` (Python's `SQLContext(register_globals=...)` or
+  ## keyword arguments).
+  let ctx = genSym(nskLet, "ctx")
+  result = newStmtList(newLetStmt(ctx, newCall(bindSym"newSQLContext")))
+  for f in frames:
+    if f.kind notin {nnkIdent, nnkSym}:
+      error("sqlContext takes variables, named after the tables: use newSQLContext({\"name\": frame}) for expressions", f)
+    result.add newCall(bindSym"register", ctx, newLit(f.strVal), f)
+  result.add ctx
+  result = newBlockStmt(result)
+
+proc sql*(lf: LazyFrame, query: string, tableName = "self"): LazyFrame =
+  ## Runs a SQL query on `lf`, which the query calls `self` (or `tableName`).
+  newSQLContext({tableName: lf}).execute(query)
+proc sql*(df: DataFrame, query: string, tableName = "self"): DataFrame =
+  ## Runs a SQL query on `df` now (see the LazyFrame version).
+  df.lazy.sql(query, tableName).collect
+proc sql*(query: string, frames: openArray[(string, LazyFrame)]): LazyFrame =
+  ## Runs a SQL query on `frames` (Python's `pl.sql` with named frames).
+  newSQLContext(frames).execute(query)
+proc sql*(query: string, frames: openArray[(string, DataFrame)]): DataFrame =
+  newSQLContext(frames).execute(query).collect

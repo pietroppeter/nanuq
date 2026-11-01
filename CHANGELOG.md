@@ -30,6 +30,10 @@ its OpenSpec change is archived. Format based on
 - JSON and NDJSON: `readJson`, `readNdjson` (paths and streams), `scanNdjson`, with
   `schema`, `schemaOverrides`, `inferSchemaLength`, `ignoreErrors`; `writeJson`,
   `writeNdjson`, `toJson`, `toNdjson`. (add-json-io, #53)
+- SQL: `SQLContext` (`newSQLContext`, `register`, `unregister`, `tables`, `execute`,
+  eager or lazy), the `sqlContext(bears, dens)` macro that names tables after variables,
+  `df.sql`/`lf.sql` (table `self`) and `sql(query, frames)`; SQL table functions such as
+  `read_csv` work. (add-sql, #53)
 
 ## [0.4.0] - 2026-11-01
 
