@@ -131,11 +131,14 @@ jobs:
       # the index lists the rendered posts, so it comes after them
       - name: Render the index
         run: nim r --hints:off docs/index.nim
+      - name: Render the Polars coverage map
+        run: nim r --hints:off docs/polars_coverage.nim
       - name: Assemble site
         run: |
           mkdir -p _site/blog
           cp docs/blog/*.html docs/blog/*.png _site/blog/
           cp docs/index.html _site/index.html
+          cp docs/polars_coverage.html _site/polars_coverage.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

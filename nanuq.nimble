@@ -30,11 +30,12 @@ task test, "Run the tests (test_datamancer and test_arraymancer need Datamancer,
 task example, "Run the basic example":
   exec "nim r --hints:off examples/basic.nim"
 
-task docs, "Render the nimib dev log posts in docs/blog, then the index (needs nimib, ggplotnim and Datamancer)":
+task docs, "Render the nimib dev log posts in docs/blog, then the index and the coverage map (needs nimib, ggplotnim and Datamancer)":
   for f in listFiles("docs/blog"):
     if f.endsWith(".nim"):
       exec "nim r --hints:off " & f
   exec "nim r --hints:off docs/index.nim"
+  exec "nim r --hints:off docs/polars_coverage.nim"
 
 task specexamples, "Compile and run the Nim examples in openspec/specs and check their output":
   exec "nim r --hints:off tools/specexamples.nim"

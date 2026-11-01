@@ -45,6 +45,8 @@ nbText: """
 Nanuq brings [Polars](https://pola.rs) DataFrames to Nim. These posts follow its
 development, newest first. The code is on
 [GitHub](https://github.com/pietroppeter/nanuq); official documentation will come later.
+The [Polars coverage map](polars_coverage.html) shows which Polars features each release
+covers.
 """
 
 var items = "<ol class=\"posts\">\n"

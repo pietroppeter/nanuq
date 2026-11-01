@@ -1,0 +1,251 @@
+{
+ "title": "Polars coverage",
+ "updated": "2026-11-01",
+ "polars": "Polars 2.1 (Python), built from crate 0.55 on main and from the py-2.1.0 tag in 0.6",
+ "versions": [
+  {"id": "0.5", "label": "0.5", "ref": "main, v0.5.0", "state": "released"},
+  {"id": "0.6", "label": "0.6", "ref": "PR #59", "state": "in progress"}
+ ],
+ "areas": [
+  {
+   "id": "dtypes",
+   "title": "Data types",
+   "intro": "Polars has a closed set of Arrow-backed data types. Nanuq has a DataType for each, built from Nim types (dataType(T)) and printed as Nanuq code.",
+   "differences": "A plain DataType value with kind and parameters instead of Python's class hierarchy; nulls are Option[T].",
+   "rows": [
+    {"feature": "Booleans, integers, floats", "polars": "Boolean, Int8..Int128, UInt8..UInt128, Float32/64", "status": {"0.5": "done"}, "note": "Columns from every sized Nim number since 0.5. 0.6 reads UInt64 values above high(int64) and adds 128-bit integers (used by Decimal and str.toInteger)."},
+    {"feature": "String", "polars": "String (Utf8)", "status": {"0.5": "done"}, "note": "Builders, readers, nulls."},
+    {"feature": "Null", "polars": "Null", "status": {"0.5": "done"}, "note": "Null DataType and lit(nil)."},
+    {"feature": "Date, Datetime, Duration, Time", "polars": "Date, Datetime(unit, tz), Duration(unit), Time", "status": {"0.5": "done"}, "note": "Since 0.3, mapped to Nanuq's Date and TimeOfDay and std/times DateTime and Duration."},
+    {"feature": "Categorical, Enum", "polars": "Categorical, Enum(categories)", "status": {"0.5": "done"}, "note": "Since 0.3. A Nim enum is a Polars Enum."},
+    {"feature": "List, Array", "polars": "List(inner), Array(inner, width)", "status": {"0.5": "done"}, "note": "Since 0.5, at any depth, from seq and array."},
+    {"feature": "Struct", "polars": "Struct(fields)", "status": {"0.5": "done"}, "note": "Since 0.5, from Nim objects and named tuples."},
+    {"feature": "Binary", "polars": "Binary", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: columns from seq[seq[byte]], read back as seq[byte]."},
+    {"feature": "Decimal", "polars": "Decimal(precision, scale)", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: read and written as strings or floats (no decimal type in Nim's stdlib)."},
+    {"feature": "Object", "polars": "Object (Python only)", "status": {"0.5": "no"}, "note": "Python objects in a column; no Nim counterpart in an Arrow array."},
+    {"feature": "Casting", "polars": "Expr.cast(dtype, strict), DataFrame.cast, to_physical, shrink_dtype, reinterpret", "status": {"0.5": "done"}, "note": "cast by Nim type, DataType, mapping or selector; toPhysical; reinterpret in 0.6. shrinkDtype is missing."},
+    {"feature": "Schema", "polars": "df.schema, lf.collect_schema, pl.Schema, dtypes", "status": {"0.5": "done"}, "note": "schema, collectSchema, dtypes."},
+    {"feature": "Data type expressions", "polars": "pl.dtype_of, DataTypeExpr", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: dtypeOf, innerDtype, display."}
+   ]
+  },
+  {
+   "id": "series",
+   "title": "Series",
+   "intro": "Since 0.4 a Series is a full column: built from Nim, taken out of a frame, and computed with through expressions.",
+   "differences": "Series methods run as expressions on a one-column frame instead of binding the Rust Series API twice. Aggregations return a one-value Series; read the scalar with item.",
+   "rows": [
+    {"feature": "Construction from Nim", "polars": "pl.Series(name, values)", "status": {"0.5": "done"}, "note": "Every scalar, temporal and nested type, with Option[T] for nulls."},
+    {"feature": "Inspection", "polars": "name, dtype, len, null_count, rename, alias, is_empty", "status": {"0.5": "done"}, "note": "isEmpty in 0.6."},
+    {"feature": "Reading back", "polars": "to_list, item, __getitem__, head, tail, slice", "status": {"0.5": "done"}, "note": "toList(T), item(T), s[i]."},
+    {"feature": "Arithmetic and comparison", "polars": "+ - * / % **, comparisons, &, |, ~", "status": {"0.5": "done"}, "note": "With literals and other Series; a length-1 Series broadcasts (0.5)."},
+    {"feature": "Aggregations", "polars": "sum, mean, min, max, median, std, var, quantile, n_unique, arg_min, ...", "status": {"0.5": "done"}, "note": "Return a one-value Series; item gives the scalar."},
+    {"feature": "Transformations", "polars": "sort, unique, value_counts, fill_null, shift, cum_sum, cast, map_elements, ...", "status": {"0.5": "done"}, "note": "Every Expr method, evaluated through expressions."},
+    {"feature": "Namespaces", "polars": "str, dt, list, arr, struct, cat, bin on Series", "status": {"0.5": "done"}, "note": "Since 0.5 (s.str, s.dt, s.list, ...); s.bin in 0.6."},
+    {"feature": "Series in a frame", "polars": "df.get_column, df['a'], to_series, insert_column, replace_column", "status": {"0.5": "done"}, "note": "df[\"a\"], getColumn, toSeries, withColumns(series). No in-place insert or replace: frames are immutable."},
+    {"feature": "Scatter and set", "polars": "Series.scatter, Series.set", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6, returning a new Series."},
+    {"feature": "Sortedness", "polars": "set_sorted, is_sorted, flags", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: setSorted, isSorted."}
+   ]
+  },
+  {
+   "id": "io",
+   "title": "DataFrame construction and IO",
+   "intro": "Building frames and reading and writing files. Every format is compiled into the prebuilt library.",
+   "differences": "Keyword options become Nim named parameters with defaults; file-like objects become a path or a Nim Stream.",
+   "rows": [
+    {"feature": "From columns and records", "polars": "pl.DataFrame({...}), from_dict, from_records, from_dicts", "status": {"0.5": "done"}, "note": "newDataFrame(series...), the newDataFrame block syntax, toDataFrame(seq[T]) for objects and tuples."},
+    {"feature": "Empty frames", "polars": "pl.DataFrame(schema=...), df.clear", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: newDataFrame(schema) and clear (frames and LazyFrames)."},
+    {"feature": "CSV read", "polars": "read_csv: separator, has_header, skip_rows, n_rows, columns, new_columns, schema_overrides, null_values, quote_char, encoding, try_parse_dates, ...", "status": {"0.5": "done"}, "note": "0.2 options; 0.6 adds quoteChar, encoding (Utf8Lossy), newColumns and commentPrefix."},
+    {"feature": "CSV from a string or bytes", "polars": "read_csv(io.StringIO(...)), read_csv(bytes)", "status": {"0.5": "done"}, "note": "From a Nim Stream since 0.3."},
+    {"feature": "CSV write", "polars": "write_csv: separator, include_header, quote_style, float_precision, null_value", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "CSV scan (lazy)", "polars": "scan_csv", "status": {"0.5": "done"}, "note": "Files and globs, same options as readCsv."},
+    {"feature": "Parquet", "polars": "read_parquet, scan_parquet, write_parquet, read_parquet_schema", "status": {"0.5": "done"}, "note": "Since 0.3; readParquetSchema and hivePartitioning in 0.6."},
+    {"feature": "Arrow IPC / Feather", "polars": "read_ipc, scan_ipc, write_ipc, read_ipc_stream", "status": {"0.5": "done"}, "note": "Since 0.3; the IPC stream readers and writers in 0.6."},
+    {"feature": "JSON and NDJSON", "polars": "read_json, write_json, read_ndjson, scan_ndjson, write_ndjson", "status": {"0.5": "done"}, "note": "Since 0.5, paths and streams."},
+    {"feature": "Avro", "polars": "read_avro, write_avro", "status": {"0.5": "missing"}, "note": "Planned for 0.7.", "priority": "P3"},
+    {"feature": "Excel", "polars": "read_excel, write_excel", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: readExcel, readExcelSheets, writeExcel, built on the pure-Rust crates calamine and rust_xlsxwriter compiled into the library."},
+    {"feature": "OpenDocument", "polars": "read_ods", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: readOds, through calamine like readExcel."},
+    {"feature": "Databases", "polars": "read_database, read_database_uri, write_database", "status": {"0.5": "missing", "0.6": "partial"}, "note": "0.6: optional module nanuq/database on db_connector, SQLite only. PostgreSQL and MySQL to follow.", "priority": "P2"},
+    {"feature": "Delta Lake, Iceberg, catalogs", "polars": "scan_delta, write_delta, scan_iceberg, pl.Catalog", "status": {"0.5": "no"}, "note": "Python-only in Polars (deltalake, pyiceberg, Unity Catalog client)."},
+    {"feature": "Cloud storage", "polars": "scan_*('s3://...'), storage_options, credential providers", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: storageOptions on scan, read, write and sink for CSV, Parquet, IPC and NDJSON (s3://, gs://, az://, https://)."},
+    {"feature": "Streaming sinks", "polars": "sink_parquet, sink_csv, sink_ipc, sink_ndjson, PartitionBy sinks", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: to a path or partitioned by key, lazy = true for collectAll."},
+    {"feature": "Display", "polars": "__repr__, _repr_html_, glimpse, describe", "status": {"0.5": "done"}, "note": "$, toHtml, glimpse, describe."}
+   ]
+  },
+  {
+   "id": "dataframe",
+   "title": "DataFrame (eager)",
+   "intro": "The eager API. Most verbs run through the lazy engine, as in Polars itself.",
+   "differences": "Python DataFrames are mutable (df['a'] = s); Nanuq frames are immutable refs and every edit returns a new frame, like the Rust API.",
+   "rows": [
+    {"feature": "Shape and metadata", "polars": "shape, height, width, columns, dtypes, schema, estimated_size, is_empty, n_chunks", "status": {"0.5": "done"}, "note": "isEmpty in 0.6. nChunks is missing."},
+    {"feature": "Head, tail, slice, sample", "polars": "head, tail, slice, limit, sample, gather_every", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Column access", "polars": "df['a'], get_column, item, row, rows, iter_rows, to_dicts, rows_by_key", "status": {"0.5": "done"}, "note": "Rows as Nim objects or tuples: row(i, T), rows(T), iterRows(T); rowsByKey (an OrderedTable) and getColumnIndex in 0.6."},
+    {"feature": "Column edits", "polars": "with_columns, drop, rename, select, hstack, with_row_index, cast", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Row edits", "polars": "vstack, extend, filter, sort, unique, drop_nulls, drop_nans, fill_null, fill_nan, reverse, shift", "status": {"0.5": "partial", "0.6": "done"}, "note": "Frame fillNan, dropNans, shift, append and remove in 0.6."},
+    {"feature": "Frame aggregations", "polars": "sum, mean, min, max, median, std, var, quantile, product, null_count, n_unique", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 adds every frame-wide aggregation."},
+    {"feature": "Reshaping", "polars": "pivot, unpivot, explode, unnest, transpose, partition_by, to_dummies, unstack", "status": {"0.5": "done"}, "note": "pivot and unpivot in 0.4, explode and unnest in 0.5, unstack in 0.6."},
+    {"feature": "Combining", "polars": "join, join_asof, join_where, concat, vstack, hstack, update, merge_sorted", "status": {"0.5": "partial"}, "note": "See Joins. joinWhere and mergeSorted are new in 0.6; concat align is missing."},
+    {"feature": "Equality and testing", "polars": "equals, polars.testing.assert_frame_equal, assert_series_equal", "status": {"0.5": "partial", "0.6": "done"}, "note": "equals since 0.5; 0.6 adds the nanuq/testing module."},
+    {"feature": "Apply and iterate", "polars": "map_rows, pipe, iter_columns, iter_slices, hash_rows", "status": {"0.5": "partial"}, "note": "mapGroups and group iteration exist. mapRows is missing. pipe is not needed in Nim: any proc chains with the dot syntax.", "priority": "P3"},
+    {"feature": "SQL on frames", "polars": "df.sql, pl.sql, SQLContext", "status": {"0.5": "done"}, "note": "Since 0.5, with a sqlContext macro naming tables after variables."},
+    {"feature": "Lazy conversion", "polars": "lazy, collect", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Copy and memory", "polars": "clone, rechunk, shrink_to_fit, clear, estimated_size", "status": {"0.5": "partial", "0.6": "done"}, "note": "estimatedSize; rechunk, shrinkToFit and clear in 0.6. clone is not needed (frames are immutable)."}
+   ]
+  },
+  {
+   "id": "lazyframe",
+   "title": "LazyFrame",
+   "intro": "The query plan API, with the same verbs as the eager frame plus execution, sinks and plans.",
+   "differences": "Same names in camelCase. The engine is an enum: collect(Engine.Streaming).",
+   "rows": [
+    {"feature": "Core verbs", "polars": "select, with_columns, filter, group_by.agg, sort, limit, drop_nulls, explain, collect", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "More verbs", "polars": "drop, rename, slice, head, tail, reverse, unique, fill_null, fill_nan, with_row_index, cast, interpolate, explode, unnest, unpivot", "status": {"0.5": "done"}, "note": "LazyFrame shift, first, last and clear in 0.6. select_seq is missing."},
+    {"feature": "Sort options", "polars": "sort(by, descending, nulls_last, maintain_order), top_k, bottom_k", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Joins", "polars": "join, join_asof, join_where, concat, merge_sorted", "status": {"0.5": "partial", "0.6": "done"}, "note": "See Joins. mergeSorted in 0.6."},
+    {"feature": "Grouping", "polars": "group_by(maintain_order), group_by_dynamic, rolling, shortcuts", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 adds the group-by shortcuts."},
+    {"feature": "Execution", "polars": "collect(engine), collect_all, collect_schema, profile, explain, cache, show_graph, optimization flags", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 adds streaming collect, explainAll, cache and the optimization flags (QueryOptFlags, including common subplan and subexpression elimination). profile went away with the move to Polars 2, as in Python. show_graph is missing."},
+    {"feature": "Streaming sinks", "polars": "sink_parquet, sink_csv, sink_ipc, sink_ndjson", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."},
+    {"feature": "Plan serialization", "polars": "serialize, deserialize (binary or JSON)", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6, for LazyFrames and expressions, to bytes or files."},
+    {"feature": "Map and UDF", "polars": "map_batches, map_groups, pipe", "status": {"0.5": "partial"}, "note": "Expr mapBatches and mapGroups since 0.5. LazyFrame.map_batches is missing.", "priority": "P3"},
+    {"feature": "SQL", "polars": "SQLContext.register(lf).execute(...)", "status": {"0.5": "done"}, "note": "Since 0.5."},
+    {"feature": "Schema matching", "polars": "match_to_schema", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: matchToSchema."}
+   ]
+  },
+  {
+   "id": "groupby",
+   "title": "GroupBy",
+   "intro": "Grouped aggregation on eager and lazy frames.",
+   "differences": "",
+   "rows": [
+    {"feature": "group_by + agg", "polars": "group_by(*by, maintain_order).agg(*aggs)", "status": {"0.5": "done"}, "note": "Keys as names or expressions; on a DataFrame agg returns a DataFrame (0.4)."},
+    {"feature": "Shortcut aggregations", "polars": "len, count, first, last, sum, mean, median, min, max, n_unique, quantile", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."},
+    {"feature": "Per-group rows", "polars": "head(n), tail(n), map_groups, iterating groups, partition_by", "status": {"0.5": "partial", "0.6": "done"}, "note": "partitionBy (0.4), mapGroups (0.5); head, tail and for key, part in df.groupBy(...) in 0.6."},
+    {"feature": "Temporal grouping", "polars": "group_by_dynamic, rolling", "status": {"0.5": "done"}, "note": "Since 0.4; 0.6 takes the groupBy option as names or expressions."}
+   ]
+  },
+  {
+   "id": "joins",
+   "title": "Joins and concatenation",
+   "intro": "Combining frames.",
+   "differences": "Python's how strings become Nim enums (JoinType, ConcatHow, AsofStrategy).",
+   "rows": [
+    {"feature": "Equi joins", "polars": "join(on / left_on / right_on, how, suffix, validate, nulls_equal, coalesce, maintain_order)", "status": {"0.5": "done"}, "note": "Since 0.2, inner to cross, semi and anti."},
+    {"feature": "As-of joins", "polars": "join_asof(on, by, strategy, tolerance)", "status": {"0.5": "done"}, "note": "Since 0.4."},
+    {"feature": "Inequality joins", "polars": "join_where(predicates)", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."},
+    {"feature": "Concatenation", "polars": "pl.concat(how=vertical|vertical_relaxed|horizontal|diagonal|diagonal_relaxed|align)", "status": {"0.5": "done"}, "note": "All but align."},
+    {"feature": "Sorted merge, update", "polars": "merge_sorted, update", "status": {"0.5": "partial", "0.6": "done"}, "note": "update since 0.5; mergeSorted in 0.6."}
+   ]
+  },
+  {
+   "id": "expr",
+   "title": "Expressions: core",
+   "intro": "The expression DSL, the widest part of Polars and of Nanuq.",
+   "differences": "Nim operators cover arithmetic and comparison; and/or/not replace & | ~. Polars' method spellings (add, mul, eq, ...) also exist since 0.6. Python's method parameter is how in Nanuq.",
+   "rows": [
+    {"feature": "Column references and selectors", "polars": "col(name/names/dtype/regex), all, exclude, nth, pl.len, selectors (cs.numeric, ...)", "status": {"0.5": "done"}, "note": "col.name shorthand, Nim typeclasses as dtype selectors, regex, selector operators; nth in 0.6 (an Expr, not a selector)."},
+    {"feature": "Literals", "polars": "lit(value), lit(series), lit(None)", "status": {"0.5": "done"}, "note": "Scalars, dates, lists, Series, nil."},
+    {"feature": "Arithmetic", "polars": "+ - * / // % **, neg, abs, floordiv, truediv, add, mul, ...", "status": {"0.5": "done"}, "note": "/ is true division, div is floor; method spellings in 0.6."},
+    {"feature": "Comparison and boolean", "polars": "comparisons, &, |, ~, xor, eq_missing, is_in, is_between, any, all", "status": {"0.5": "done"}, "note": "xor, eqMissing and neMissing in 0.6."},
+    {"feature": "Conditionals", "polars": "when/then/otherwise", "status": {"0.5": "done"}, "note": "Plus a choose macro over if/elif/else."},
+    {"feature": "Aggregations", "polars": "sum ... quantile, product, mode, arg_min, arg_max, null_count, approx_n_unique, implode, skew, kurtosis, entropy", "status": {"0.5": "done"}, "note": "aggGroups is missing."},
+    {"feature": "Null and NaN handling", "polars": "is_null, fill_null(value|strategy), drop_nulls, is_nan, fill_nan, drop_nans, forward_fill, interpolate, coalesce", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Casting and types", "polars": "cast(dtype, strict), to_physical", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Naming", "polars": "alias, name.keep, prefix, suffix, map, to_lowercase, to_uppercase", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Ordering and selection", "polars": "sort, sort_by, arg_sort, head, tail, gather, top_k, search_sorted, unique, value_counts, is_duplicated, ...", "status": {"0.5": "done"}, "note": "Since 0.4."},
+    {"feature": "Elementwise math", "polars": "round, floor, ceil, clip, exp, log, sqrt, cbrt, trigonometry, sign, dot", "status": {"0.5": "done"}, "note": "isClose and roundSigFigs in 0.6."},
+    {"feature": "Cumulative and windowed", "polars": "cum_*, diff, pct_change, shift, rank, rolling_*, rolling_*_by, rolling_map, ewm_*, peaks, rle", "status": {"0.5": "done"}, "note": "rollingMap and cumulativeEval in 0.6."},
+    {"feature": "Window functions", "polars": "over(partition_by, order_by, mapping_strategy)", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Horizontal and multi-column", "polars": "sum/min/max/mean/any/all_horizontal, concat_str, concat_list, struct, coalesce, fold, reduce, corr, cov", "status": {"0.5": "done"}, "note": "concatArr in 0.6."},
+    {"feature": "Binning and counting", "polars": "cut, qcut, hist, value_counts, unique_counts", "status": {"0.5": "partial", "0.6": "done"}, "note": "hist in 0.6."},
+    {"feature": "Replacement", "polars": "replace, replace_strict", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Ranges and generation", "polars": "int_range(s), date_range(s), datetime_range(s), time_range, linear_space, repeat, arange", "status": {"0.5": "partial", "0.6": "done"}, "note": "The plural ranges, arange and timeRange(s) in 0.6."},
+    {"feature": "Meta", "polars": "meta.output_name, root_names, eq, pop, tree_format, serialize, ...", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 completes the namespace."},
+    {"feature": "Bitwise", "polars": "bitwise_and/or/xor, bitwise_count_ones, leading/trailing zeros", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."},
+    {"feature": "Repeat and nesting", "polars": "extend_constant, repeat_by, explode, implode, element()", "status": {"0.5": "done"}, "note": "Since 0.5."}
+   ]
+  },
+  {
+   "id": "strings",
+   "title": "Expressions: strings",
+   "intro": "The str namespace. Patterns are Rust regexes, as in Polars.",
+   "differences": "Names follow Polars (str.toUppercase), not strutils.",
+   "rows": [
+    {"feature": "Length and case", "polars": "len_bytes, len_chars, to_uppercase, to_lowercase, to_titlecase, reverse", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Trimming and padding", "polars": "strip_chars, strip_prefix, strip_suffix, pad_start, pad_end, zfill", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Search", "polars": "contains, contains_any, starts_with, ends_with, find, count_matches, extract, extract_all, extract_groups, extract_many", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Replace and split", "polars": "replace, replace_all, replace_many, split, split_exact, splitn, slice, head, tail", "status": {"0.5": "done"}, "note": "Splits since 0.5."},
+    {"feature": "Concatenation", "polars": "str.join, concat_str, format", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Conversion", "polars": "to_integer, to_decimal, to_date, to_datetime, strptime, json_decode, json_path_match, encode, normalize, escape_regex", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 adds toInteger, toDecimal, encode, normalize and escapeRegex."}
+   ]
+  },
+  {
+   "id": "temporal",
+   "title": "Expressions: temporal",
+   "intro": "The dt namespace and temporal helpers, since 0.3.",
+   "differences": "std/times DateTime carries a zone; naive Polars datetimes read as UTC.",
+   "rows": [
+    {"feature": "Components", "polars": "year, quarter, month, week, weekday, day, ordinal_day, hour ... nanosecond, date, time, timestamp, epoch", "status": {"0.5": "done"}, "note": "fromEpoch, century, millennium and epoch in 0.6."},
+    {"feature": "Rounding and offsets", "polars": "truncate, round, offset_by, month_start, month_end, add_business_days, dst_offset", "status": {"0.5": "done"}, "note": "Business days (addBusinessDays, isBusinessDay) and dstOffset, baseUtcOffset in 0.6."},
+    {"feature": "Time zones and units", "polars": "convert_time_zone, replace_time_zone, cast_time_unit, with_time_unit", "status": {"0.5": "done"}, "note": "withTimeUnit is missing."},
+    {"feature": "Formatting and parsing", "polars": "strftime, to_string, strptime, to_date, to_datetime", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Durations", "polars": "total_days ... total_nanoseconds, duration arithmetic", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Ranges", "polars": "date_range(s), datetime_range(s), time_range, business_day_count", "status": {"0.5": "partial", "0.6": "done"}, "note": "Plural ranges, timeRange and businessDayCount in 0.6."},
+    {"feature": "Temporal grouping and joins", "polars": "group_by_dynamic, rolling, upsample, join_asof", "status": {"0.5": "done"}, "note": ""}
+   ]
+  },
+  {
+   "id": "nested",
+   "title": "Expressions: list, array, struct, categorical, binary",
+   "intro": "Namespaces for nested and special types.",
+   "differences": "",
+   "rows": [
+    {"feature": "List namespace", "polars": "list.len, aggregations, get, gather, slice, contains, unique, sort, join, eval(element()), set operations, to_struct, to_array, ...", "status": {"0.5": "done"}, "note": "Since 0.5."},
+    {"feature": "Array namespace", "polars": "arr.sum ... get, join, sort, explode, to_list, to_struct, eval", "status": {"0.5": "done"}, "note": "Since 0.5."},
+    {"feature": "Struct namespace", "polars": "struct.field, rename_fields, json_encode, unnest, with_fields, pl.struct", "status": {"0.5": "done"}, "note": "pl.struct is asStruct (struct is taken by the namespace)."},
+    {"feature": "Categorical namespace", "polars": "cat.get_categories, len_bytes, len_chars, starts_with, slice", "status": {"0.5": "done"}, "note": "Since 0.3. 0.6 drops cat.getCategories, as Polars 2 did."},
+    {"feature": "Binary namespace", "polars": "bin.contains, starts_with, ends_with, encode, decode, size, slice, head, tail, get", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."}
+   ]
+  },
+  {
+   "id": "udf",
+   "title": "User-defined functions and plugins",
+   "intro": "Running Nim code inside Polars.",
+   "differences": "Callbacks are typed Nim procs; exceptions become ComputeError. They run under a lock, so they are not parallel.",
+   "rows": [
+    {"feature": "Elementwise UDF", "polars": "Expr.map_elements, Series.map_elements", "status": {"0.5": "done"}, "note": "Since 0.5, 2 to 10 times faster than py-polars' map_elements; 0.6 reads numeric columns through a zero-copy view."},
+    {"feature": "Batch UDF", "polars": "map_batches, map_groups, map_rows, LazyFrame.map_batches", "status": {"0.5": "partial"}, "note": "mapBatches and mapGroups since 0.5; mapRows and LazyFrame.map_batches are missing.", "priority": "P3"},
+    {"feature": "Expression plugins", "polars": "register_plugin_function", "status": {"0.5": "no"}, "note": "A Rust-only mechanism; Nim users would write Rust."},
+    {"feature": "Formula-style sugar", "polars": "(none; Datamancer's f{})", "status": {"0.5": "no"}, "note": "Dropped from 0.6: Polars expressions are expressive enough. Any Nim sugar would be its own design (BACKLOG)."}
+   ]
+  },
+  {
+   "id": "interop",
+   "title": "Interop with Nim and the ecosystem",
+   "intro": "Getting data in and out without files.",
+   "differences": "",
+   "rows": [
+    {"feature": "Plain sequences", "polars": "to_list, Series(list)", "status": {"0.5": "done"}, "note": ""},
+    {"feature": "Datamancer", "polars": "to_pandas / from_pandas (nearest analogue)", "status": {"0.5": "done"}, "note": "nanuq/datamancer, copying."},
+    {"feature": "Arraymancer", "polars": "to_numpy / from_numpy", "status": {"0.5": "done"}, "note": "Since 0.4, optional module nanuq/arraymancer."},
+    {"feature": "Arrow C Data Interface", "polars": "to_arrow, from_arrow, __arrow_c_stream__", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6: toArrow and fromArrow for Series and frames, zero-copy view(T) of numeric columns."},
+    {"feature": "Row objects", "polars": "to_dicts, iter_rows(named=True)", "status": {"0.5": "done"}, "note": "Since 0.4, Nim objects and named tuples."},
+    {"feature": "Plotting", "polars": "df.plot (Altair), matplotlib and plotly via pandas", "status": {"0.5": "partial"}, "note": "Works through toSeq or toDatamancer with nim-plotly and ggplotnim. A df.plot namespace is planned for 0.7.", "priority": "P1"}
+   ]
+  },
+  {
+   "id": "engine",
+   "title": "Engine, configuration and distribution",
+   "intro": "How queries run, how output looks, how the library ships.",
+   "differences": "",
+   "rows": [
+    {"feature": "Streaming engine", "polars": "collect(engine='streaming')", "status": {"0.5": "missing", "0.6": "done"}, "note": "0.6."},
+    {"feature": "GPU engine", "polars": "collect(engine='gpu')", "status": {"0.5": "no"}, "note": "Python-only (cuDF)."},
+    {"feature": "Config", "polars": "pl.Config: tbl_rows, tbl_cols, fmt_str_lengths, float_precision, ascii tables, set_random_seed", "status": {"0.5": "done"}, "note": "Setters, setConfig and the scoped withConfig; table formatting options in 0.6."},
+    {"feature": "Threading", "polars": "pl.thread_pool_size, POLARS_MAX_THREADS", "status": {"0.5": "partial", "0.6": "done"}, "note": "threadPoolSize in 0.6."},
+    {"feature": "Error types", "polars": "ComputeError, ColumnNotFoundError, SchemaError, ...", "status": {"0.5": "done"}, "note": "PolarsError with Python's subtypes since 0.3."},
+    {"feature": "Polars version", "polars": "py-polars 2.1.0", "status": {"0.5": "partial", "0.6": "done"}, "note": "0.6 builds Polars from the py-2.1.0 git tag, the same commit py-polars 2.1.0 ships, so results match Python."},
+    {"feature": "Library size and distribution", "polars": "(wheels on PyPI)", "status": {"0.5": "partial"}, "note": "A static library of about 286 MB (53 MB download). Shared library and per-area Cargo features are in BACKLOG, planned for 0.7.", "priority": "P2"}
+   ]
+  }
+ ]
+}
