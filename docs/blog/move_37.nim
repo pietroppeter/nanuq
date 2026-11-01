@@ -225,6 +225,12 @@ Games are written down in SGF, a plain-text format where a move is two letters, 
 column and the row, from `a` (left, top) to `s` (right, bottom). `pd` is the fourth
 point from the right and the fourth from the top. Our database packs the moves of each
 game into one **Binary** value, two bytes per move. Binary columns are new in 0.6.
+
+Why bytes and not a string? A move is not text, it is two small numbers. In a Binary
+value move *n* always sits at bytes 2*n* and 2*n*+1, `bin.get` hands back a byte as a
+number we can compute with (`a` is 97, so a column is the byte minus 97), and looking
+for an opening is a prefix match on bytes. The bytes happen to be letters, so they
+stay readable when printed, but Polars never treats them as text.
 """
 
 scene "s01_read":
@@ -812,7 +818,8 @@ scene "s14_db":
     SELECT winner AS player, COUNT(*) AS titles, MIN(year) AS first, MAX(year) AS last
     FROM champions GROUP BY winner ORDER BY titles DESC, first
     """, "sqlite://italian_go.db")
-  echo titles
+  withConfig(tblRows = -1):  # all fourteen
+    echo titles
 
 nbText: """
 Fourteen champions in 45 championships, and the first six hold 34 titles between them.
