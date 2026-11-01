@@ -88,8 +88,12 @@ proc main() =
     total += exs.len
     let src = tmp / ("spec_" & cap.replace('-', '_') & ".nim")
     writeFile(src, program(exs))
+    # One nimcache per spec, removed after the run: every binary links the whole
+    # static Polars library, and 40 of them fill a CI runner's disk.
+    let cache = tmp / ("cache_" & cap.replace('-', '_'))
     let (output, code) = execCmdEx("nim r --hints:off --warnings:off" & flags & " -p:" &
-      quoteShell(root / "src") & " " & quoteShell(src))
+      quoteShell(root / "src") & " --nimcache:" & quoteShell(cache) & " " & quoteShell(src))
+    removeDir(cache)
     if code != 0:
       echo "FAIL ", cap, ": the examples do not compile or run\n", output
       inc failures
