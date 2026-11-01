@@ -2332,9 +2332,8 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
               (dt.kind == DataTypeKind.Datetime or (dt.kind == DataTypeKind.Date and metric == "mean")):
             # as Python, which prints the values with str(datetime): no ".000000"
             let tz = dt.kind == DataTypeKind.Datetime and dt.timeZone.len > 0
-            wrap nq_expr_dt(e.raw, nqdToString, nil,
-                            (if tz: "%Y-%m-%d %H:%M:%S%.f%:z" else: "%Y-%m-%d %H:%M:%S%.f"),
-                            false, nquMicroseconds, 0)
+            let fmt = (if tz: "%Y-%m-%d %H:%M:%S%.f%:z" else: "%Y-%m-%d %H:%M:%S%.f")
+            wrap nq_expr_dt(e.raw, nqdToString, nil, fmt.cstring, false, nquMicroseconds, 0)
           else: e.cast(target)
         exprs.add v.alias(metric & ":" & name)
     let c = col(name)

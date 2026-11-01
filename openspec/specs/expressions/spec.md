@@ -455,3 +455,28 @@ shape: (2, 2)
 #### Scenario: Whole frame
 - **WHEN** `df.select(len())` runs on 4 rows
 - **THEN** the result is one row with `len` = 4
+
+### Requirement: Several window keys and selector concatenation
+`over` SHALL take several column names as separate arguments, and `concatStr` SHALL take selectors, expanding them to their columns.
+
+```nim
+let df = newDataFrame(series("c", @["x", "x", "y"]), series("b", @["p", "p", "q"]))
+echo df.select(concatStr([all()], "-").alias("s"), lit(1).sum.over("c", "b").alias("n"))
+```
+
+```text
+shape: (3, 2)
+┌─────┬─────┐
+│ s   ┆ n   │
+│ --- ┆ --- │
+│ str ┆ i32 │
+╞═════╪═════╡
+│ x-p ┆ 1   │
+│ x-p ┆ 1   │
+│ y-q ┆ 1   │
+└─────┴─────┘
+```
+
+#### Scenario: Two keys
+- **WHEN** `col("v").sum.over("c", "b")` is selected
+- **THEN** each row gets the sum of its (c, b) group

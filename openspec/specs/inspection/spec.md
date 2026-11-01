@@ -169,3 +169,34 @@ shape: (6, 1)
 #### Scenario: Restored after an exception
 - **WHEN** the body of `withConfig(tblRows = 2)` raises
 - **THEN** the exception propagates and the row limit is back to its previous value
+
+### Requirement: Describe prints temporal values as Python
+`describe` SHALL print Datetime statistics and the mean of a Date column as `YYYY-MM-DD HH:MM:SS`, with a fraction only when it is not zero.
+
+```nim
+let df = newDataFrame(series("d", @[date(1986, 9, 1), date(1986, 9, 7)]))
+echo df.describe
+```
+
+```text
+shape: (9, 2)
+┌────────────┬─────────────────────┐
+│ statistic  ┆ d                   │
+│ ---        ┆ ---                 │
+│ str        ┆ str                 │
+╞════════════╪═════════════════════╡
+│ count      ┆ 2                   │
+│ null_count ┆ 0                   │
+│ mean       ┆ 1986-09-04 00:00:00 │
+│ std        ┆ null                │
+│ min        ┆ 1986-09-01          │
+│ 25%        ┆ 1986-09-01          │
+│ 50%        ┆ 1986-09-07          │
+│ 75%        ┆ 1986-09-07          │
+│ max        ┆ 1986-09-07          │
+└────────────┴─────────────────────┘
+```
+
+#### Scenario: Date mean
+- **WHEN** the mean of 1986-09-01 and 1986-09-07 is described
+- **THEN** it reads `1986-09-04 00:00:00`

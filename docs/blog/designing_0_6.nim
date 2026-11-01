@@ -72,7 +72,7 @@ nbCode:
   sightings.lazy.filter(col("kg") > 400).sinkCsv(tmp / "heavy.csv")
   echo readFile(tmp / "heavy.csv")
   sightings.lazy.sinkParquet(PartitionBy(basePath: tmp / "by_region", key: @["region"]))
-  for kind, path in walkDir(tmp / "by_region"): echo path.lastPathComponent
+  for kind, path in walkDir(tmp / "by_region", relative = true): echo path
 
 nbText: """
 ## 3. Saving a query plan
@@ -152,7 +152,7 @@ nbText: """
 `mapElements` uses views when it can. In 0.5 each batch was copied into a Nim `seq`
 and the results copied back; now a numeric column without nulls whose type matches the
 proc's argument is read in place. On the 1,000,000-row benchmark in `benchmarks/`, the
-int → float callback went from 14-18 ms to MAPBENCH, against 2-4 ms for the native
+int → float callback went from 14-18 ms to 5 ms, against 2-4 ms for the native
 expression and 128-187 ms for py-polars' `map_elements`. Strings and structs still
 copy: they need a Nim `string` or object per value.
 
@@ -241,7 +241,7 @@ mirrored (`1 + col("kg")` is named `literal`), which is also what Python does.
 nbCode:
   echo sightings.select((col(float, int) > 2).name.suffix(" > 2")).head(2)
   for key, part in sightings.groupBy("bear"):
-    echo key[0], ": ", part.height, " sightings"
+    echo key[0], ": ", part.height, " rows"
 
 nbText: """
 ## What did not make it

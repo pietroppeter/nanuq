@@ -351,3 +351,148 @@ shape: (2, 2)
 #### Scenario: Order kept
 - **WHEN** keys appear as CH, IT, CH and `maintainOrder = false` is passed
 - **THEN** the groups come out as CH, IT
+
+### Requirement: Frame aggregations
+DataFrames and LazyFrames SHALL provide `sum`, `mean`, `median`, `product`, `min`, `max`,
+`std(ddof = 1)`, `var(ddof = 1)`, `quantile(q, interpolation)`, `nUnique`, `count` and
+`nullCount()`, each giving one row with the aggregation of every column; columns of a
+type the aggregation does not apply to (strings for `sum`) SHALL give null.
+
+```nim
+let df = newDataFrame(series("bear", @["Ada", "Bo", "Cy"]), series("kg", @[410, 380, 455]))
+echo df.sum
+echo df.max
+echo df.nullCount
+```
+
+```text
+shape: (1, 2)
+┌──────┬──────┐
+│ bear ┆ kg   │
+│ ---  ┆ ---  │
+│ str  ┆ i64  │
+╞══════╪══════╡
+│ null ┆ 1245 │
+└──────┴──────┘
+shape: (1, 2)
+┌──────┬─────┐
+│ bear ┆ kg  │
+│ ---  ┆ --- │
+│ str  ┆ i64 │
+╞══════╪═════╡
+│ Cy   ┆ 455 │
+└──────┴─────┘
+shape: (1, 2)
+┌──────┬─────┐
+│ bear ┆ kg  │
+│ ---  ┆ --- │
+│ u32  ┆ u32 │
+╞══════╪═════╡
+│ 0    ┆ 0   │
+└──────┴─────┘
+```
+
+#### Scenario: Lazy
+- **WHEN** `df.lazy.mean.collect` runs
+- **THEN** it equals `df.mean`
+
+### Requirement: Group-by shortcuts
+GroupBy and LazyGroupBy SHALL provide `len(name = "len")`, `count`, `head(n = 5)`,
+`tail(n = 5)`, `first`, `last`, `sum`, `mean`, `median`, `min`, `max`, `nUnique`,
+`quantile(q)` and `all`, each aggregating every non-key column per group, with groups in
+order of appearance.
+
+```nim
+let df = newDataFrame(series("den", @["N", "S", "N"]), series("kg", @[410, 380, 455]))
+echo df.groupBy("den").max
+echo df.groupBy("den").len
+echo df.groupBy("den").head(1)
+```
+
+```text
+shape: (2, 2)
+┌─────┬─────┐
+│ den ┆ kg  │
+│ --- ┆ --- │
+│ str ┆ i64 │
+╞═════╪═════╡
+│ N   ┆ 455 │
+│ S   ┆ 380 │
+└─────┴─────┘
+shape: (2, 2)
+┌─────┬─────┐
+│ den ┆ len │
+│ --- ┆ --- │
+│ str ┆ u32 │
+╞═════╪═════╡
+│ N   ┆ 2   │
+│ S   ┆ 1   │
+└─────┴─────┘
+shape: (2, 2)
+┌─────┬─────┐
+│ den ┆ kg  │
+│ --- ┆ --- │
+│ str ┆ i64 │
+╞═════╪═════╡
+│ N   ┆ 410 │
+│ S   ┆ 380 │
+└─────┴─────┘
+```
+
+#### Scenario: Not a plain group-by
+- **WHEN** `head` is called on a `groupByDynamic`
+- **THEN** `InvalidOperationError` is raised
+
+### Requirement: Iterating over groups
+`for key, part in df.groupBy(columns)` SHALL yield each group's key values (as strings,
+in `by` order) and its rows, groups in order of appearance.
+
+```nim
+let df = newDataFrame(series("den", @["N", "S", "N"]), series("kg", @[410, 380, 455]))
+for key, part in df.groupBy("den"):
+  echo key, " ", part.height
+```
+
+```text
+@["N"] 2
+@["S"] 1
+```
+
+#### Scenario: Several keys
+- **WHEN** a frame is grouped by two columns and iterated
+- **THEN** each key holds two values
+
+### Requirement: Frame fillNan and select without a frame
+`fillNan(value)` on DataFrames and LazyFrames SHALL replace NaN in float columns
+(`nil` for null), and `select(exprs...)` SHALL evaluate expressions without a frame.
+
+```nim
+echo newDataFrame(series("x", @[1.0, NaN])).fillNan(0.0)
+echo select(lit(1).alias("one"), intRange(0, 3).alias("i"))
+```
+
+```text
+shape: (2, 1)
+┌─────┐
+│ x   │
+│ --- │
+│ f64 │
+╞═════╡
+│ 1.0 │
+│ 0.0 │
+└─────┘
+shape: (3, 2)
+┌─────┬─────┐
+│ one ┆ i   │
+│ --- ┆ --- │
+│ i32 ┆ i64 │
+╞═════╪═════╡
+│ 1   ┆ 0   │
+│ 1   ┆ 1   │
+│ 1   ┆ 2   │
+└─────┴─────┘
+```
+
+#### Scenario: Other columns
+- **WHEN** a frame with an integer and a float column gets `fillNan(0.0)`
+- **THEN** the integer column is unchanged

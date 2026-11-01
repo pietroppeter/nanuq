@@ -26,8 +26,8 @@ It is the ninth change of the 0.6 release.
 
 ## Capabilities
 
-### New Capabilities
-- `frame-utilities-0-6`: the functions above.
+### Modified Capabilities
+- `frame-utilities`: the functions above.
 
 ## Differences from Polars
 

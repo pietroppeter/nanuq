@@ -33,8 +33,11 @@ It is the tenth change of the 0.6 release.
 
 ## Capabilities
 
-### New Capabilities
-- `book-port-needs-0-6`: the functions above.
+### Modified Capabilities
+- `frame-verbs`: frame aggregations, group-by shortcuts, group iteration, frame `fillNan`, `select` without a frame.
+- `column-selectors`: operators on selectors, mirrored comparisons.
+- `expressions`: `over` with several names, `concatStr` with selectors.
+- `inspection`: `describe` prints temporal values as Python.
 
 ## Differences from Polars
 
