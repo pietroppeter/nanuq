@@ -536,6 +536,7 @@ proc nq_expr_to_string*(e: ptr NqExpr): cstring
 proc nq_lf_free*(lf: ptr NqLazyFrame)
 proc nq_df_lazy*(df: ptr NqDataFrame): ptr NqLazyFrame
 proc nq_lf_collect*(lf: ptr NqLazyFrame): ptr NqDataFrame
+proc nq_lf_collect_eager*(lf: ptr NqLazyFrame): ptr NqDataFrame
 proc nq_lf_select*(lf: ptr NqLazyFrame, e: ptr ptr NqExpr, n: csize_t): ptr NqLazyFrame
 proc nq_lf_with_columns*(lf: ptr NqLazyFrame, e: ptr ptr NqExpr, n: csize_t): ptr NqLazyFrame
 proc nq_lf_filter*(lf: ptr NqLazyFrame, predicate: ptr NqExpr): ptr NqLazyFrame
@@ -567,7 +568,7 @@ proc nq_lf_with_row_index*(lf: ptr NqLazyFrame, name: cstring, offset: uint32): 
 proc nq_lf_unique*(lf: ptr NqLazyFrame, subset: ptr cstring, n: csize_t,
                    keep: NqUniqueKeepStrategy, maintainOrder: bool): ptr NqLazyFrame
 proc nq_df_sample*(df: ptr NqDataFrame, n: csize_t, fraction: float64, byFraction: bool,
-                   withReplacement, shuffle, hasSeed: bool, seed: uint64): ptr NqDataFrame
+                   withReplacement: bool, shuffle: int32, hasSeed: bool, seed: uint64): ptr NqDataFrame
 proc nq_set_random_seed*(seed: uint64)
 
 # more expressions

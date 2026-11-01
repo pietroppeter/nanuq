@@ -1733,6 +1733,9 @@ proc prefix*(n: ExprName, s: string): Expr =
 proc lazy*(df: DataFrame): LazyFrame = wrap nq_df_lazy(df.raw)
 
 proc collect*(lf: LazyFrame): DataFrame = wrap nq_lf_collect(lf.raw)
+proc collectEager(lf: LazyFrame): DataFrame = wrap nq_lf_collect_eager(lf.raw)
+  ## Collects the way eager DataFrame methods do in Python Polars: no plan
+  ## optimizations, so errors and row order are the eager ones.
 proc collect*(df: DataFrame): DataFrame {.error: "this is already a DataFrame " &
     "(eager groupBy(...).agg(...) returns one since 0.4): drop the .collect".} =
   ## Catches a leftover `.collect` on a DataFrame at compile time, instead of
@@ -1815,9 +1818,9 @@ proc `cast`*(lf: LazyFrame, dtypes: openArray[(string, DataType)], strict = true
   ## Casts the named columns: `lf.cast({"a": Int32, "b": Float32})`.
   var names = newSeq[cstring](dtypes.len)
   var ts = newSeq[DataType](dtypes.len)
-  for i, (name, t) in dtypes:
-    names[i] = name.cstring
-    ts[i] = t
+  for i in 0 ..< dtypes.len:
+    names[i] = dtypes[i][0].cstring  # not a loop copy, which dies each round
+    ts[i] = dtypes[i][1]
   let sp = toSpecs(ts)
   wrap nq_lf_cast(lf.raw, names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t, strict)
 
@@ -1930,9 +1933,9 @@ proc rename*(lf: LazyFrame, mapping: openArray[(string, string)], strict = true)
   ## Renames columns: `rename({"old": "new"})`. With `strict`, a missing column
   ## raises `PolarsError`.
   var olds, news: seq[cstring]
-  for (o, n) in mapping:
-    olds.add o.cstring
-    news.add n.cstring
+  for i in 0 ..< mapping.len:
+    olds.add mapping[i][0].cstring  # not a loop copy, which dies each round
+    news.add mapping[i][1].cstring
   wrap nq_lf_rename(lf.raw, olds.firstOrNil, news.firstOrNil, olds.len.csize_t, strict)
 
 proc slice*(lf: LazyFrame, offset: int, length: int): LazyFrame =
@@ -2045,13 +2048,32 @@ proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: boo
                  ignoreErrors, decimalComma, tryParseDates: bool,
                  quoteChar: Option[char], encoding: CsvEncoding,
                  newColumns: openArray[string], commentPrefix = "",
-                 storageOptions: StorageOptions = []): LazyFrame =
+                 storageOptions: StorageOptions = [], fileNames = false): LazyFrame =
+  if newColumns.len > 0 and schemaOverrides.len > 0 and not fileNames:
+    # schemaOverrides use the new names, as in Polars: map them back to the
+    # names in the file first
+    let plain = scanCsvImpl(path, data, separator, hasHeader, nullValues, [], skipRows,
+                            nRows, [], inferSchemaLength, ignoreErrors, decimalComma,
+                            tryParseDates, quoteChar, encoding, [], commentPrefix,
+                            storageOptions)
+    var old: seq[string]
+    for name, _ in plain.collectSchema: old.add name
+    var renamed: seq[(string, DataType)]
+
+    for (n, t) in schemaOverrides:
+      let i = newColumns.find(n)
+      renamed.add (if i >= 0 and i < old.len: (old[i], t) else: (n, t))
+    return scanCsvImpl(path, data, separator, hasHeader, nullValues, renamed, skipRows,
+                       nRows, columns, inferSchemaLength, ignoreErrors, decimalComma,
+                       tryParseDates, quoteChar, encoding, newColumns, commentPrefix,
+                       storageOptions, fileNames = true)
   let nulls = cstrings(nullValues)
   var names = newSeq[cstring](schemaOverrides.len)
   var ts = newSeq[DataType](schemaOverrides.len)
-  for i, (n, t) in schemaOverrides:
-    names[i] = n.cstring
-    ts[i] = t
+  for i in 0 ..< schemaOverrides.len:
+    # index, not a loop copy: the cstring must point at a string that lives on
+    names[i] = schemaOverrides[i][0].cstring
+    ts[i] = schemaOverrides[i][1]
   let sp = toSpecs(ts)
   let (dp, dl) = dataArg(data)
   withCloud(path, storageOptions, c):
@@ -2284,39 +2306,39 @@ proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompr
     raiseLast()
 
 # Eager shortcuts: run a single lazy step and collect.
-proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collect
+proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collectEager
 proc select*(df: DataFrame, columns: varargs[string]): DataFrame =
   ## Columns by name: `df.select("a", "b")`.
-  df.lazy.select(columns).collect
-proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collect
-proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collect
+  df.lazy.select(columns).collectEager
+proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collectEager
+proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collectEager
 proc sort*(df: DataFrame, by: string, descending = false, nullsLast = false,
            maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc sort*(df: DataFrame, by: openArray[string], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc sort*(df: DataFrame, by: openArray[Expr], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc groupBy*(df: DataFrame, by: varargs[Expr]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
   ## Group rows; `agg` then returns a DataFrame, as in Python.
 proc groupBy*(df: DataFrame, by: varargs[string]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
-proc agg*(g: GroupBy, aggs: varargs[Expr]): DataFrame = g.lazy.agg(aggs).collect
-proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect
+proc agg*(g: GroupBy, aggs: varargs[Expr]): DataFrame = g.lazy.agg(aggs).collectEager
+proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collectEager
 proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
-proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collect
-proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
+proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collectEager
+proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collectEager
 
 proc join*(df, other: DataFrame, on: openArray[string], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collectEager
 proc join*(df, other: DataFrame, on: openArray[Expr], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collectEager
 proc join*(df, other: DataFrame, leftOn, rightOn: openArray[string], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
@@ -2329,36 +2351,37 @@ proc join*(df, other: DataFrame, leftOn, rightOn: openArray[Expr], how = JoinTyp
                maintainOrder).collect
 proc join*(df, other: DataFrame, how: JoinType, suffix = "_right",
            maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, how, suffix, maintainOrder).collect
+  df.lazy.join(other.lazy, how, suffix, maintainOrder).collectEager
 proc concat*(frames: openArray[DataFrame], how = ConcatMethod.Vertical): DataFrame =
   var lfs: seq[LazyFrame]
   for f in frames: lfs.add f.lazy
   concat(lfs, how).collect
 
 proc drop*(df: DataFrame, columns: openArray[string], strict = true): DataFrame =
-  df.lazy.drop(columns, strict).collect
+  df.lazy.drop(columns, strict).collectEager
 proc drop*(df: DataFrame, column: string, strict = true): DataFrame =
-  df.lazy.drop(column, strict).collect
+  df.lazy.drop(column, strict).collectEager
 proc rename*(df: DataFrame, mapping: openArray[(string, string)], strict = true): DataFrame =
-  df.lazy.rename(mapping, strict).collect
-proc slice*(df: DataFrame, offset: int, length: int): DataFrame = df.lazy.slice(offset, length).collect
-proc slice*(df: DataFrame, offset: int): DataFrame = df.lazy.slice(offset).collect
-proc tail*(df: DataFrame, n = 5): DataFrame = df.lazy.tail(n).collect
-proc reverse*(df: DataFrame): DataFrame = df.lazy.reverse.collect
+  df.lazy.rename(mapping, strict).collectEager
+proc slice*(df: DataFrame, offset: int, length: int): DataFrame = df.lazy.slice(offset, length).collectEager
+proc slice*(df: DataFrame, offset: int): DataFrame = df.lazy.slice(offset).collectEager
+proc tail*(df: DataFrame, n = 5): DataFrame = df.lazy.tail(n).collectEager
+proc reverse*(df: DataFrame): DataFrame = df.lazy.reverse.collectEager
 proc withRowIndex*(df: DataFrame, name = "index", offset = 0): DataFrame =
-  df.lazy.withRowIndex(name, offset).collect
+  df.lazy.withRowIndex(name, offset).collectEager
 proc unique*(df: DataFrame, subset: openArray[string] = [], keep = UniqueKeepStrategy.Any,
              maintainOrder = false): DataFrame =
-  df.lazy.unique(subset, keep, maintainOrder).collect
+  df.lazy.unique(subset, keep, maintainOrder).collectEager
 proc unique*(df: DataFrame, subset: string, keep = UniqueKeepStrategy.Any,
              maintainOrder = false): DataFrame =
-  df.lazy.unique(subset, keep, maintainOrder).collect
+  df.lazy.unique(subset, keep, maintainOrder).collectEager
 
-proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacement,
-                shuffle: bool, seed: Option[int]): DataFrame =
+proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacement: bool,
+                shuffle: Option[bool], seed: Option[int]): DataFrame =
   if seed.isSome and seed.get < 0:
     raise newException(ValueError, "sample seed must not be negative")
-  wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, shuffle,
+  let sh = (if shuffle.isNone: -1'i32 else: shuffle.get.int32)
+  wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, sh,
                     seed.isSome, seed.get(0).uint64)
 
 proc setRandomSeed*(seed: int) =
@@ -2367,23 +2390,24 @@ proc setRandomSeed*(seed: int) =
   if seed < 0: raise newException(ValueError, "random seed must not be negative")
   nq_set_random_seed(seed.uint64)
 
-proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed = none(int)): DataFrame =
-  ## `n` random rows. Random unless `seed` is given (or `setRandomSeed` was called).
+  ## `n` random rows. `shuffle`: `true` shuffles them, `false` keeps their
+  ## order, `none` (the default) guarantees no order, as in Polars. Random unless `seed` is given (or `setRandomSeed` was called).
   if n < 0: raise newException(ValueError, "sample size must not be negative")
-  sampleImpl(df, n, 0.0, false, withReplacement, shuffle, seed)
+  sampleImpl(df, n, 0.0, false, withReplacement, toOptB(shuffle), seed)
 
-proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed: int): DataFrame =
   ## `n` random rows; the same `seed` gives the same rows: `df.sample(3, seed = 42)`.
   df.sample(n, withReplacement, shuffle, some(seed))
 
-proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed = none(int)): DataFrame =
   ## A random `fraction` of the rows: `df.sample(fraction = 0.1)`.
-  sampleImpl(df, 0, fraction, true, withReplacement, shuffle, seed)
+  sampleImpl(df, 0, fraction, true, withReplacement, toOptB(shuffle), seed)
 
-proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed: int): DataFrame =
   df.sample(fraction, withReplacement, shuffle, some(seed))
 
@@ -3389,7 +3413,7 @@ proc valueCounts*(lf: LazyFrame, column: string | Expr, sort = false, normalize 
 proc valueCounts*(df: DataFrame, column: string | Expr, sort = false, normalize = false,
                   name = ""): DataFrame =
   ## How often each value of `column` occurs (see the LazyFrame version).
-  df.lazy.valueCounts(column, sort, normalize, name).collect
+  df.lazy.valueCounts(column, sort, normalize, name).collectEager
 
 # ---------------------------------------------------------------------------
 # Horizontal functions, ranges, correlation (0.4)
@@ -3588,7 +3612,7 @@ proc unpivot*(df: DataFrame, on: ColumnNames = ColumnNames(),
               index: ColumnNames = ColumnNames(), variableName = "variable",
               valueName = "value"): DataFrame =
   ## Wide to long (see the LazyFrame version).
-  df.lazy.unpivot(on, index, variableName, valueName).collect
+  df.lazy.unpivot(on, index, variableName, valueName).collectEager
 
 proc transpose*(df: DataFrame, includeHeader = false, headerName = "column",
                 columnNames: openArray[string] = []): DataFrame =
@@ -3745,7 +3769,7 @@ proc gatherEvery*(lf: LazyFrame, n: int, offset = 0): LazyFrame =
   ## Every `n`-th row, starting at row `offset` (Python's `gather_every`).
   lf.select(all().gatherEvery(n, offset))
 proc gatherEvery*(df: DataFrame, n: int, offset = 0): DataFrame =
-  df.lazy.gatherEvery(n, offset).collect
+  df.lazy.gatherEvery(n, offset).collectEager
 
 proc topKImpl(lf: LazyFrame, k: int, by: openArray[Expr], reverse, bottom: bool): LazyFrame =
   if k < 0: raise newException(ValueError, "k must not be negative")
@@ -3770,17 +3794,17 @@ proc bottomK*(lf: LazyFrame, k: int, by: ColumnNames, reverse = false): LazyFram
   topKImpl(lf, k, by.names.mapIt(col(it)), reverse, true)
 
 proc topK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc topK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc topK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 
 # ---------------------------------------------------------------------------
 # Series (0.4)
@@ -4198,7 +4222,7 @@ proc explode*(lf: LazyFrame, columns: ColumnNames, emptyAsNull = true, keepNulls
   let ns = cstrings(columns.names)
   wrap nq_lf_explode(lf.raw, ns.firstOrNil, ns.len.csize_t, emptyAsNull, keepNulls)
 proc explode*(df: DataFrame, columns: ColumnNames, emptyAsNull = true, keepNulls = true): DataFrame =
-  df.lazy.explode(columns, emptyAsNull, keepNulls).collect
+  df.lazy.explode(columns, emptyAsNull, keepNulls).collectEager
 
 # ---------------------------------------------------------------------------
 # String functions that give lists and structs (0.5)
@@ -4344,9 +4368,9 @@ proc unnest*(lf: LazyFrame, columns: ColumnNames, separator = none(string)): Laz
 proc unnest*(lf: LazyFrame, columns: ColumnNames, separator: string): LazyFrame =
   lf.unnest(columns, some(separator))
 proc unnest*(df: DataFrame, columns: ColumnNames, separator = none(string)): DataFrame =
-  df.lazy.unnest(columns, separator).collect
+  df.lazy.unnest(columns, separator).collectEager
 proc unnest*(df: DataFrame, columns: ColumnNames, separator: string): DataFrame =
-  df.lazy.unnest(columns, some(separator)).collect
+  df.lazy.unnest(columns, some(separator)).collectEager
 
 proc arrOp(a: ArrayNameSpace, op: NqArrOp, x: Expr = nil, y: Expr = nil, f1 = false,
            f2 = false, n = 0): Expr =
@@ -4405,9 +4429,11 @@ proc schemaArgs(schema, overrides: SchemaArg): (seq[cstring], DtypeSpecs, bool) 
   let full = schema.len > 0
   var names: seq[cstring]
   var ts: seq[DataType]
-  for (n, t) in (if full: schema else: overrides):
-    names.add n.cstring
-    ts.add t
+  template take(src) =
+    for i in 0 ..< src.len:
+      names.add src[i][0].cstring  # not a loop copy, which dies each round
+      ts.add src[i][1]
+  if full: take(schema) else: take(overrides)
   (names, toSpecs(ts), full)
 
 proc readJsonImpl(path: string, data: ptr string, lines: bool, schema, overrides: SchemaArg,
@@ -4550,7 +4576,7 @@ proc sql*(lf: LazyFrame, query: string, tableName = "self"): LazyFrame =
   newSQLContext({tableName: lf}).execute(query)
 proc sql*(df: DataFrame, query: string, tableName = "self"): DataFrame =
   ## Runs a SQL query on `df` now (see the LazyFrame version).
-  df.lazy.sql(query, tableName).collect
+  df.lazy.sql(query, tableName).collectEager
 proc sql*(query: string, frames: openArray[(string, LazyFrame)]): LazyFrame =
   ## Runs a SQL query on `frames` (Python's `pl.sql` with named frames).
   newSQLContext(frames).execute(query)
@@ -4963,7 +4989,8 @@ proc update*(df, other: DataFrame, on: ColumnNames = ColumnNames(), how = JoinTy
   for c in r.columns:
     if c in cols0: rcols.add c
   r = r.select(rcols)
-  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true))
+  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true),
+                maintainOrder = (if how == JoinType.Full: MaintainOrderJoin.LeftRight else: MaintainOrderJoin.Left))
   var sel: seq[Expr]
   for c in cols0:
     if c notin keys and c in rcols:
@@ -5077,7 +5104,7 @@ proc interpolate*(lf: LazyFrame, how = InterpolationMethod.Linear): LazyFrame =
   ## `DataFrame.interpolate`); see `Expr.interpolate`.
   lf.select(all().toExpr.interpolate(how))
 proc interpolate*(df: DataFrame, how = InterpolationMethod.Linear): DataFrame =
-  df.lazy.interpolate(how).collect
+  df.lazy.interpolate(how).collectEager
 
 proc `cast`*(lf: LazyFrame, dtypes: openArray[(DataType, DataType)], strict = true): LazyFrame =
   ## Casts the columns of each key type to its value type:
@@ -5091,9 +5118,9 @@ proc `cast`*(lf: LazyFrame, dtypes: openArray[(Selector, DataType)], strict = tr
   for (sel, dst) in dtypes: es.add sel.toExpr.cast(dst, strict)
   lf.withColumns(es)
 proc `cast`*(df: DataFrame, dtypes: openArray[(DataType, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
 proc `cast`*(df: DataFrame, dtypes: openArray[(Selector, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
 
 proc explode*(lf: LazyFrame, a, b: string, more: varargs[string]): LazyFrame =
   ## Explodes several columns given by name: `lf.explode("a", "b")`.
@@ -5111,12 +5138,12 @@ proc fillNull*[T: SomeNumber | string | bool](lf: LazyFrame, value: T): LazyFram
   elif T is string: lf.withColumns(col(string).toExpr.fillNull(value))
   else: lf.withColumns(col(bool).toExpr.fillNull(value))
 proc fillNull*[T: SomeNumber | string | bool](df: DataFrame, value: T): DataFrame =
-  df.lazy.fillNull(value).collect
+  df.lazy.fillNull(value).collectEager
 proc fillNull*(lf: LazyFrame, strategy: FillNullStrategy, limit = none(int)): LazyFrame =
   ## Fills the nulls of every column with a strategy: `fillNull(Forward)`.
   lf.withColumns(all().toExpr.fillNull(strategy, limit))
 proc fillNull*(df: DataFrame, strategy: FillNullStrategy, limit = none(int)): DataFrame =
-  df.lazy.fillNull(strategy, limit).collect
+  df.lazy.fillNull(strategy, limit).collectEager
 
 proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
   ## Rows where every predicate holds: `filter(col.m > 4000, col.country == "CH")`
@@ -5125,7 +5152,7 @@ proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
   for m in more: p = p and m
   lf.filter(p)
 proc filter*(df: DataFrame, a, b: Expr, more: varargs[Expr]): DataFrame =
-  df.lazy.filter(a, b, more).collect
+  df.lazy.filter(a, b, more).collectEager
 
 proc groupBy*(df: DataFrame, by: varargs[string], maintainOrder: bool): GroupBy =
   ## `groupBy("a", maintainOrder = true)`, for Python parity: Nanuq always keeps
@@ -5594,7 +5621,7 @@ proc joinWhere*(lf, other: LazyFrame, predicates: varargs[Expr], suffix = "_righ
   let ps = raws(predicates)
   wrap nq_lf_join_where(lf.raw, other.raw, ps.firstOrNil, ps.len.csize_t, suffix.cstring)
 proc joinWhere*(df, other: DataFrame, predicates: varargs[Expr], suffix = "_right"): DataFrame =
-  df.lazy.joinWhere(other.lazy, predicates, suffix).collect
+  df.lazy.joinWhere(other.lazy, predicates, suffix).collectEager
 
 proc explainAll*(lfs: openArray[LazyFrame]): string =
   ## The combined optimized plan of several queries (what `collectAll` runs).
@@ -5617,7 +5644,7 @@ proc remove*(lf: LazyFrame, predicate: Expr): LazyFrame =
   ## The rows where `predicate` is not true (rows where it is null stay): the
   ## opposite of `filter`.
   lf.filter((not predicate).fillNull(true))
-proc remove*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.remove(predicate).collect
+proc remove*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.remove(predicate).collectEager
 
 proc isSorted*(s: Series, descending = false, nullsLast = false): bool =
   ## Whether the values are sorted (nulls first, unless `nullsLast`).
@@ -5757,7 +5784,7 @@ template defFrameAgg(name: untyped, numericOnly, temporalToo: bool, body: untype
     lf.select(frameAgg(lf.collectSchema, numericOnly, temporalToo, proc (it {.inject.}: Expr): Expr = body))
   proc name*(df: DataFrame): DataFrame =
     ## One row with the aggregation of each column, as Python's `DataFrame.<name>()`.
-    df.lazy.name.collect
+    df.lazy.name.collectEager
 
 defFrameAgg(sum, true, false, it.sum)
 defFrameAgg(mean, true, true, it.mean)
@@ -5770,21 +5797,21 @@ defFrameAgg(count, false, false, it.count)
 
 proc std*(lf: LazyFrame, ddof = 1): LazyFrame =
   lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.std(ddof)))
-proc std*(df: DataFrame, ddof = 1): DataFrame = df.lazy.std(ddof).collect
+proc std*(df: DataFrame, ddof = 1): DataFrame = df.lazy.std(ddof).collectEager
 proc `var`*(lf: LazyFrame, ddof = 1): LazyFrame =
   lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.`var`(ddof)))
-proc `var`*(df: DataFrame, ddof = 1): DataFrame = df.lazy.`var`(ddof).collect
+proc `var`*(df: DataFrame, ddof = 1): DataFrame = df.lazy.`var`(ddof).collectEager
 proc quantile*(lf: LazyFrame, quantile: float,
                interpolation = QuantileMethod.Nearest): LazyFrame =
   lf.select(frameAgg(lf.collectSchema, true, true,
                      proc (it: Expr): Expr = it.quantile(quantile, interpolation)))
 proc quantile*(df: DataFrame, quantile: float,
                interpolation = QuantileMethod.Nearest): DataFrame =
-  df.lazy.quantile(quantile, interpolation).collect
+  df.lazy.quantile(quantile, interpolation).collectEager
 proc nullCount*(lf: LazyFrame): LazyFrame =
   ## One row with the number of nulls in each column (Python's `null_count()`).
   lf.select(frameAgg(lf.collectSchema, false, false, proc (it: Expr): Expr = it.nullCount))
-proc nullCount*(df: DataFrame): DataFrame = df.lazy.nullCount.collect
+proc nullCount*(df: DataFrame): DataFrame = df.lazy.nullCount.collectEager
 
 proc fillNan*(lf: LazyFrame, value: float | Expr | typeof(nil)): LazyFrame =
   ## NaN in float columns replaced with `value` (`nil` for null).
@@ -5793,7 +5820,7 @@ proc fillNan*(lf: LazyFrame, value: float | Expr | typeof(nil)): LazyFrame =
     if t.isFloat: es.add col(name).fillNan(value)
   if es.len == 0: lf else: lf.withColumns(es)
 proc fillNan*(df: DataFrame, value: float | Expr | typeof(nil)): DataFrame =
-  df.lazy.fillNan(value).collect
+  df.lazy.fillNan(value).collectEager
 
 proc select*(exprs: varargs[Expr]): DataFrame =
   ## Expressions evaluated without a frame (Python's `pl.select`):
@@ -5812,7 +5839,7 @@ template defGroupAgg(name: untyped, body: untyped) =
     ## Each group's `name` of every other column (Python's `GroupBy.<name>()`).
     let it {.inject.} = col("*")
     g.agg(body)
-  proc name*(g: GroupBy): DataFrame = g.lazy.name.collect
+  proc name*(g: GroupBy): DataFrame = g.lazy.name.collectEager
 
 defGroupAgg(sum, it.sum)
 defGroupAgg(mean, it.mean)
@@ -5827,34 +5854,34 @@ defGroupAgg(all, it)
 proc quantile*(g: LazyGroupBy, quantile: float, interpolation = QuantileMethod.Nearest): LazyFrame =
   g.agg(col("*").quantile(quantile, interpolation))
 proc quantile*(g: GroupBy, quantile: float, interpolation = QuantileMethod.Nearest): DataFrame =
-  g.lazy.quantile(quantile, interpolation).collect
+  g.lazy.quantile(quantile, interpolation).collectEager
 proc len*(g: LazyGroupBy, name = "len"): LazyFrame =
   ## The number of rows of each group, in column `name`.
   g.agg(len().alias(name))
-proc len*(g: GroupBy, name = "len"): DataFrame = g.lazy.len(name).collect
+proc len*(g: GroupBy, name = "len"): DataFrame = g.lazy.len(name).collectEager
 proc count*(g: LazyGroupBy): LazyFrame = g.len("count")
   ## The number of rows of each group, in column `count`.
-proc count*(g: GroupBy): DataFrame = g.lazy.count.collect
+proc count*(g: GroupBy): DataFrame = g.lazy.count.collectEager
 
 proc head*(g: LazyGroupBy, n = 5): LazyFrame =
   ## The first `n` rows of each group, groups in order of appearance.
   plainGroups(g, "head")
   let rs = raws(g.by)
   wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, false)
-proc head*(g: GroupBy, n = 5): DataFrame = g.lazy.head(n).collect
+proc head*(g: GroupBy, n = 5): DataFrame = g.lazy.head(n).collectEager
 proc tail*(g: LazyGroupBy, n = 5): LazyFrame =
   ## The last `n` rows of each group.
   plainGroups(g, "tail")
   let rs = raws(g.by)
   wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, true)
-proc tail*(g: GroupBy, n = 5): DataFrame = g.lazy.tail(n).collect
+proc tail*(g: GroupBy, n = 5): DataFrame = g.lazy.tail(n).collectEager
 
 iterator pairs*(g: GroupBy): tuple[key: seq[string], frame: DataFrame] =
   ## The groups, in order of appearance: `for key, part in df.groupBy("species")`.
   ## `key` holds the key values as strings, in `by` order (Python yields a tuple).
   plainGroups(g.lazy, "iterating")
   let names = keyNames(g.lazy)
-  let df = g.lazy.lf.collect
+  let df = g.lazy.lf.collectEager
   for k, part in df.partitionBy(names, maintainOrder = true, asDict = true):
     yield (k, part)
 
@@ -5923,10 +5950,10 @@ proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](lf: LazyFrame,
     fillValue: T): LazyFrame =
   ## Like `shift`, filling with `fillValue`.
   lf.select(all().toExpr.shift(n, fillValue))
-proc shift*(df: DataFrame, n = 1): DataFrame = df.lazy.shift(n).collect
+proc shift*(df: DataFrame, n = 1): DataFrame = df.lazy.shift(n).collectEager
   ## Shifts every column down by `n` rows (up when negative), filling with nulls.
 proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](df: DataFrame, n = 1,
-    fillValue: T): DataFrame = df.lazy.shift(n, fillValue).collect
+    fillValue: T): DataFrame = df.lazy.shift(n, fillValue).collectEager
 
 proc first*(lf: LazyFrame): LazyFrame = lf.slice(0, 1)
   ## The first row.
@@ -5938,7 +5965,7 @@ proc dropNans*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
   let names = cstrings(subset)
   wrap nq_lf_drop_nans(lf.raw, names.firstOrNil, names.len.csize_t)
 proc dropNans*(df: DataFrame, subset: varargs[string]): DataFrame =
-  df.lazy.dropNans(subset).collect
+  df.lazy.dropNans(subset).collectEager
 
 proc epoch*(d: DtNameSpace, timeUnit = EpochUnit.Microseconds): Expr =
   ## Time since 1970-01-01 in `timeUnit`: `Seconds` and `Days` are whole numbers.
@@ -6103,7 +6130,7 @@ proc mergeSorted*(lf, other: LazyFrame, key: string): LazyFrame =
   ## Merges two frames sorted by `key` into one sorted frame (same columns).
   wrap nq_lf_merge_sorted(lf.raw, other.raw, key.cstring)
 proc mergeSorted*(df, other: DataFrame, key: string): DataFrame =
-  df.lazy.mergeSorted(other.lazy, key).collect
+  df.lazy.mergeSorted(other.lazy, key).collectEager
 
 type
   MissingColumns* {.pure.} = enum

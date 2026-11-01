@@ -93,9 +93,22 @@ than SQLite.
   that tag's toolchain, `nightly-2026-09-01`. This ends the drift the 0.5 book ports
   found (SQL table functions with named options, `hash`, `sample`, Decimal `mod`).
   Behavior now follows Polars 2: CSV columns read without a header are `column_0`,
-  `column_1`, ...; `topK`/`bottomK` values come out in no particular order; a join
-  without `maintainOrder` does not keep the left order; `unpivot` emits rows in
+  `column_1`, ...; `topK`/`bottomK` values come out in no particular order; a lazy
+  query runs on the streaming engine by default, so a lazy join without
+  `maintainOrder` does not keep the left order and a lazy `unpivot` emits rows in
   row-major order. (pin-polars-to-py-release, #59)
+- DataFrame methods (`select`, `withColumns`, `join`, `unpivot`, `groupBy(...).agg`,
+  ...) now run like Python's eager methods: the in-memory engine without plan
+  optimizations, so row order and error messages match py-polars. `update` keeps the
+  rows of `df` in order. `DataFrame.sample` takes `shuffle: bool | Option[bool]`,
+  `none` by default as in Polars (no order guarantee); `false` keeps the order. (#59)
+
+### Fixed
+- `cast`, `rename`, CSV `schemaOverrides` and JSON `schema` passed column names to
+  Polars through pointers to loop copies, which could be freed before Polars read
+  them, so a cast could hit the wrong column or give unstable Categorical codes. (#59)
+- `scanCsv`/`readCsv` with `newColumns` take `schemaOverrides` by the new names, as
+  in Polars. (#59)
 
 ### Removed
 - `profile` and `cat.getCategories`, as in Polars 2.0. Both are compile-time errors

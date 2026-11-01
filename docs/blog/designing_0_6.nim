@@ -9,9 +9,9 @@ nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-designing-0-6.html"
 nb.useNanuqTheme(
   titleHtml = "Designing Nanuq <em>0.6</em>",
   eyebrow = "Nanuq dev log · 1 November 2026",
-  epigraph = "The streaming engine, saved query plans, bytes and decimals, Arrow memory shared with Nim, Excel and SQLite: the API choices 0.6 had to make, and what we picked.",
+  epigraph = "The streaming engine, saved query plans, bytes and decimals, Arrow memory shared with Nim, Excel, SQLite and cloud storage, on the same Polars as py-polars 2.1: the API choices 0.6 had to make, and what we picked.",
   meta = "API design · runs on Nanuq 0.6 · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.6: streaming and sinks, plan serialization, Binary and Decimal, the Arrow C Data Interface, Excel, SQLite, testing helpers, and what the book still asked for.",
+  summary = "The API decisions behind Nanuq 0.6: streaming and sinks, plan serialization, Binary and Decimal, the Arrow C Data Interface, Excel, SQLite, testing helpers, the py-polars 2.1 pin, cloud storage, thirty functions from the coverage map, and what the book still asked for.",
 )
 
 nbText: """
@@ -270,6 +270,15 @@ track. In exchange, Nanuq follows Polars 2: `profile` and `cat.getCategories` ar
 CSV columns read without a header are `column_0`, `column_1`, ..., and `topK` and joins
 without `maintainOrder` no longer promise an order. The spec examples caught each of
 these.
+
+The pin also showed something the old crate had hidden. Nanuq's DataFrame methods were
+always `df.lazy.<verb>.collect`, and in Polars 2 a plain `collect` picks the streaming
+engine. Python's DataFrame methods don't: they collect with the in-memory engine and
+no plan optimizations, the "eager" flags. The two engines differ in small, visible
+ways: the row order of a cross join or an `unpivot`, the count in a failed date parse
+("1 out of 1 values" instead of "1 out of 3"). So DataFrame methods now collect the
+way Python's do, and `LazyFrame.collect` keeps Python's default. The explainers and
+the book, which print Nim and Python side by side, are what found it.
 
 ## 11. Cloud storage
 

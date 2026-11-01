@@ -179,8 +179,10 @@ shape: (4, 2)
 - **THEN** `PolarsError` is raised
 
 ### Requirement: Sampling rows
-DataFrame SHALL support `sample(n, withReplacement = false, shuffle = false, seed =
-none(int))` and `sample(fraction, ...)` with the same options. Asking for more rows than
+DataFrame SHALL support `sample(n, withReplacement = false, shuffle = none(bool), seed =
+none(int))` and `sample(fraction, ...)` with the same options. `shuffle` SHALL also accept
+a plain `bool`: `true` shuffles the rows, `false` keeps their order and `none` gives no
+order guarantee, as in Polars. Asking for more rows than
 there are without replacement SHALL raise `PolarsError`. The same seed SHALL give the same
 rows. `seed` SHALL also accept a plain `int` (`seed = 42`), and `setRandomSeed(seed)` SHALL
 seed Polars' global generator, used when no seed is passed.

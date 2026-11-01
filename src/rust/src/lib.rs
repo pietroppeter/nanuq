@@ -1494,6 +1494,17 @@ pub unsafe extern "C" fn nq_lf_collect(lf_: *const LazyFrame) -> *mut DataFrame 
     boxed(guard(|| lf(lf_)?.collect().map_err(pe)))
 }
 
+/// Collects like Python Polars' eager DataFrame methods (`QueryOptFlags._eager()`):
+/// no plan optimizations, only type coercion, type checks and expression
+/// simplification, so errors and row order match the eager API.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_collect_eager(lf_: *const LazyFrame) -> *mut DataFrame {
+    boxed(guard(|| {
+        let flags = OptFlags::TYPE_COERCION | OptFlags::TYPE_CHECK | OptFlags::SIMPLIFY_EXPR | OptFlags::EAGER;
+        lf(lf_)?.with_optimizations(flags).collect().map_err(pe)
+    }))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nq_lf_select(
     lf_: *const LazyFrame,
@@ -1875,18 +1886,20 @@ pub unsafe extern "C" fn nq_df_sample(
     fraction: f64,
     by_fraction: bool,
     with_replacement: bool,
-    shuffle: bool,
+    shuffle: i32,
     has_seed: bool,
     seed: u64,
 ) -> *mut DataFrame {
     boxed(guard(|| {
         let df = borrow(df, "DataFrame")?;
         let seed = has_seed.then_some(seed);
+        // -1: no order guarantee (Polars' default), 0: keep the order, 1: shuffle
+        let shuffle = (shuffle >= 0).then_some(shuffle == 1);
         if by_fraction {
             let frac = Series::new("frac".into(), [fraction]);
-            df.sample_frac(&frac, with_replacement, Some(shuffle), seed).map_err(pe)
+            df.sample_frac(&frac, with_replacement, shuffle, seed).map_err(pe)
         } else {
-            df.sample_n_literal(n, with_replacement, Some(shuffle), seed).map_err(pe)
+            df.sample_n_literal(n, with_replacement, shuffle, seed).map_err(pe)
         }
     }))
 }
