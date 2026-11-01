@@ -120,3 +120,9 @@ suite "csv nulls":
     let df = readCsv(dataDir / "with_na.csv")
     check df.dtype("mass") == String
     check df.toList("mass", string)[1] == "NA"
+
+suite "null literal":
+  test "lit(nil) and fillNan(nil)":
+    let df = newDataFrame(series("x", [1.0, NaN, 3.0]))
+    check df.select(col.x.fillNan(nil)).toList("x", Option[float]) == @[some(1.0), none(float), some(3.0)]
+    check df.select(col.x, lit(nil).alias("n")).nullCount("n") == 3

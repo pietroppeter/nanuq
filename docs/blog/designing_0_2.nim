@@ -109,7 +109,7 @@ duplicate names. So `name.suffix` and `name.prefix` joined the change:
 nbCode:
   nbShow df.groupBy(col("species"))
     .agg(col(SomeFloat).mean.name.suffix("_mean"), col(SomeFloat).max.name.suffix("_max"))
-    .sort("species").collect
+    .sort("species")
 
 nbText: """
 ## CSV options

@@ -180,8 +180,8 @@ the `nightly` feature).
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
   `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
   column), `describe` (summary statistics)
-- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`),
-  `setConfig(tblRows = 20, tblCols = 10)`, `resetConfig()`, and for one block
+- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`,
+  `setFloatPrecision`), `setConfig(tblRows = 20, floatPrecision = 2)`, `resetConfig()`, and for one block
   `withConfig(tblRows = 40): echo df`
 - Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
   `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
@@ -204,7 +204,7 @@ the `nightly` feature).
   std/times' `DateTime` and `Duration` as column values and literals; `cast(Date)`,
   `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`; parsing with
   `str.toDate("%d %B %Y")`, `str.toDatetime`, `str.strptime(T, fmt)` and
-  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `datetimeRange`,
+  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `date(col.year, col.month, 15)`, `datetimeRange`,
   `duration(hours = col.h)`; the `dt` namespace (`dt.year`, `dt.weekday`, `dt.date`,
   `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
   `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
@@ -220,6 +220,7 @@ the `nightly` feature).
 - Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
   and `over("group")` for per-group values on every row
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
+  (on a DataFrame, `df.groupBy("species").agg(...)` returns a DataFrame directly)
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)
 - Frame verbs (lazy and eager): `drop("a")` or `drop(["a", "b"])`, `rename({"old": "new"})`,
   `head`, `tail`, `slice(offset, length)`, `reverse`, `withRowIndex`,
@@ -232,6 +233,32 @@ the `nightly` feature).
   pass `maintainOrder`
 - Concatenation: `concat([a, b])`, with `how = VerticalRelaxed`, `Horizontal`, `Diagonal`
   or `DiagonalRelaxed`
+- Math: `sqrt`, `exp`, `log(2.0)`, `log10`, `sign`, `floor`, `ceil`,
+  `clip(-1.0, 1.0)` (or `clip(lowerBound = 0)`), trigonometry, `dot`, and NaN
+  (`isNan`, `fillNan`, `dropNans`), which stays distinct from null
+- Rows before and after: `shift(1, fillValue = 0)`, `diff`, `pctChange`, `cumSum`,
+  `cumMax`, `rleId` (runs of equal values), `peakMax`; rolling windows over rows
+  (`rollingMean(3, center = true)`) or time (`rollingSumBy("day", 7.days)`),
+  `ewmMean(span = 12)`, `interpolate`
+- Values of a column: `sort`, `sortBy`, `topK`, `topKBy("score", k = 3)`, `gather`,
+  `unique`, `isDuplicated`, `replace({"N": "north"})`, `replaceStrict(..., default = ...)`,
+  `cut([-0.5, 0.5], labels = [...])`, `qcut(4)`, `df.valueCounts("col", sort = true)`, and
+  whole rows with `df.topK(5, by = "peak")` / `bottomK`
+- Across a row: `sumHorizontal(col(float))`, `maxHorizontal("a", "b")`,
+  `anyHorizontal`, `coalesce`; generated columns `intRange`, `linearSpace`, `repeat`;
+  `corr("a", "b", Spearman)`, `cov`
+- Reshaping: `pivot("season", index = "year", values = "oni")` (with `PivotAgg.Sum` or an
+  expression on `element()`), `unpivot(index = "year")`, `transpose`, `partitionBy`,
+  `toDummies`
+- Time windows: `groupByDynamic("day", every = 1.months).agg(...)`, the rolling group-by
+  `rolling("day", period = 7.days)`, and `joinAsof(other, leftOn = "t", rightOn = "day",
+  by = "site", tolerance = 1.days)`
+- Series: `df["oni"]`, `s.max.item(float)`, `s * 2`, `s.filter(s > 0)`,
+  `s.rollingMean(3)` (every expression method works on a Series), `df.withColumns(s)`
+- Rows as objects: `df.rows(Reading)`, `for r in df.iterRows(tuple[a: int, b: string])`,
+  `seqOfObjects.toDataFrame`
+- Arraymancer (optional, `import nanuq/arraymancer`): `df.toTensor(float)`,
+  `tensor.toDataFrame(["a", "b"])`
 
 ## Conventions
 
@@ -241,6 +268,10 @@ the `nightly` feature).
   (where Rust has no enum, the name follows Python's strings). There are no string options.
 - Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
   Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
+- Python's `method` parameter (a Nim keyword) is `how`: `rank(how = Dense)`, `corr(a, b, how = Spearman)`.
+- A parameter that takes several types uses a small converter type (`ColumnNames`,
+  `OptInterval`, `JoinKey`, `AsofTolerance`), so `pivot("m", index = "year")` and
+  `index = ["year", "month"]` both work.
 - Operators keep Polars' meaning, not Nim's: `mod` and `div` round towards negative
   infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit. `/` is true
   division (`7 / 2 == 3.5`), as in Python Polars and in Nim.

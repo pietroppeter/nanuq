@@ -1264,6 +1264,55 @@ pub enum NqUnary {
     Len,
     Neg,
     NullCount,
+    // 0.4: elementwise math (add-expr-math)
+    Sqrt,
+    Cbrt,
+    Exp,
+    Log10,
+    Log1p,
+    Sign,
+    Floor,
+    Ceil,
+    Sin,
+    Cos,
+    Tan,
+    Cot,
+    ArcSin,
+    ArcCos,
+    ArcTan,
+    Sinh,
+    Cosh,
+    Tanh,
+    ArcSinh,
+    ArcCosh,
+    ArcTanh,
+    Degrees,
+    Radians,
+    IsNan,
+    IsNotNan,
+    IsFinite,
+    IsInfinite,
+    DropNans,
+    DropNulls,
+    // 0.4: add-cumulative-and-shift
+    Product,
+    Mode,
+    ArgMin,
+    ArgMax,
+    RleId,
+    PeakMax,
+    PeakMin,
+    // 0.4: add-value-functions
+    Unique,
+    UniqueStable,
+    ArgUnique,
+    IsUnique,
+    IsDuplicated,
+    IsFirstDistinct,
+    IsLastDistinct,
+    UniqueCounts,
+    ApproxNUnique,
+    Reverse,
 }
 
 #[no_mangle]
@@ -1288,6 +1337,52 @@ pub unsafe extern "C" fn nq_expr_unary(e: *const Expr, op: NqUnary) -> *mut Expr
             NqUnary::Len => e.len(),
             NqUnary::Neg => -e,
             NqUnary::NullCount => e.null_count(),
+            NqUnary::Sqrt => e.sqrt(),
+            NqUnary::Cbrt => e.cbrt(),
+            NqUnary::Exp => e.exp(),
+            NqUnary::Log10 => e.log(lit(10.0)),
+            NqUnary::Log1p => e.log1p(),
+            NqUnary::Sign => e.sign(),
+            NqUnary::Floor => e.floor(),
+            NqUnary::Ceil => e.ceil(),
+            NqUnary::Sin => e.sin(),
+            NqUnary::Cos => e.cos(),
+            NqUnary::Tan => e.tan(),
+            NqUnary::Cot => e.cot(),
+            NqUnary::ArcSin => e.arcsin(),
+            NqUnary::ArcCos => e.arccos(),
+            NqUnary::ArcTan => e.arctan(),
+            NqUnary::Sinh => e.sinh(),
+            NqUnary::Cosh => e.cosh(),
+            NqUnary::Tanh => e.tanh(),
+            NqUnary::ArcSinh => e.arcsinh(),
+            NqUnary::ArcCosh => e.arccosh(),
+            NqUnary::ArcTanh => e.arctanh(),
+            NqUnary::Degrees => e.degrees(),
+            NqUnary::Radians => e.radians(),
+            NqUnary::IsNan => e.is_nan(),
+            NqUnary::IsNotNan => e.is_not_nan(),
+            NqUnary::IsFinite => e.is_finite(),
+            NqUnary::IsInfinite => e.is_infinite(),
+            NqUnary::DropNans => e.drop_nans(),
+            NqUnary::DropNulls => e.drop_nulls(),
+            NqUnary::Product => e.product(),
+            NqUnary::Mode => e.mode(true),
+            NqUnary::ArgMin => e.arg_min(),
+            NqUnary::ArgMax => e.arg_max(),
+            NqUnary::RleId => e.rle_id(),
+            NqUnary::PeakMax => e.peak_max(),
+            NqUnary::PeakMin => e.peak_min(),
+            NqUnary::Unique => e.unique(),
+            NqUnary::UniqueStable => e.unique_stable(),
+            NqUnary::ArgUnique => e.arg_unique(),
+            NqUnary::IsUnique => e.is_unique(),
+            NqUnary::IsDuplicated => e.is_duplicated(),
+            NqUnary::IsFirstDistinct => e.is_first_distinct(),
+            NqUnary::IsLastDistinct => e.is_last_distinct(),
+            NqUnary::UniqueCounts => e.unique_counts(),
+            NqUnary::ApproxNUnique => e.approx_n_unique(),
+            NqUnary::Reverse => e.reverse(),
         })
     }))
 }
@@ -2406,6 +2501,24 @@ pub unsafe extern "C" fn nq_expr_duration(parts: *const *const Expr, tu: NqTimeU
     }))
 }
 
+/// A Date from year, month and day expressions (Polars' `date`): a Datetime
+/// built from the parts, cast to Date.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_date(
+    year: *const Expr,
+    month: *const Expr,
+    day: *const Expr,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let args = DatetimeArgs::new(
+            borrow(year, "year")?.clone(),
+            borrow(month, "month")?.clone(),
+            borrow(day, "day")?.clone(),
+        );
+        Ok(polars::lazy::dsl::datetime(args).cast(DataType::Date))
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Parsing strings into temporal values, and the dt namespace
 // ---------------------------------------------------------------------------
@@ -2550,4 +2663,954 @@ fn time_zone_req(s: &str) -> Result<TimeZone, String> {
     TimeZone::opt_try_new(Some(s))
         .map_err(pe)?
         .ok_or_else(|| "a time zone is required".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: math functions (add-expr-math)
+// ---------------------------------------------------------------------------
+
+/// Expression functions of two expressions. Keep in sync with `NqBinaryFn` in
+/// nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqBinaryFn {
+    Log = 0,
+    Arctan2,
+    Dot,
+    FillNan,
+    InterpolateBy,
+    Gather,
+    TopK,
+    BottomK,
+    IndexOf,
+    SearchSortedAny,
+    SearchSortedLeft,
+    SearchSortedRight,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_binary_fn(a: *const Expr, b: *const Expr, op: NqBinaryFn) -> *mut Expr {
+    boxed(guard(|| {
+        let a = borrow(a, "expression")?.clone();
+        let b = borrow(b, "expression")?.clone();
+        Ok(match op {
+            NqBinaryFn::Log => a.log(b),
+            NqBinaryFn::Arctan2 => a.arctan2(b),
+            NqBinaryFn::Dot => a.dot(b),
+            NqBinaryFn::FillNan => a.fill_nan(b),
+            NqBinaryFn::InterpolateBy => a.interpolate_by(b),
+            NqBinaryFn::Gather => a.gather(b, false),
+            NqBinaryFn::TopK => a.top_k(b),
+            NqBinaryFn::BottomK => a.bottom_k(b),
+            NqBinaryFn::IndexOf => a.index_of(b),
+            NqBinaryFn::SearchSortedAny => a.search_sorted(b, SearchSortedSide::Any, false),
+            NqBinaryFn::SearchSortedLeft => a.search_sorted(b, SearchSortedSide::Left, false),
+            NqBinaryFn::SearchSortedRight => a.search_sorted(b, SearchSortedSide::Right, false),
+        })
+    }))
+}
+
+/// `clip` with either bound optional (null pointer = no bound).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_clip(e: *const Expr, lo: *const Expr, hi: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let lo = if lo.is_null() { None } else { Some(borrow(lo, "expression")?.clone()) };
+        let hi = if hi.is_null() { None } else { Some(borrow(hi, "expression")?.clone()) };
+        Ok(match (lo, hi) {
+            (Some(l), Some(h)) => e.clip(l, h),
+            (Some(l), None) => e.clip_min(l),
+            (None, Some(h)) => e.clip_max(h),
+            (None, None) => e,
+        })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: shift, diff, cumulative functions (add-cumulative-and-shift)
+// ---------------------------------------------------------------------------
+
+/// `fill` may be null: then the empty rows are null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_shift(e: *const Expr, n: i64, fill: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if fill.is_null() {
+            e.shift(lit(n))
+        } else {
+            e.shift_and_fill(lit(n), borrow(fill, "expression")?.clone())
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_diff(e: *const Expr, n: i64, drop: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let nb = if drop { polars_core::series::ops::NullBehavior::Drop } else { polars_core::series::ops::NullBehavior::Ignore };
+        Ok(borrow(e, "expression")?.clone().diff(lit(n), nb))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_pct_change(e: *const Expr, n: i64) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().pct_change(lit(n)))))
+}
+
+/// Keep in sync with `NqCum` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqCum {
+    Sum = 0,
+    Prod,
+    Min,
+    Max,
+    Count,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cum(e: *const Expr, op: NqCum, reverse: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(match op {
+            NqCum::Sum => e.cum_sum(reverse),
+            NqCum::Prod => e.cum_prod(reverse),
+            NqCum::Min => e.cum_min(reverse),
+            NqCum::Max => e.cum_max(reverse),
+            NqCum::Count => e.cum_count(reverse),
+        })
+    }))
+}
+
+/// Skewness (`kurtosis = false`) or kurtosis.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_moment(e: *const Expr, kurtosis: bool, fisher: bool, bias: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if kurtosis { e.kurtosis(fisher, bias) } else { e.skew(bias) })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: rolling windows, ewm, interpolate (add-rolling-and-ewm)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqRolling` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum NqRolling {
+    Sum = 0,
+    Mean,
+    Min,
+    Max,
+    Std,
+    Var,
+    Median,
+    Quantile,
+}
+
+fn quantile_method(m: NqQuantileMethod) -> QuantileMethod {
+    match m {
+        NqQuantileMethod::Nearest => QuantileMethod::Nearest,
+        NqQuantileMethod::Lower => QuantileMethod::Lower,
+        NqQuantileMethod::Higher => QuantileMethod::Higher,
+        NqQuantileMethod::Midpoint => QuantileMethod::Midpoint,
+        NqQuantileMethod::Linear => QuantileMethod::Linear,
+        NqQuantileMethod::Equiprobable => QuantileMethod::Equiprobable,
+    }
+}
+
+fn var_params(op: NqRolling, ddof: u8) -> Option<polars::prelude::RollingFnParams> {
+    match op {
+        NqRolling::Std | NqRolling::Var => Some(polars::prelude::RollingFnParams::Var(
+            polars::prelude::RollingVarParams { ddof },
+        )),
+        _ => None,
+    }
+}
+
+/// Fixed-size rolling window (`window` rows). `weights` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_rolling(
+    e: *const Expr,
+    op: NqRolling,
+    window: usize,
+    min_samples: usize,
+    center: bool,
+    weights: *const f64,
+    n_weights: usize,
+    quantile: f64,
+    method: NqQuantileMethod,
+    ddof: u8,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let weights = if weights.is_null() || n_weights == 0 {
+            None
+        } else {
+            Some(std::slice::from_raw_parts(weights, n_weights).to_vec())
+        };
+        let opts = RollingOptionsFixedWindow {
+            window_size: window,
+            min_periods: min_samples,
+            weights,
+            center,
+            fn_params: var_params(op, ddof),
+        };
+        Ok(match op {
+            NqRolling::Sum => e.rolling_sum(opts),
+            NqRolling::Mean => e.rolling_mean(opts),
+            NqRolling::Min => e.rolling_min(opts),
+            NqRolling::Max => e.rolling_max(opts),
+            NqRolling::Std => e.rolling_std(opts),
+            NqRolling::Var => e.rolling_var(opts),
+            NqRolling::Median => e.rolling_median(opts),
+            NqRolling::Quantile => e.rolling_quantile(quantile_method(method), quantile, opts),
+        })
+    }))
+}
+
+/// Rolling window over a temporal or integer column `by`, `window` a duration string.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_rolling_by(
+    e: *const Expr,
+    by: *const Expr,
+    op: NqRolling,
+    window: *const c_char,
+    min_samples: usize,
+    closed: NqClosedWindow,
+    quantile: f64,
+    method: NqQuantileMethod,
+    ddof: u8,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let by = borrow(by, "expression")?.clone();
+        let opts = RollingOptionsDynamicWindow {
+            window_size: polars::prelude::Duration::try_parse(cstr(window)?).map_err(pe)?,
+            min_periods: min_samples,
+            closed_window: closed_window(closed),
+            fn_params: var_params(op, ddof),
+        };
+        Ok(match op {
+            NqRolling::Sum => e.rolling_sum_by(by, opts),
+            NqRolling::Mean => e.rolling_mean_by(by, opts),
+            NqRolling::Min => e.rolling_min_by(by, opts),
+            NqRolling::Max => e.rolling_max_by(by, opts),
+            NqRolling::Std => e.rolling_std_by(by, opts),
+            NqRolling::Var => e.rolling_var_by(by, opts),
+            NqRolling::Median => e.rolling_median_by(by, opts),
+            NqRolling::Quantile => e.rolling_quantile_by(by, quantile_method(method), quantile, opts),
+        })
+    }))
+}
+
+/// Exponentially weighted mean (0), std (1) or var (2).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_ewm(
+    e: *const Expr,
+    op: u8,
+    alpha: f64,
+    adjust: bool,
+    bias: bool,
+    min_samples: usize,
+    ignore_nulls: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let opts = EWMOptions { alpha, adjust, bias, min_periods: min_samples, ignore_nulls };
+        Ok(match op {
+            0 => e.ewm_mean(opts),
+            1 => e.ewm_std(opts),
+            _ => e.ewm_var(opts),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_interpolate(e: *const Expr, nearest: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let m = if nearest { InterpolationMethod::Nearest } else { InterpolationMethod::Linear };
+        Ok(borrow(e, "expression")?.clone().interpolate(m))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: sorting, selecting and counting values (add-value-functions)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_sort(e: *const Expr, descending: bool, nulls_last: bool, arg: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if arg {
+            e.arg_sort(descending, nulls_last)
+        } else {
+            e.sort(SortOptions::default().with_order_descending(descending).with_nulls_last(nulls_last))
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_sort_by(
+    e: *const Expr,
+    by: *const *const Expr,
+    n: usize,
+    descending: *const bool,
+    n_desc: usize,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let by = exprs(by, n)?;
+        let mut desc = slice(descending, n_desc)?.to_vec();
+        if desc.is_empty() {
+            desc = vec![false; by.len()];
+        } else if desc.len() == 1 {
+            desc = vec![desc[0]; by.len()];
+        } else if desc.len() != by.len() {
+            return Err(format!("sortBy got {} values for descending but {} keys", desc.len(), by.len()));
+        }
+        let opts = SortMultipleOptions::default().with_order_descending_multi(desc);
+        Ok(borrow(e, "expression")?.clone().sort_by(by, opts))
+    }))
+}
+
+/// `top_k_by` (`bottom = false`) or `bottom_k_by` with one `reverse` flag per key.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_top_k_by(
+    e: *const Expr,
+    k: usize,
+    by: *const *const Expr,
+    n: usize,
+    reverse: *const bool,
+    n_rev: usize,
+    bottom: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let by = exprs(by, n)?;
+        let mut rev = slice(reverse, n_rev)?.to_vec();
+        if rev.is_empty() {
+            rev = vec![false; by.len()];
+        } else if rev.len() == 1 {
+            rev = vec![rev[0]; by.len()];
+        }
+        let e = borrow(e, "expression")?.clone();
+        Ok(if bottom { e.bottom_k_by(lit(k as u64), by, rev) } else { e.top_k_by(lit(k as u64), by, rev) })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_slice(e: *const Expr, offset: i64, len: i64) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if len < 0 { e.slice(lit(offset), lit(u32::MAX as u64)) } else { e.slice(lit(offset), lit(len as u64)) })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_gather_every(e: *const Expr, n: usize, offset: usize) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().gather_every(n, offset))))
+}
+
+/// `replace` or `replace_strict` (`default` may be null).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_replace(
+    e: *const Expr,
+    old: *const Expr,
+    new: *const Expr,
+    strict: bool,
+    default: *const Expr,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let old = borrow(old, "expression")?.clone();
+        let new = borrow(new, "expression")?.clone();
+        Ok(if strict {
+            let d = if default.is_null() { None } else { Some(borrow(default, "expression")?.clone()) };
+            e.replace_strict(old, new, d, None::<DataTypeExpr>)
+        } else {
+            e.replace(old, new)
+        })
+    }))
+}
+
+/// `cut` at `breaks` (`quantile = false`) or `qcut` at quantiles `breaks`.
+/// `labels` may be empty (Polars' interval labels).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cut(
+    e: *const Expr,
+    breaks: *const f64,
+    n: usize,
+    labels: *const *const c_char,
+    n_labels: usize,
+    left_closed: bool,
+    quantile: bool,
+    allow_duplicates: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let breaks = slice(breaks, n)?.to_vec();
+        let labels: Option<Vec<PlSmallStr>> = if n_labels == 0 {
+            None
+        } else {
+            Some(names(labels, n_labels)?.into_iter().map(PlSmallStr::from_str).collect())
+        };
+        Ok(if quantile {
+            e.qcut(breaks, labels, left_closed, allow_duplicates, false)
+        } else {
+            e.cut(breaks, labels, left_closed, false)
+        })
+    }))
+}
+
+/// Counts of each distinct value of `e`, as columns (value, `name`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_value_counts(
+    lf_: *const LazyFrame,
+    e: *const Expr,
+    sort: bool,
+    normalize: bool,
+    name: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let name = cstr(name)?;
+        let vc = e.value_counts(sort, false, name, normalize).alias("__nq_vc");
+        Ok(lf(lf_)?.select([vc]).unnest(cols(["__nq_vc"]), None))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: horizontal functions, ranges, correlation (add-horizontal-and-ranges)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqHorizontal` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqHorizontal {
+    Sum = 0,
+    Mean,
+    Min,
+    Max,
+    All,
+    Any,
+    Coalesce,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_horizontal(
+    es: *const *const Expr,
+    n: usize,
+    op: NqHorizontal,
+    ignore_nulls: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let es = exprs(es, n)?;
+        if es.is_empty() {
+            return Err("horizontal functions need at least one expression".into());
+        }
+        match op {
+            NqHorizontal::Sum => polars::lazy::dsl::sum_horizontal(es, ignore_nulls).map_err(pe),
+            NqHorizontal::Mean => polars::lazy::dsl::mean_horizontal(es, ignore_nulls).map_err(pe),
+            NqHorizontal::Min => polars::lazy::dsl::min_horizontal(es).map_err(pe),
+            NqHorizontal::Max => polars::lazy::dsl::max_horizontal(es).map_err(pe),
+            NqHorizontal::All => all_horizontal(es).map_err(pe),
+            NqHorizontal::Any => any_horizontal(es).map_err(pe),
+            NqHorizontal::Coalesce => Ok(coalesce(&es)),
+        }
+    }))
+}
+
+/// `int_range(start, end, step)` of type `spec`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_int_range(
+    start: *const Expr,
+    end: *const Expr,
+    step: i64,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let dt = dtype_from_spec(borrow(spec, "dtype")?)?;
+        Ok(int_range(start, end, step, dt))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_linear_space(
+    start: *const Expr,
+    end: *const Expr,
+    num: *const Expr,
+    closed: NqClosedInterval,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let num = borrow(num, "expression")?.clone();
+        Ok(linear_space(start, end, num, closed_interval(closed)))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_repeat(value: *const Expr, n: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let value = borrow(value, "expression")?.clone();
+        let n = borrow(n, "expression")?.clone();
+        Ok(repeat(value, n))
+    }))
+}
+
+/// Pearson (0), Spearman (1) correlation, or covariance (2) with `ddof`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_corr(a: *const Expr, b: *const Expr, method: u8, ddof: u8, propagate_nans: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let a = borrow(a, "expression")?.clone();
+        let b = borrow(b, "expression")?.clone();
+        Ok(match method {
+            0 => pearson_corr(a, b),
+            1 => spearman_rank_corr(a, b, propagate_nans),
+            _ => cov(a, b, ddof),
+        })
+    }))
+}
+
+fn closed_interval(c: NqClosedInterval) -> ClosedInterval {
+    match c {
+        NqClosedInterval::Both => ClosedInterval::Both,
+        NqClosedInterval::Left => ClosedInterval::Left,
+        NqClosedInterval::Right => ClosedInterval::Right,
+        NqClosedInterval::None => ClosedInterval::None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: reshaping (add-reshaping)
+// ---------------------------------------------------------------------------
+
+unsafe fn name_selector(p: *const *const c_char, n: usize) -> Result<Selector, String> {
+    Ok(by_name(names(p, n)?.into_iter().map(PlSmallStr::from_str).collect::<Vec<_>>(), true, false))
+}
+
+/// Lazy pivot: `on_columns` holds the values of the `on` columns that become
+/// columns. `agg` is an expression over `element()`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_pivot(
+    lf_: *const LazyFrame,
+    on: *const *const c_char,
+    n_on: usize,
+    on_columns: *const DataFrame,
+    index: *const *const c_char,
+    n_index: usize,
+    values: *const *const c_char,
+    n_values: usize,
+    agg: *const Expr,
+    maintain_order: bool,
+    separator: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let on_cols = Arc::new(borrow(on_columns, "DataFrame")?.clone());
+        Ok(lf(lf_)?.pivot(
+            name_selector(on, n_on)?,
+            on_cols,
+            name_selector(index, n_index)?,
+            name_selector(values, n_values)?,
+            borrow(agg, "expression")?.clone(),
+            maintain_order,
+            PlSmallStr::from_str(cstr(separator)?),
+            polars_core::frame::PivotColumnNaming::Auto,
+        ))
+    }))
+}
+
+/// `on` empty means every column not in `index`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_unpivot(
+    lf_: *const LazyFrame,
+    on: *const *const c_char,
+    n_on: usize,
+    index: *const *const c_char,
+    n_index: usize,
+    variable_name: *const c_char,
+    value_name: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let args = UnpivotArgsDSL {
+            on: if n_on == 0 { None } else { Some(name_selector(on, n_on)?) },
+            index: name_selector(index, n_index)?,
+            variable_name: Some(PlSmallStr::from_str(cstr(variable_name)?)),
+            value_name: Some(PlSmallStr::from_str(cstr(value_name)?)),
+        };
+        Ok(lf(lf_)?.unpivot(args))
+    }))
+}
+
+/// `keep_names_as` may be null; `new_names` may be empty (column_0, ...).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_transpose(
+    df: *const DataFrame,
+    keep_names_as: *const c_char,
+    new_names: *const *const c_char,
+    n_names: usize,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let keep = if keep_names_as.is_null() { None } else { Some(cstr(keep_names_as)?) };
+        let names: Vec<String> = names(new_names, n_names)?.into_iter().map(String::from).collect();
+        let new = if names.is_empty() { None } else { Some(either::Either::Right(names)) };
+        df.transpose(keep, new).map_err(pe)
+    }))
+}
+
+/// Splits `df` by the `by` columns. Returns an array of `*out_len` frames, to
+/// be released with `nq_df_array_free` after taking ownership of each frame.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_partition_by(
+    df: *const DataFrame,
+    by: *const *const c_char,
+    n: usize,
+    maintain_order: bool,
+    include_key: bool,
+    out_len: *mut usize,
+) -> *mut *mut DataFrame {
+    let parts = guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let by: Vec<PlSmallStr> = names(by, n)?.into_iter().map(PlSmallStr::from_str).collect();
+        if by.is_empty() {
+            return Err("partitionBy needs at least one column".into());
+        }
+        if maintain_order {
+            df.partition_by_stable(by, include_key).map_err(pe)
+        } else {
+            df.partition_by(by, include_key).map_err(pe)
+        }
+    });
+    match parts {
+        None => ptr::null_mut(),
+        Some(parts) => {
+            let ptrs: Vec<*mut DataFrame> = parts.into_iter().map(|d| Box::into_raw(Box::new(d))).collect();
+            *out_len = ptrs.len();
+            Box::into_raw(ptrs.into_boxed_slice()) as *mut *mut DataFrame
+        }
+    }
+}
+
+/// Frees the array returned by `nq_df_partition_by` (not the frames in it).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_array_free(p: *mut *mut DataFrame, len: usize) {
+    if !p.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)));
+    }
+}
+
+/// One-hot encoding of the `n` named columns (all when `n == 0`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_to_dummies(
+    df: *const DataFrame,
+    columns: *const *const c_char,
+    n: usize,
+    separator: *const c_char,
+    drop_first: bool,
+    drop_nulls: bool,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let cols = names(columns, n)?;
+        let sep = cstr(separator)?;
+        if cols.is_empty() {
+            df.to_dummies(Some(sep), drop_first, drop_nulls).map_err(pe)
+        } else {
+            df.columns_to_dummies(cols, Some(sep), drop_first, drop_nulls).map_err(pe)
+        }
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_element() -> *mut Expr {
+    boxed(guard(|| Ok(element())))
+}
+
+/// `item(allow_empty)`: the single value of a group (errors on more than one).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_item(e: *const Expr, allow_empty: bool) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().item(allow_empty))))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: time-based grouping and as-of joins (add-dynamic-group-by)
+// ---------------------------------------------------------------------------
+
+unsafe fn duration_arg(s: *const c_char) -> Result<polars::prelude::Duration, String> {
+    polars::prelude::Duration::try_parse(cstr(s)?).map_err(pe)
+}
+
+/// Keep in sync with `NqLabel` and `NqStartBy` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqLabel {
+    Left = 0,
+    Right,
+    DataPoint,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqStartBy {
+    WindowBound = 0,
+    DataPoint,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_group_by_dynamic_agg(
+    lf_: *const LazyFrame,
+    index: *const Expr,
+    by: *const *const Expr,
+    nby: usize,
+    every: *const c_char,
+    period: *const c_char,
+    offset: *const c_char,
+    label: NqLabel,
+    include_boundaries: bool,
+    closed: NqClosedWindow,
+    start_by: NqStartBy,
+    aggs: *const *const Expr,
+    naggs: usize,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let opts = DynamicGroupOptions {
+            index_column: "".into(),
+            every: duration_arg(every)?,
+            period: duration_arg(period)?,
+            offset: duration_arg(offset)?,
+            label: match label {
+                NqLabel::Left => Label::Left,
+                NqLabel::Right => Label::Right,
+                NqLabel::DataPoint => Label::DataPoint,
+            },
+            include_boundaries,
+            closed_window: closed_window(closed),
+            start_by: match start_by {
+                NqStartBy::WindowBound => StartBy::WindowBound,
+                NqStartBy::DataPoint => StartBy::DataPoint,
+                NqStartBy::Monday => StartBy::Monday,
+                NqStartBy::Tuesday => StartBy::Tuesday,
+                NqStartBy::Wednesday => StartBy::Wednesday,
+                NqStartBy::Thursday => StartBy::Thursday,
+                NqStartBy::Friday => StartBy::Friday,
+                NqStartBy::Saturday => StartBy::Saturday,
+                NqStartBy::Sunday => StartBy::Sunday,
+            },
+        };
+        let index = borrow(index, "expression")?.clone();
+        Ok(lf(lf_)?
+            .group_by_dynamic(index, exprs(by, nby)?, opts)
+            .agg(exprs(aggs, naggs)?))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_rolling_agg(
+    lf_: *const LazyFrame,
+    index: *const Expr,
+    by: *const *const Expr,
+    nby: usize,
+    period: *const c_char,
+    offset: *const c_char,
+    closed: NqClosedWindow,
+    aggs: *const *const Expr,
+    naggs: usize,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let opts = RollingGroupOptions {
+            index_column: "".into(),
+            period: duration_arg(period)?,
+            offset: duration_arg(offset)?,
+            closed_window: closed_window(closed),
+        };
+        let index = borrow(index, "expression")?.clone();
+        Ok(lf(lf_)?.rolling(index, exprs(by, nby)?, opts).agg(exprs(aggs, naggs)?))
+    }))
+}
+
+/// As-of join. `tolerance_kind`: 0 none, 1 duration string `tol_str`, 2 integer
+/// `tol_int`, 3 float `tol_float`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_join_asof(
+    left_: *const LazyFrame,
+    right_: *const LazyFrame,
+    left_on: *const Expr,
+    right_on: *const Expr,
+    by_left: *const *const c_char,
+    n_by_left: usize,
+    by_right: *const *const c_char,
+    n_by_right: usize,
+    strategy: u8,
+    suffix: *const c_char,
+    tolerance_kind: u8,
+    tol_str: *const c_char,
+    tol_int: i64,
+    tol_float: f64,
+    allow_exact_matches: bool,
+    check_sortedness: bool,
+    coalesce: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let to_names = |v: Vec<&str>| -> Option<Vec<PlSmallStr>> {
+            (!v.is_empty()).then(|| v.into_iter().map(PlSmallStr::from_str).collect())
+        };
+        let left_by = to_names(names(by_left, n_by_left)?);
+        let right_by = to_names(names(by_right, n_by_right)?);
+        if left_by.as_ref().map(|v| v.len()) != right_by.as_ref().map(|v| v.len()) {
+            return Err("joinAsof needs as many `by` columns on both sides".into());
+        }
+        let opts = AsOfOptions {
+            strategy: match strategy {
+                0 => AsofStrategy::Backward,
+                1 => AsofStrategy::Forward,
+                _ => AsofStrategy::Nearest,
+            },
+            tolerance: match tolerance_kind {
+                2 => Some(Scalar::from(tol_int)),
+                3 => Some(Scalar::from(tol_float)),
+                _ => None,
+            },
+            tolerance_str: if tolerance_kind == 1 { Some(PlSmallStr::from_str(cstr(tol_str)?)) } else { None },
+            left_by,
+            right_by,
+            allow_eq: allow_exact_matches,
+            check_sortedness,
+        };
+        let mut args = JoinArgs::new(JoinType::AsOf(Box::new(opts)));
+        args.suffix = Some(cstr(suffix)?.into());
+        args.coalesce = if coalesce { JoinCoalesce::CoalesceColumns } else { JoinCoalesce::KeepColumns };
+        let l = borrow(left_on, "expression")?.clone();
+        let r = borrow(right_on, "expression")?.clone();
+        Ok(lf(left_)?.join(lf(right_)?, [l], [r], args))
+    }))
+}
+
+/// A Series as a column literal (not imploded into one list value, unlike
+/// `nq_expr_lit_series`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_lit_values(s: *const Series) -> *mut Expr {
+    boxed(guard(|| Ok(lit(borrow(s, "Series")?.clone()))))
+}
+
+// ---------------------------------------------------------------------------
+// 0.4: Series (add-series-api)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_get_column(df: *const DataFrame, name: *const c_char) -> *mut Series {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        Ok(df.column(cstr(name)?).map_err(pe)?.as_materialized_series().clone())
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_to_series(df: *const DataFrame, idx: usize) -> *mut Series {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let c = df
+            .columns()
+            .get(idx)
+            .ok_or_else(|| format!("column index {idx} out of bounds"))?;
+        Ok(c.as_materialized_series().clone())
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_to_frame(s: *const Series) -> *mut DataFrame {
+    boxed(guard(|| Ok(borrow(s, "Series")?.clone().into_frame())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_name(s: *const Series) -> *mut c_char {
+    guard(|| Ok(to_c_string(borrow(s, "Series")?.name().to_string()))).unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_len(s: *const Series) -> usize {
+    guard(|| Ok(borrow(s, "Series")?.len())).unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_rename(s: *const Series, name: *const c_char) -> *mut Series {
+    boxed(guard(|| {
+        let mut s = borrow(s, "Series")?.clone();
+        s.rename(PlSmallStr::from_str(cstr(name)?));
+        Ok(s)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_to_string(s: *const Series) -> *mut c_char {
+    guard(|| Ok(to_c_string(format!("{}", borrow(s, "Series")?)))).unwrap_or(ptr::null_mut())
+}
+
+// ---------------------------------------------------------------------------
+// Frame top k, and float display precision (0.4)
+// ---------------------------------------------------------------------------
+
+/// The `k` rows with the largest (`bottom`: smallest) values of the `by`
+/// expressions; `reverse` swaps the direction, as in Python's `top_k`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_top_k(
+    lf_: *const LazyFrame,
+    k: usize,
+    by: *const *const Expr,
+    nby: usize,
+    reverse: bool,
+    bottom: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let by = exprs(by, nby)?;
+        if by.is_empty() {
+            return Err("topK needs at least one `by` column".into());
+        }
+        let opts = SortMultipleOptions::default().with_maintain_order(true);
+        let lf = lf(lf_)?;
+        Ok(if bottom != reverse {
+            lf.bottom_k(k as IdxSize, by, opts)
+        } else {
+            lf.top_k(k as IdxSize, by, opts)
+        })
+    }))
+}
+
+/// Decimal places when floats print; negative restores Polars' default.
+#[no_mangle]
+pub extern "C" fn nq_set_float_precision(n: i32) {
+    polars_core::fmt::set_float_precision((n >= 0).then_some(n as usize));
+}
+
+/// The current float precision, or -1 for Polars' default.
+#[no_mangle]
+pub extern "C" fn nq_get_float_precision() -> i32 {
+    polars_core::fmt::get_float_precision().map_or(-1, |n| n as i32)
+}
+
+// ---------------------------------------------------------------------------
+// Null literal and boolean aggregations (0.4)
+// ---------------------------------------------------------------------------
+
+/// A null literal (Python's `pl.lit(None)`).
+#[no_mangle]
+pub extern "C" fn nq_expr_lit_null() -> *mut Expr {
+    boxed(Some(lit(Null {})))
+}
+
+/// `any` (or `all` when `all` is true) of a boolean column, as an aggregation.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_any_all(e: *const Expr, all: bool, ignore_nulls: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if all { e.all(ignore_nulls) } else { e.any(ignore_nulls) })
+    }))
 }

@@ -71,6 +71,12 @@ two), L (more).
 - **More IO** (M): NDJSON, Excel, writing to streams, sink functions (streaming writes),
   cloud storage. (CSV, Parquet, IPC and reading streams are done.)
 - **More dtypes** (M): lists, structs, decimals, binary.
+- **Smaller Polars functions found by the 0.4 book ports** (S each). `over(...,
+  mappingStrategy)`; Expr `shuffle` and `sample`; `hash`; `get(i)` (today `gather([i])`);
+  `argTrue`; `upperBound`/`lowerBound`; `extendConstant`; `partitionBy(asDict = true)`.
+- **Print dtypes as Python does** (S, discussion first). `$dtype` gives Rust's `i64`;
+  Python prints `Int64`. Matching Python would help readers who compare outputs, but
+  frame headers print `i64` in both.
 
 ## Ecosystem
 
@@ -97,8 +103,6 @@ two), L (more).
   Open questions:
   is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
   operations goes in, and how expressions are represented.
-- **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
-  work.
 
 ## Datasets
 

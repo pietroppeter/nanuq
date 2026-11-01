@@ -1330,8 +1330,9 @@ dependencies = [
 
 [[package]]
 name = "nanuq_ffi"
-version = "0.3.0"
+version = "0.4.0-dev"
 dependencies = [
+ "either",
  "polars",
  "polars-core",
  "tikv-jemallocator",
@@ -1744,6 +1745,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b59262210ac41f3b30f49f46855501206eba27baaa6bd919545703bc706dd617"
 dependencies = [
  "bitflags",
+ "chrono-tz",
  "hashbrown 0.17.1",
  "num-traits",
  "polars-arrow",

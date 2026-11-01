@@ -19,12 +19,12 @@ requires "nim >= 2.0.0"
 task buildRust, "Build the Rust wrapper library (src/rust/target/release/libnanuq_ffi.a)":
   exec "cargo build --release --manifest-path src/rust/Cargo.toml"
 
-task test, "Run the tests (tests/test_datamancer.nim needs Datamancer installed)":
+task test, "Run the tests (test_datamancer and test_arraymancer need Datamancer, which brings Arraymancer)":
   for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datatypes.nim",
             "tests/test_combining.nim", "tests/test_verbs.nim", "tests/test_expressions.nim",
             "tests/test_selectors.nim", "tests/test_csv.nim",
-            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_inspection.nim", "tests/test_strings.nim", "tests/test_temporal.nim", "tests/test_io.nim", "tests/test_categorical.nim",
-            "tests/test_datamancer.nim"]:
+            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_inspection.nim", "tests/test_strings.nim", "tests/test_temporal.nim", "tests/test_io.nim", "tests/test_categorical.nim", "tests/test_math.nim", "tests/test_cumulative.nim", "tests/test_rolling.nim", "tests/test_values.nim", "tests/test_horizontal.nim", "tests/test_reshaping.nim", "tests/test_timegroups.nim", "tests/test_series.nim", "tests/test_rows.nim",
+            "tests/test_datamancer.nim", "tests/test_arraymancer.nim"]:
     exec "nim r --hints:off " & t
 
 task example, "Run the basic example":

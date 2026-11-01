@@ -150,7 +150,7 @@ suite "nullCount and rank":
     let df = newDataFrame(series("g", ["x", "x", "y"]),
                           series("a", [some(1), none(int), some(3)]))
     check df.select(col.a.nullCount).toList("a", int) == @[1]
-    let per = df.groupBy(col.g).agg(col.a.nullCount).sort("g").collect
+    let per = df.groupBy(col.g).agg(col.a.nullCount).sort("g")
     check per.toList("a", int) == @[1, 0]
 
   test "rank methods":
@@ -176,7 +176,21 @@ suite "filter inside expressions":
       kind: ["TT", "road", "TT", "TT"]
       pts: [10, 5, 3, 4]
     let r = df.groupBy(col.rider).agg(col.pts.filter(col.kind == "TT").sum.alias("tt"),
-                                      col.pts.sum.alias("all")).sort("rider").collect
+                                      col.pts.sum.alias("all")).sort("rider")
     check r.toList("tt", int) == @[10, 7]
     check r.toList("all", int) == @[15, 7]
     check df.select(col.pts.filter(col.pts > 4)).toList("pts", int) == @[10, 5]
+
+suite "boolean aggregations":
+  test "any and all":
+    let df = newDataFrame:
+      g: ["a", "a", "b"]
+      w: [true, false, true]
+    let r = df.groupBy("g").agg(col.w.all.alias("all"), col.w.any.alias("any"))
+    check r.toList("all", bool) == @[false, true]
+    check r.toList("any", bool) == @[true, true]
+    let n = newDataFrame(series("w", [some(false), none(bool)]))
+    check n.select(col.w.any(ignoreNulls = false)).toList("w", Option[bool]) == @[none(bool)]
+    check n.select(col.w.any).toList("w", bool) == @[false]
+    check df["w"].all.item(bool) == false
+    check df.select(all()).width == 2

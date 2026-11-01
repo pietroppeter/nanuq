@@ -201,7 +201,32 @@ type
     nqNot, nqSum, nqMean, nqMin, nqMax, nqCount,
     nqFirst, nqLast, nqNUnique, nqStd,
     nqIsNull, nqIsNotNull,
-    nqAbs, nqMedian, nqLen, nqNeg, nqNullCount
+    nqAbs, nqMedian, nqLen, nqNeg, nqNullCount,
+    # 0.4: elementwise math
+    nqSqrt, nqCbrt, nqExp, nqLog10, nqLog1p, nqSign, nqFloor, nqCeil,
+    nqSin, nqCos, nqTan, nqCot, nqArcSin, nqArcCos, nqArcTan,
+    nqSinh, nqCosh, nqTanh, nqArcSinh, nqArcCosh, nqArcTanh, nqDegrees, nqRadians,
+    nqIsNan, nqIsNotNan, nqIsFinite, nqIsInfinite, nqDropNans, nqDropNulls,
+    # 0.4: cumulative and shift
+    nqProduct, nqMode, nqArgMin, nqArgMax, nqRleId, nqPeakMax, nqPeakMin,
+    # 0.4: value functions
+    nqUnique, nqUniqueStable, nqArgUnique, nqIsUnique, nqIsDuplicated, nqIsFirstDistinct,
+    nqIsLastDistinct, nqUniqueCounts, nqApproxNUnique, nqReverse
+  NqCum* {.size: sizeof(cint).} = enum
+    nqcSum, nqcProd, nqcMin, nqcMax, nqcCount
+  NqBinaryFn* {.size: sizeof(cint).} = enum
+    nqbLog, nqbArctan2, nqbDot, nqbFillNan, nqbInterpolateBy,
+    nqbGather, nqbTopK, nqbBottomK, nqbIndexOf,
+    nqbSearchSortedAny, nqbSearchSortedLeft, nqbSearchSortedRight
+  NqRolling* {.size: sizeof(cint).} = enum
+    nqrSum, nqrMean, nqrMin, nqrMax, nqrStd, nqrVar, nqrMedian, nqrQuantile
+  NqLabel* {.size: sizeof(cint).} = enum
+    nqlLeft, nqlRight, nqlDataPoint
+  NqStartBy* {.size: sizeof(cint).} = enum
+    nqsWindowBound, nqsDataPoint, nqsMonday, nqsTuesday, nqsWednesday, nqsThursday,
+    nqsFriday, nqsSaturday, nqsSunday
+  NqHorizontal* {.size: sizeof(cint).} = enum
+    nqhSum, nqhMean, nqhMin, nqhMax, nqhAll, nqhAny, nqhCoalesce
 
   NqDtype* {.size: sizeof(cint).} = enum
     ## Same order as `NqDtype` in lib.rs and `DataTypeKind` in nanuq.nim.
@@ -347,6 +372,74 @@ proc nq_expr_lit_str*(v: cstring): ptr NqExpr
 proc nq_expr_binary*(a: ptr NqExpr, op: NqBinOp, b: ptr NqExpr): ptr NqExpr
 proc nq_expr_unary*(e: ptr NqExpr, op: NqUnary): ptr NqExpr
 proc nq_expr_fill_null*(e: ptr NqExpr, value: ptr NqExpr): ptr NqExpr
+proc nq_expr_binary_fn*(a, b: ptr NqExpr, op: NqBinaryFn): ptr NqExpr
+proc nq_expr_clip*(e, lo, hi: ptr NqExpr): ptr NqExpr
+proc nq_expr_shift*(e: ptr NqExpr, n: int64, fill: ptr NqExpr): ptr NqExpr
+proc nq_expr_diff*(e: ptr NqExpr, n: int64, drop: bool): ptr NqExpr
+proc nq_expr_pct_change*(e: ptr NqExpr, n: int64): ptr NqExpr
+proc nq_expr_cum*(e: ptr NqExpr, op: NqCum, reverse: bool): ptr NqExpr
+proc nq_expr_moment*(e: ptr NqExpr, kurtosis, fisher, bias: bool): ptr NqExpr
+proc nq_expr_rolling*(e: ptr NqExpr, op: NqRolling, window, minSamples: csize_t,
+                      center: bool, weights: ptr cdouble, nWeights: csize_t, quantile: cdouble,
+                      meth: NqQuantileMethod, ddof: uint8): ptr NqExpr
+proc nq_expr_rolling_by*(e, by: ptr NqExpr, op: NqRolling, window: cstring,
+                         minSamples: csize_t, closed: NqClosedWindow, quantile: cdouble,
+                         meth: NqQuantileMethod, ddof: uint8): ptr NqExpr
+proc nq_expr_ewm*(e: ptr NqExpr, op: uint8, alpha: cdouble, adjust, bias: bool,
+                  minSamples: csize_t, ignoreNulls: bool): ptr NqExpr
+proc nq_expr_interpolate*(e: ptr NqExpr, nearest: bool): ptr NqExpr
+proc nq_expr_sort*(e: ptr NqExpr, descending, nullsLast, arg: bool): ptr NqExpr
+proc nq_expr_sort_by*(e: ptr NqExpr, by: ptr ptr NqExpr, n: csize_t, descending: ptr bool,
+                      nDesc: csize_t): ptr NqExpr
+proc nq_expr_top_k_by*(e: ptr NqExpr, k: csize_t, by: ptr ptr NqExpr, n: csize_t,
+                       reverse: ptr bool, nRev: csize_t, bottom: bool): ptr NqExpr
+proc nq_expr_slice*(e: ptr NqExpr, offset, len: int64): ptr NqExpr
+proc nq_expr_gather_every*(e: ptr NqExpr, n, offset: csize_t): ptr NqExpr
+proc nq_expr_replace*(e, old, new: ptr NqExpr, strict: bool, default: ptr NqExpr): ptr NqExpr
+proc nq_expr_cut*(e: ptr NqExpr, breaks: ptr cdouble, n: csize_t, labels: ptr cstring,
+                  nLabels: csize_t, leftClosed, quantile, allowDuplicates: bool): ptr NqExpr
+proc nq_expr_horizontal*(es: ptr ptr NqExpr, n: csize_t, op: NqHorizontal,
+                         ignoreNulls: bool): ptr NqExpr
+proc nq_expr_int_range*(start, stop: ptr NqExpr, step: int64, spec: ptr NqDtypeSpec): ptr NqExpr
+proc nq_expr_linear_space*(start, stop, num: ptr NqExpr, closed: NqClosedInterval): ptr NqExpr
+proc nq_expr_repeat*(value, n: ptr NqExpr): ptr NqExpr
+proc nq_expr_corr*(a, b: ptr NqExpr, meth, ddof: uint8, propagateNans: bool): ptr NqExpr
+proc nq_lf_pivot*(lf: ptr NqLazyFrame, on: ptr cstring, nOn: csize_t, onColumns: ptr NqDataFrame,
+                  index: ptr cstring, nIndex: csize_t, values: ptr cstring, nValues: csize_t,
+                  agg: ptr NqExpr, maintainOrder: bool, separator: cstring): ptr NqLazyFrame
+proc nq_lf_unpivot*(lf: ptr NqLazyFrame, on: ptr cstring, nOn: csize_t, index: ptr cstring,
+                    nIndex: csize_t, variableName, valueName: cstring): ptr NqLazyFrame
+proc nq_df_transpose*(df: ptr NqDataFrame, keepNamesAs: cstring, newNames: ptr cstring,
+                      nNames: csize_t): ptr NqDataFrame
+proc nq_df_partition_by*(df: ptr NqDataFrame, by: ptr cstring, n: csize_t,
+                         maintainOrder, includeKey: bool, outLen: ptr csize_t): ptr ptr NqDataFrame
+proc nq_df_array_free*(p: ptr ptr NqDataFrame, len: csize_t)
+proc nq_df_to_dummies*(df: ptr NqDataFrame, columns: ptr cstring, n: csize_t, separator: cstring,
+                       dropFirst, dropNulls: bool): ptr NqDataFrame
+proc nq_expr_element*(): ptr NqExpr
+proc nq_expr_item*(e: ptr NqExpr, allowEmpty: bool): ptr NqExpr
+proc nq_lf_group_by_dynamic_agg*(lf: ptr NqLazyFrame, index: ptr NqExpr, by: ptr ptr NqExpr,
+                                 nby: csize_t, every, period, offset: cstring, label: NqLabel,
+                                 includeBoundaries: bool, closed: NqClosedWindow,
+                                 startBy: NqStartBy, aggs: ptr ptr NqExpr,
+                                 naggs: csize_t): ptr NqLazyFrame
+proc nq_lf_rolling_agg*(lf: ptr NqLazyFrame, index: ptr NqExpr, by: ptr ptr NqExpr, nby: csize_t,
+                        period, offset: cstring, closed: NqClosedWindow, aggs: ptr ptr NqExpr,
+                        naggs: csize_t): ptr NqLazyFrame
+proc nq_lf_join_asof*(left, right: ptr NqLazyFrame, leftOn, rightOn: ptr NqExpr,
+                      byLeft: ptr cstring, nByLeft: csize_t, byRight: ptr cstring,
+                      nByRight: csize_t, strategy: uint8, suffix: cstring, toleranceKind: uint8,
+                      tolStr: cstring, tolInt: int64, tolFloat: cdouble,
+                      allowExactMatches, checkSortedness, coalesce: bool): ptr NqLazyFrame
+proc nq_df_get_column*(df: ptr NqDataFrame, name: cstring): ptr NqSeries
+proc nq_df_to_series*(df: ptr NqDataFrame, idx: csize_t): ptr NqSeries
+proc nq_series_to_frame*(s: ptr NqSeries): ptr NqDataFrame
+proc nq_series_name*(s: ptr NqSeries): cstring
+proc nq_series_len*(s: ptr NqSeries): csize_t
+proc nq_series_rename*(s: ptr NqSeries, name: cstring): ptr NqSeries
+proc nq_series_to_string*(s: ptr NqSeries): cstring
+proc nq_lf_value_counts*(lf: ptr NqLazyFrame, e: ptr NqExpr, sort, normalize: bool,
+                         name: cstring): ptr NqLazyFrame
 proc nq_expr_alias*(e: ptr NqExpr, name: cstring): ptr NqExpr
 proc nq_expr_cast*(e: ptr NqExpr, spec: ptr NqDtypeSpec, strict: bool): ptr NqExpr
 proc nq_expr_to_string*(e: ptr NqExpr): cstring
@@ -393,6 +486,7 @@ proc nq_set_random_seed*(seed: uint64)
 proc nq_expr_when_then*(conds, values: ptr ptr NqExpr, n: csize_t,
                         otherwise: ptr NqExpr): ptr NqExpr
 proc nq_expr_lit_series*(s: ptr NqSeries): ptr NqExpr
+proc nq_expr_lit_values*(s: ptr NqSeries): ptr NqExpr
 proc nq_expr_is_in*(e, other: ptr NqExpr, nullsEqual: bool): ptr NqExpr
 proc nq_expr_is_between*(e, lower, upper: ptr NqExpr, closed: NqClosedInterval): ptr NqExpr
 proc nq_expr_quantile*(e: ptr NqExpr, q: float64, meth: NqQuantileMethod): ptr NqExpr
@@ -440,6 +534,13 @@ proc nq_expr_dt*(e: ptr NqExpr, op: NqDtOp, a: ptr NqExpr, s: cstring, flag: boo
 proc nq_expr_rank*(e: ptr NqExpr, meth: NqRankMethod, descending, hasSeed: bool,
                    seed: uint64): ptr NqExpr
 
+proc nq_expr_date*(year, month, day: ptr NqExpr): ptr NqExpr
+proc nq_lf_top_k*(lf: ptr NqLazyFrame, k: csize_t, by: ptr ptr NqExpr, nby: csize_t,
+                  reverse, bottom: bool): ptr NqLazyFrame
+proc nq_set_float_precision*(n: int32)
+proc nq_get_float_precision*(): int32
+proc nq_expr_lit_null*(): ptr NqExpr
+proc nq_expr_any_all*(e: ptr NqExpr, all, ignoreNulls: bool): ptr NqExpr
 {.pop.}
 
 let compiledFor = nanuqLibVersion

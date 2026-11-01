@@ -143,3 +143,15 @@ suite "option values":
   test "UniqueKeepStrategy.None and MaintainOrderJoin.None coexist":
     check compiles(newDataFrame(series("k", [1])).unique("k", keep = None))
     check UniqueKeepStrategy.None != UniqueKeepStrategy.Any
+
+suite "gatherEvery and groupBy by name":
+  test "gatherEvery":
+    let df = newDataFrame(series("m", [1, 2, 3, 4, 5, 6]))
+    check df.gatherEvery(3, offset = 2).toList("m", int) == @[3, 6]
+    check df.lazy.gatherEvery(2).collect.toList("m", int) == @[1, 3, 5]
+    check df.gatherEvery(2, offset = 10).height == 0
+  test "groupBy names":
+    let df = newDataFrame:
+      a: ["x", "y", "x"]
+      v: [1, 2, 3]
+    check df.groupBy("a").agg(col.v.sum).toList("v", int) == @[4, 2]

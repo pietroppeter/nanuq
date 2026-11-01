@@ -47,3 +47,83 @@ any exception in its "Differences from Polars" section.
 #### Scenario: New option type
 - **WHEN** a proposal adds a parameter with a closed set of values
 - **THEN** it uses the Rust Polars enum name and values as a pure enum, or explains why not
+
+### Requirement: Python's `method` parameter is `how`
+`method` is a Nim keyword, so no parameter can have that name. Where Python Polars has a
+`method` parameter that picks a variant from a closed set, Nanuq SHALL call it `how`, the
+name Polars itself uses for `join` and `concat`. This applies to `rank`, `corr` and
+`interpolate`. Where Python uses another name (`quantile`'s `interpolation`), Nanuq SHALL
+keep Python's name.
+
+```nim
+let df = newDataFrame:
+  x: [1.0, 2.0, 2.0, 4.0]
+  y: [1.0, 4.0, 4.0, 16.0]
+echo df.select(col.x.rank(how = Dense).alias("dense"),
+               col.x.rank(Min).alias("min"))
+echo df.select(corr("x", "y", how = Spearman).alias("spearman"))
+```
+
+```text
+shape: (4, 2)
+┌───────┬─────┐
+│ dense ┆ min │
+│ ---   ┆ --- │
+│ u32   ┆ u32 │
+╞═══════╪═════╡
+│ 1     ┆ 1   │
+│ 2     ┆ 2   │
+│ 2     ┆ 2   │
+│ 3     ┆ 4   │
+└───────┴─────┘
+shape: (1, 1)
+┌──────────┐
+│ spearman │
+│ ---      │
+│ f64      │
+╞══════════╡
+│ 1.0      │
+└──────────┘
+```
+
+#### Scenario: Named variant
+- **WHEN** user code writes `corr("x", "y", how = Spearman)` or `rank(how = Dense)`
+- **THEN** it compiles and picks that variant
+
+#### Scenario: Positional variant
+- **WHEN** user code writes `rank(Min)` or `corr("x", "y", Spearman)`
+- **THEN** it means the same as naming `how`
+
+### Requirement: Parameters that take several types use converter types
+Where Python Polars lets a parameter take values of different types (a name or a list of
+names, a duration string or a number) and the parameter needs a default, Nanuq SHALL use
+a small exported object type with a `converter` from each accepted type, instead of a
+generic union (`string | openArray[string] = []` does not compile with a default in Nim)
+or one overload per combination. The existing types are `ColumnNames` (a name, a seq or an
+array of names), `OptInterval` (a std/times interval or a duration string), `JoinKey` (a
+column name or an expression) and `AsofTolerance` (an interval, a duration string, an int
+or a float). A new parameter of this kind SHALL reuse one of them when it fits, and a new
+type SHALL be listed here. Converters SHALL only convert into these types, so they apply
+only where such a parameter appears.
+
+```nim
+let df = newDataFrame:
+  year: [1997, 1997, 1998]
+  months: ["JJA", "SON", "JJA"]
+  anomaly: [1.5, 2.3, -0.2]
+echo df.pivot("months", index = "year", values = "anomaly").columns
+echo df.pivot(["months"], index = @["year"], values = "anomaly").columns
+```
+
+```text
+@["year", "JJA", "SON"]
+@["year", "JJA", "SON"]
+```
+
+#### Scenario: One name or a list
+- **WHEN** user code passes `index = "year"` or `index = ["year", "month"]` to `pivot`
+- **THEN** both compile and mean one or two index columns
+
+#### Scenario: Default left out
+- **WHEN** user code calls `joinAsof(other, on = "t")` without `tolerance`
+- **THEN** it compiles, and no tolerance is applied

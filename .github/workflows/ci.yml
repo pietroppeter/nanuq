@@ -100,7 +100,8 @@ jobs:
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      # tests/test_datamancer.nim needs Datamancer (an optional dependency)
+      # tests/test_datamancer.nim and test_arraymancer.nim need Datamancer (an optional
+      # dependency, which brings Arraymancer)
       - run: nimble install -y datamancer
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done

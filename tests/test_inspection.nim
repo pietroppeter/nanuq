@@ -81,3 +81,22 @@ suite "display config":
       withConfig(tblRows = 30):
         raise newException(ValueError, "boom")
     check ($df).count('\n') == 11
+
+suite "float precision":
+  test "setFloatPrecision, setConfig, withConfig, resetConfig":
+    let df = newDataFrame(series("x", [0.05333]))
+    check "0.05333" in $df
+    setConfig(floatPrecision = 2)
+    check "0.05 " in $df
+    check "0.05333" notin $df
+    withConfig(floatPrecision = 4):
+      check "0.0533 " in $df
+    check "0.05 " in $df
+    resetConfig()
+    check "0.05333" in $df
+    setFloatPrecision(1)
+    check "0.1 " in $df
+    setFloatPrecision(none(int))
+    check "0.05333" in $df
+    expect ValueError:
+      setFloatPrecision(-1)

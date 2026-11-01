@@ -193,3 +193,62 @@ shape: (2, 2)
 #### Scenario: Subset
 - **WHEN** `dropNulls(["a"])` is applied to rows where "a" has one null and "b" another, in different rows
 - **THEN** only the row with the null in "a" is removed
+
+### Requirement: Interpolation
+`e.interpolate()` SHALL fill nulls that lie between two values on a straight line between
+them, or with the nearest value for `interpolate(how = Nearest)`;
+`e.interpolateBy(by)` SHALL interpolate linearly using the distances in column `by`.
+Nulls before the first and after the last value SHALL stay null.
+
+```nim
+let df = newDataFrame:
+  day: [1, 2, 4, 5]
+  temp: [10.0, nil, 16.0, nil]
+echo df.withColumns(col.temp.interpolate.alias("linear"),
+                    col.temp.interpolateBy("day").alias("by_day"))
+```
+
+```text
+shape: (4, 4)
+┌─────┬──────┬────────┬────────┐
+│ day ┆ temp ┆ linear ┆ by_day │
+│ --- ┆ ---  ┆ ---    ┆ ---    │
+│ i64 ┆ f64  ┆ f64    ┆ f64    │
+╞═════╪══════╪════════╪════════╡
+│ 1   ┆ 10.0 ┆ 10.0   ┆ 10.0   │
+│ 2   ┆ null ┆ 13.0   ┆ 12.0   │
+│ 4   ┆ 16.0 ┆ 16.0   ┆ 16.0   │
+│ 5   ┆ null ┆ null   ┆ null   │
+└─────┴──────┴────────┴────────┘
+```
+
+#### Scenario: Integer column
+- **WHEN** `interpolate` runs on 1, null, 3
+- **THEN** the result is 1.0, 2.0, 3.0
+
+### Requirement: Null literal
+`lit(nil)` SHALL be a null literal (Python's `pl.lit(None)`), usable wherever an
+expression is, and `fillNan(nil)` SHALL turn NaN values into nulls.
+
+```nim
+let df = newDataFrame:
+  x: [1.0, NaN, 3.0]
+echo df.select(col.x.fillNan(nil).alias("x"), col.x.fillNan(nil).nullCount.alias("nulls"))
+```
+
+```text
+shape: (3, 2)
+┌──────┬───────┐
+│ x    ┆ nulls │
+│ ---  ┆ ---   │
+│ f64  ┆ u32   │
+╞══════╪═══════╡
+│ 1.0  ┆ 1     │
+│ null ┆ 1     │
+│ 3.0  ┆ 1     │
+└──────┴───────┘
+```
+
+#### Scenario: Null column
+- **WHEN** `select(lit(nil).alias("n"))` runs with another column of 3 rows
+- **THEN** `n` holds 3 nulls
