@@ -6,7 +6,10 @@ name: Release lib
 # (src/nanuq/lib-sums.txt). Running it by hand (workflow_dispatch) builds and tests
 # without publishing, unless "publish" is ticked on main: then the release step
 # also creates the lib-v<version> tag on the commit it built. PRs that change this
-# workflow build and test without publishing.
+# workflow build and test without publishing. The smoke tests also check the
+# per-platform link flags in src/nanuq/ffi.nim (cloud storage added crypt32 on
+# Windows and SystemConfiguration on macOS), so a PR that changes those should
+# touch this file or be run by hand.
 #
 # The archives are built with a pinned nightly Rust and the crate features
 # "nightly" (Polars' SIMD and nightly-only code paths) and "jemalloc" (the

@@ -181,9 +181,9 @@ const libFile = found.lib
 when defined(linux):
   {.passL: "-lpthread -ldl -lm".}
 elif defined(macosx):
-  {.passL: "-framework CoreFoundation -framework IOKit -framework Security -lc++".}
+  {.passL: "-framework CoreFoundation -framework IOKit -framework Security -framework SystemConfiguration -lc++".}
 elif defined(windows):
-  {.passL: "-lws2_32 -luserenv -lbcrypt -lntdll -lole32 -loleaut32 -lkernel32 -ladvapi32".}
+  {.passL: "-lws2_32 -luserenv -lbcrypt -lntdll -lole32 -loleaut32 -lkernel32 -ladvapi32 -lcrypt32 -lsecur32 -lncrypt".}
 
 type
   NqDataFrame* {.incompleteStruct.} = object
