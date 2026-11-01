@@ -65,7 +65,10 @@ two), L (more).
     later, nbindgen would be used from our own fork, so fixes don't wait on upstream.
 - **Zero-copy columns through the Arrow C Data Interface** (L). Move whole columns
   between Nim and Polars without copying. It would also speed up `mapElements`, which
-  today copies each batch into Nim seqs and back (see `benchmarks/`).
+  today copies each batch into Nim seqs and back (see `benchmarks/`). Expected: numeric
+  callbacks close to native (estimate ~3-6 ms vs 2-4 ms native for 1M ints, today ~15
+  ms); strings stay allocation-bound unless procs can take `openArray[char]` views; the
+  callback lock still keeps UDFs on one core while native expressions use all.
 - **Track the Rust Polars that py-polars ships** (M, discussion first). Nanuq pins the
   crates.io release (0.55.2), but py-polars 2.1.0 is built from a later git commit
   (7f902bd), and the 0.5 book ports found the drift: SQL table functions with named
