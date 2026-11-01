@@ -25,3 +25,8 @@ Nanuq's callbacks are 2-10x faster than Python's, because the loop over the valu
 compiled Nim. But they are still 5-12x slower than native expressions: each batch is
 copied from Arrow memory into Nim seqs (one allocation per string) and the results are
 copied back into a new Series. A native expression is the fast path in both languages.
+
+Nanuq 0.6, same machine, best of 3: numeric columns without nulls are now read in place
+through the Arrow C Data Interface (`view`), so the int → float callback takes 4.6-5.1 ms
+(native 1.6-2.7 ms). Strings (52-62 ms) and struct rows (102-120 ms) still copy each
+value into a Nim `string` or object.

@@ -6,6 +6,115 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+Nanuq 0.6 is "engine and edges": the streaming engine and sinks, saving query plans,
+Binary and Decimal columns, the Arrow C Data Interface (zero-copy column views), Excel,
+SQLite and cloud storage, testing helpers, thirty small functions from the Polars
+coverage map, and the functions the book ports still missed. The dev
+log post "Designing Nanuq 0.6" explains the API choices. The prebuilt library is
+`lib-v0.6.0`, built on Polars at the py-polars 2.1.0 tag, so Nanuq and py-polars 2.1.0
+now run the same Polars code. Excel support is two pure-Rust crates (calamine and
+rust_xlsxwriter) compiled into the library: no Python and no new system dependency.
+
+Known limitations compared with Polars: no plotting namespace (use nim-plotly or ggplotnim with `toSeq`/`toDatamancer`), databases other
+than SQLite.
+
+### Added
+- Streaming: `collect(Engine.Streaming)`, `collectAll(lfs, engine)`, and the
+  sinks `sinkParquet`, `sinkIpc`, `sinkCsv`, `sinkNdjson` to a path or partitioned by
+  key (`PartitionBy`), with `lazy = true` to return the sink as a frame for
+  `collectAll`. (add-streaming-and-sinks, #59)
+- Saving queries: `serialize`/`deserialize` for LazyFrames and expressions (binary or
+  JSON, to bytes or files), and the `meta` functions `eq`, `ne`, `pop`,
+  `isRegexProjection`, `isColumnSelection`, `isLiteral`, `treeFormat`.
+  (add-plan-serialization, #59)
+- `Binary` and `Decimal(precision, scale)` data types, the `bin` namespace
+  (`contains`, `startsWith`, `endsWith`, `encode`, `decode`, `size`), `str.encode`,
+  `str.toDecimal` and the `bitwise*` expressions. (add-binary-decimal-bitwise, #59)
+- Arrow C Data Interface: `toArrow`/`fromArrow` for Series (`ArrowSchema` +
+  `ArrowArray`) and DataFrames (`ArrowArrayStream`), and zero-copy `view(T)` of a
+  numeric column as an `openArray`. `mapElements` on numeric columns without nulls now
+  reads through a view. (add-arrow-c-data, #59)
+- Excel: `readExcel` (sheet by name or index, `hasHeader`, `headerRow`, `skipRows`
+  after the header as in Python, `columns`, `schemaOverrides`), `readExcelSheets` and `writeExcel`. (add-excel-io, #59)
+- Databases: the optional module `nanuq/database` (on db_connector) with
+  `readDatabase`, `readDatabaseUri` and `writeDatabase` for SQLite.
+  (add-database-io, #59)
+- Testing helpers: the module `nanuq/testing` with `assertFrameEqual`,
+  `assertFrameNotEqual`, `assertSeriesEqual`, `assertSeriesNotEqual`.
+  (add-testing-helpers, #59)
+- Smaller functions from the book map: method spellings of operators (`add`, `sub`,
+  `mul`, `truediv`, `floordiv`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `neg`), `xor`,
+  `intRanges`, `dateRanges`, `datetimeRanges`, `arange`, `joinWhere`, `explainAll`,
+  `hist`, `setSorted`, `isSorted`, `append`, `remove`, `fromEpoch`,
+  `readParquetSchema`, `threadPoolSize`, `unstack`, `rollingMap`, `scatter`, `set`,
+  `dtypeOf`. (add-frame-utilities-0-6, #59)
+- Book needs: frame aggregations (`df.sum`, `mean`, `median`, `product`, `min`, `max`,
+  `nUnique`, `count`, `std`, `var`, `quantile`, `nullCount`), group-by shortcuts
+  (`g.sum`, ..., `len`, `count`, `head`, `tail`, `quantile`), `for key, part in
+  df.groupBy(...)`, frame `fillNan`, `select(...)` without a frame, `over` with several
+  names, `concatStr` with selectors. (add-book-port-needs-0-6, #59)
+- Explainer needs: `bin.slice`, `bin.head`, `bin.tail`, `bin.get` (Binary cells read as
+  raw bytes, zero bytes included), `str.toInteger(base, strict)`, UInt64 values above
+  `high(int64)` both ways, and `readCsv`/`scanCsv` options `quoteChar`, `encoding`
+  (`CsvEncoding.Utf8Lossy`) and `newColumns`. (add-explainer-needs-0-6, #59)
+- `rolling` and `groupByDynamic` take `groupBy` as names or expressions
+  (`groupBy = "store"`). (refine-book-needs-0-6, #59)
+- Cloud storage: CSV, Parquet, IPC and NDJSON scans, reads, writes and sinks take
+  `s3://`, `gs://`, `az://`, `hf://` and `http(s)://` URIs and `storageOptions` (Python's
+  `storage_options`; credentials otherwise from the environment); `isCloudPath`.
+  (add-cloud-storage, #59)
+- From the Polars coverage map: empty frames (`newDataFrame(schema = ...)`, `clear`),
+  `isEmpty`, `getColumnIndex`, `rowsByKey`, frame `shift` and `dropNans`, LazyFrame
+  `shift`, `first`, `last`, `dt.epoch`, `dt.century`, `dt.millennium`, `dt.dstOffset`,
+  `dt.baseUtcOffset`, `timeRange(s)`, business days (`dt.addBusinessDays`,
+  `dt.isBusinessDay`, `businessDayCount`), `eqMissing`, `neMissing`, `isClose`, `nth`,
+  `cumulativeEval`, `roundSigFigs`, `reinterpret`, `concatArr`, `str.escapeRegex`,
+  `str.normalize`, `bin` on Series, CSV `commentPrefix`, `scanParquet(hivePartitioning)`,
+  `cache`, `QueryOptFlags` (`collect(optimizations)`), `rechunk`, `shrinkToFit`,
+  `nChunks`, `matchToSchema`, `mergeSorted`, `readOds`, `readIpcStream`,
+  `writeIpcStream`, and table styles (`setTblFormatting`, `setAsciiTables`,
+  `setTblHide*`, `setTblCellAlignment`, ...). (add-coverage-easy-wins-0-6, #59)
+
+### Changed
+- Operators take selectors on either side (`all() > 0` keeps each column's name), and
+  a comparison with a value on the left is mirrored as in Python (`0 < col("a")` is
+  `col("a") > 0`, named `a` instead of `literal`). (add-book-port-needs-0-6, #59)
+- `describe` prints Datetime statistics and the mean of Date columns as Python does
+  (`1986-09-04 00:00:00`, no `.000000`). (add-book-port-needs-0-6, #59)
+- The wrapper crate is `0.6.0`, with the Polars features `serde`, `serde-lazy`,
+  `binary_encoding`, `bitwise`, `hist`, `string_encoding`, `string_to_integer`,
+  `dtype-i128`, `dtype-u128`, `cloud`, `aws`, `gcp`, `azure`, `http`, `is_close`,
+  `merge_sorted`, `business`, `string_normalize`, `reinterpret`, `ipc_streaming` and
+  `cse`.
+- Polars comes from the git tag `py-2.1.0` (commit 7f902bd, the code py-polars 2.1.0
+  ships) instead of crates.io 0.55.2, which matched py-polars 1.43; release builds use
+  that tag's toolchain, `nightly-2026-09-01`. This ends the drift the 0.5 book ports
+  found (SQL table functions with named options, `hash`, `sample`, Decimal `mod`).
+  Behavior now follows Polars 2: CSV columns read without a header are `column_0`,
+  `column_1`, ...; `topK`/`bottomK` values come out in no particular order; a lazy
+  query runs on the streaming engine by default, so a lazy join without
+  `maintainOrder` does not keep the left order and a lazy `unpivot` emits rows in
+  row-major order. (pin-polars-to-py-release, #59)
+- DataFrame methods (`select`, `withColumns`, `join`, `unpivot`, `groupBy(...).agg`,
+  ...) now run like Python's eager methods: the in-memory engine without plan
+  optimizations, so row order and error messages match py-polars. `update` keeps the
+  rows of `df` in order. `DataFrame.sample` takes `shuffle: bool | Option[bool]`,
+  `none` by default as in Polars (no order guarantee); `false` keeps the order. (#59)
+
+### Fixed
+- `cast`, `rename`, CSV `schemaOverrides` and JSON `schema` passed column names to
+  Polars through pointers to loop copies, which could be freed before Polars read
+  them, so a cast could hit the wrong column or give unstable Categorical codes. (#59)
+- `scanCsv`/`readCsv` with `newColumns` take `schemaOverrides` by the new names, as
+  in Polars. (#59)
+
+### Removed
+- `profile` and `cat.getCategories`, as in Polars 2.0. Both are compile-time errors
+  that say what to use instead (`explain` or timing `collect`; `unique()` or the dtype's
+  `categories`). (pin-polars-to-py-release, #59)
+
 ## [0.5.0] - 2026-11-01
 
 Nanuq 0.5 is "nested data and user code": List, Array and Struct columns with the

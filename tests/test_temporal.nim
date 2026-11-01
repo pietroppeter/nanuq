@@ -181,7 +181,10 @@ suite "inspection":
       at: [dateTime(2026, mJul, 4, 13, 10, zone = utc()), dateTime(2026, mJul, 4, 14, 10, zone = utc())]
     let d = df.describe
     check d.dtype("day") == String
-    check d.toList("day", Option[string])[2] == some("2026-07-05 00:00:00.000000")
+    check d.toList("day", Option[string])[2] == some("2026-07-05 00:00:00")  # as Python's str(datetime)
+    check d.toList("at", Option[string])[2] == some("2026-07-04 13:40:00")
+    let rome = df.select(col("at").dt.replaceTimeZone("Europe/Rome")).describe
+    check rome.toList("at", Option[string])[4] == some("2026-07-04 13:10:00+02:00")
     check "$ at  <datetime[μs]> 2026-07-04 13:10:00, 2026-07-04 14:10:00" in df.glimpse
 
 suite "dates from parts":

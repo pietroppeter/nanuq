@@ -15,7 +15,7 @@ names or expressions. A cross join SHALL take no keys.
 ```nim
 let bears = newDataFrame(series("k", [1, 2, 3]), series("bear", ["Nanuq", "Ursa", "Kuma"]))
 let seen = newDataFrame(series("k", [1, 3]), series("where", ["ice", "shore"]))
-echo bears.join(seen, on = ["k"], how = Left)
+echo bears.join(seen, on = ["k"], how = Left, maintainOrder = Left)
 echo bears.join(seen, on = ["k"], how = Anti)
 ```
 

@@ -455,3 +455,85 @@ shape: (2, 2)
 #### Scenario: Whole frame
 - **WHEN** `df.select(len())` runs on 4 rows
 - **THEN** the result is one row with `len` = 4
+
+### Requirement: Several window keys and selector concatenation
+`over` SHALL take several column names as separate arguments, and `concatStr` SHALL take selectors, expanding them to their columns.
+
+```nim
+let df = newDataFrame(series("c", @["x", "x", "y"]), series("b", @["p", "p", "q"]))
+echo df.select(concatStr([all()], "-").alias("s"), lit(1).sum.over("c", "b").alias("n"))
+```
+
+```text
+shape: (3, 2)
+┌─────┬─────┐
+│ s   ┆ n   │
+│ --- ┆ --- │
+│ str ┆ i32 │
+╞═════╪═════╡
+│ x-p ┆ 1   │
+│ x-p ┆ 1   │
+│ y-q ┆ 1   │
+└─────┴─────┘
+```
+
+#### Scenario: Two keys
+- **WHEN** `col("v").sum.over("c", "b")` is selected
+- **THEN** each row gets the sum of its (c, b) group
+
+### Requirement: Null-aware comparisons and closeness
+`eqMissing(other)` and `neMissing(other)` SHALL compare as `==` and `!=` with null equal
+to null, never giving null. `isClose(other, absTol = 0.0, relTol = 1e-9, nansEqual =
+false)` SHALL be true where `abs(a - b) <= max(relTol * max(abs(a), abs(b)), absTol)`.
+
+```nim
+let df = newDataFrame(series("a", [some(1.0), none(float)]), series("b", [some(1.05), none(float)]))
+echo df.select(col("a").eqMissing(col("b")).alias("eq"),
+               col("a").isClose(col("b"), absTol = 0.1).alias("close"))
+```
+
+```text
+shape: (2, 2)
+┌───────┬───────┐
+│ eq    ┆ close │
+│ ---   ┆ ---   │
+│ bool  ┆ bool  │
+╞═══════╪═══════╡
+│ false ┆ true  │
+│ true  ┆ null  │
+└───────┴───────┘
+```
+
+#### Scenario: Nulls
+- **WHEN** `eqMissing` compares null with null
+- **THEN** the result is true
+
+### Requirement: More expression functions
+`nth(indices)` SHALL select columns by position (negative from the end).
+`cumulativeEval(expr, minSamples = 1)` SHALL run `expr` on the growing window up to each
+row, `roundSigFigs(digits)` SHALL round to significant figures, `reinterpret(signed)`
+SHALL read 64-bit integer bits as Int64 or UInt64, and `concatArr(exprs)` SHALL build
+fixed-size arrays per row.
+
+```nim
+let df = newDataFrame(series("x", @[1.0, 22.0, 333.0]), series("y", @[4.0, 5.0, 6.0]))
+echo df.select(nth(-1), col("x").cumulativeEval(element().sum).alias("cum"),
+               col("x").roundSigFigs(1).alias("sig"), concatArr(col("x"), col("y")).alias("xy"))
+```
+
+```text
+shape: (3, 4)
+┌─────┬───────┬───────┬───────────────┐
+│ y   ┆ cum   ┆ sig   ┆ xy            │
+│ --- ┆ ---   ┆ ---   ┆ ---           │
+│ f64 ┆ f64   ┆ f64   ┆ array[f64, 2] │
+╞═════╪═══════╪═══════╪═══════════════╡
+│ 4.0 ┆ 1.0   ┆ 1.0   ┆ [1.0, 4.0]    │
+│ 5.0 ┆ 23.0  ┆ 20.0  ┆ [22.0, 5.0]   │
+│ 6.0 ┆ 356.0 ┆ 300.0 ┆ [333.0, 6.0]  │
+└─────┴───────┴───────┴───────────────┘
+```
+
+#### Scenario: Cumulative sum
+- **WHEN** `cumulativeEval(element().sum)` runs on 1, 2, 3
+- **THEN** the result is 1, 3, 6
