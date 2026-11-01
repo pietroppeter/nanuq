@@ -161,7 +161,7 @@ type
     ## model yet.
     Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
     UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Categorical,
-    Enum, List, Array, Struct, Other
+    Enum, List, Array, Struct, Binary, Decimal, Other
 
   DataType* = object
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
@@ -183,6 +183,9 @@ type
       width*: int               ## Number of values in each array
     of DataTypeKind.Struct:
       fields*: seq[Field]       ## The fields, in order
+    of DataTypeKind.Decimal:
+      precision*: int           ## Total number of digits (1 to 38)
+      scale*: int               ## Digits after the decimal point
     else: discard
 
   Field* = object
@@ -219,6 +222,8 @@ const
   Float64* = DataType(kind: DataTypeKind.Float64)
   String* = DataType(kind: DataTypeKind.String)
   Null* = DataType(kind: DataTypeKind.Null)
+  Binary* = DataType(kind: DataTypeKind.Binary)
+    ## Raw bytes. Nanuq reads them as strings (which hold any bytes).
   Categorical* = DataType(kind: DataTypeKind.Categorical)
     ## Strings stored as numbers, with categories found in the data (Polars'
     ## global categories). For a fixed set of values use `Enum`.
@@ -230,6 +235,7 @@ proc `==`*(a, b: DataType): bool {.noSideEffect.} =
   of DataTypeKind.Datetime, DataTypeKind.Duration:
     a.timeUnit == b.timeUnit and a.timeZone == b.timeZone
   of DataTypeKind.Enum: a.categories == b.categories
+  of DataTypeKind.Decimal: a.precision == b.precision and a.scale == b.scale
   of DataTypeKind.List: a.listInner[0] == b.listInner[0]
   of DataTypeKind.Array: a.width == b.width and a.arrayInner[0] == b.arrayInner[0]
   of DataTypeKind.Struct:
@@ -241,6 +247,15 @@ proc `==`*(a, b: DataType): bool {.noSideEffect.} =
   else: true
 
 proc `==`*(a, b: Field): bool = a.name == b.name and a.dtype == b.dtype
+
+proc Decimal*(precision = 38, scale = 0): DataType =
+  ## Polars' `Decimal`: exact numbers with `precision` digits, `scale` of them
+  ## after the point (`Decimal(10, 2)` for money). Read them as `string` or
+  ## `float`.
+  if precision notin 1..38 or scale notin 0..precision:
+    raise newException(ValueError, "Decimal precision must be 1 to 38 and scale 0 to precision, not (" &
+                       $precision & ", " & $scale & ")")
+  DataType(kind: DataTypeKind.Decimal, precision: precision, scale: scale)
 
 proc List*(inner: DataType): DataType =
   ## Polars' `List`: lists of any length of `inner` values (`List(Int64)`). Nim
@@ -337,6 +352,8 @@ proc shortName(t: DataType): string =
     let sh = t.shape
     "array[" & shortName(d) & ", " & (if sh.len == 1: $sh[0] else: "(" & sh.join(", ") & ")") & "]"
   of DataTypeKind.Struct: "struct[" & $t.fields.len & "]"
+  of DataTypeKind.Binary: "binary"
+  of DataTypeKind.Decimal: "decimal[" & $t.precision & "," & $t.scale & "]"
   of DataTypeKind.Other: t.name
 
 proc `$`*(t: DataType): string =
@@ -364,6 +381,7 @@ proc `$`*(t: DataType): string =
     var fs: seq[string]
     for f in t.fields: fs.add f.name.escape & ": " & $f.dtype
     "Struct({" & fs.join(", ") & "})"
+  of DataTypeKind.Decimal: "Decimal(" & $t.precision & ", " & $t.scale & ")"
   of DataTypeKind.Other: t.name
   else: $t.kind
 
@@ -458,7 +476,7 @@ proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
       result.zones[i] = t.timeZone
     if t.kind == DataTypeKind.Enum:
       result.cats[i] = cstrings(t.categories)   # points into ts, alive for the call
-    if t.kind in {DataTypeKind.List, DataTypeKind.Array, DataTypeKind.Struct}:
+    if t.kind in {DataTypeKind.List, DataTypeKind.Array, DataTypeKind.Struct, DataTypeKind.Decimal}:
       let h = toHandle(t)
       result.handles.add h
       result.specs[i].nested = h
@@ -483,6 +501,8 @@ proc toHandle(t: DataType): ptr NqDataType =
       hs[i] = toHandle(f.dtype)
     result = nq_dtype_struct(names.firstOrNil, hs.firstOrNil, hs.len.csize_t)
     for h in hs: nq_dtype_free(h)
+  of DataTypeKind.Decimal:
+    result = nq_dtype_decimal(t.precision.csize_t, t.scale.csize_t)
   else:
     let sp = toSpecs([t])
     result = nq_dtype_from_spec(sp.specs[0].unsafeAddr)
@@ -526,6 +546,10 @@ proc fromHandle(h: ptr NqDataType): DataType =
       fs[i] = Field(name: takeString nq_dtype_field_name(h, i.csize_t), dtype: fromHandle(f))
       nq_dtype_free(f)
     Struct(fs)
+  of DataTypeKind.Decimal:
+    var p, sc: csize_t
+    if not nq_dtype_decimal_params(h, addr p, addr sc): raiseLast()
+    DataType(kind: DataTypeKind.Decimal, precision: p.int, scale: sc.int)
   else:
     DataType(kind: DataTypeKind(k))
 
@@ -4283,6 +4307,114 @@ proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnDtype: DataType,
   ## `mapBatches` with a result of type `returnDtype`.
   mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), some(returnDtype), returnsScalar)
 
+# ---------------------------------------------------------------------------
+# Arrow C Data Interface and zero-copy views (0.6)
+# ---------------------------------------------------------------------------
+
+export ArrowSchema, ArrowArray, ArrowArrayStream
+
+type
+  ArrowExport* = object
+    ## A Series exported through the Arrow C Data Interface: the standard C
+    ## structs any Arrow library reads. Hand `addr x.schema` and `addr x.array`
+    ## to a consumer; a consumer that takes the array over sets its `release`
+    ## to nil. Whatever is still owned is released when `x` goes away.
+    schema*: ArrowSchema
+    array*: ArrowArray
+
+proc release*(x: var ArrowSchema) =
+  ## Releases the schema (its producer frees it), unless already released.
+  if x.release != nil: x.release(addr x)
+proc release*(x: var ArrowArray) =
+  if x.release != nil: x.release(addr x)
+proc release*(x: var ArrowArrayStream) =
+  if x.release != nil: x.release(addr x)
+
+proc `=destroy`(x: ArrowExport) =
+  if x.schema.release != nil: x.schema.release(addr x.schema)
+  if x.array.release != nil: x.array.release(addr x.array)
+proc `=copy`(a: var ArrowExport, b: ArrowExport) {.error: "an ArrowExport owns C memory: move it".}
+
+proc toArrow*(s: Series): ArrowExport =
+  ## The column through the Arrow C Data Interface, without copying the values
+  ## (several chunks are joined first). Python's `Series.to_arrow`.
+  if not nq_series_to_arrow(s.raw, addr result.schema, addr result.array): raiseLast()
+
+proc fromArrow*(schema: ArrowSchema, array: var ArrowArray, name = ""): Series =
+  ## A Series from Arrow C structs, without copying: the array is taken over
+  ## (its `release` becomes nil), the schema is only read. `name` overrides
+  ## the schema's name. Python's `pl.from_arrow`.
+  var sc = schema
+  wrap nq_series_from_arrow((if name.len > 0: name.cstring else: nil), addr sc, addr array)
+
+proc fromArrow*(x: var ArrowExport, name = ""): Series =
+  ## Imports an `ArrowExport` (from `toArrow` or built by hand).
+  fromArrow(x.schema, x.array, name)
+
+proc toArrow*(df: DataFrame): ArrowArrayStream =
+  ## The frame as an Arrow C stream of record batches (struct arrays), the way
+  ## Arrow tools exchange tables (Python's `__arrow_c_stream__`). The consumer
+  ## releases it.
+  if not nq_df_to_arrow_stream(df.raw, addr result): raiseLast()
+
+proc fromArrow*(stream: var ArrowArrayStream): DataFrame =
+  ## Reads a whole Arrow C stream of record batches into a frame, then releases
+  ## the stream.
+  wrap nq_df_from_arrow_stream(addr stream)
+
+type
+  ColumnView*[T] = object
+    ## Read-only, zero-copy access to the values of a numeric column without
+    ## nulls (see `view`). It keeps the column's buffer alive while it exists.
+    ex: ArrowExport
+    data: ptr UncheckedArray[T]
+    n: int
+
+proc arrowFormat(T: typedesc): string =
+  when T is int8: "c"
+  elif T is uint8: "C"
+  elif T is int16: "s"
+  elif T is uint16: "S"
+  elif T is int32: "i"
+  elif T is uint32: "I"
+  elif T is int64 or (T is int and sizeof(int) == 8): "l"
+  elif T is uint64: "L"
+  elif T is float32: "f"
+  elif T is float64: "g"
+  else: {.error: "view supports numeric types only, not " & $T.}
+
+proc view*[T: SomeNumber](s: Series, _: typedesc[T]): ColumnView[T] =
+  ## The values of `s` as a `ColumnView[T]`, without copying. `T` must match
+  ## the column's type exactly (`int` for Int64, `float` for Float64, `int32`
+  ## for Int32, ...) and the column must have no nulls (else
+  ## `InvalidOperationError`). Use `v[i]`, `v.len`, `for x in v` or
+  ## `v.toOpenArray` (for procs taking an `openArray[T]`).
+  result.ex = s.toArrow
+  if $result.ex.schema.format != arrowFormat(T):
+    raise newException(InvalidOperationError, "cannot view column '" & s.name & "' of type " &
+                       $s.dtype & " as " & $T)
+  if result.ex.array.nullCount != 0:
+    raise newException(InvalidOperationError, "column '" & s.name & "' has " &
+                       $result.ex.array.nullCount & " null(s): fill them first, or use toList")
+  result.n = result.ex.array.length.int
+  if result.n > 0:
+    let base = cast[ptr UncheckedArray[T]](result.ex.array.buffers[1])
+    result.data = cast[ptr UncheckedArray[T]](addr base[result.ex.array.offset])
+
+proc view*[T: SomeNumber](df: DataFrame, column: string, _: typedesc[T]): ColumnView[T] =
+  ## A zero-copy view of a frame column (see `view(Series)`).
+  df.getColumn(column).view(T)
+
+proc len*[T](v: ColumnView[T]): int = v.n
+proc `[]`*[T](v: ColumnView[T], i: int): T =
+  if i < 0 or i >= v.n: raise newException(IndexDefect, "index " & $i & " not in 0 .. " & $(v.n - 1))
+  v.data[i]
+iterator items*[T](v: ColumnView[T]): T =
+  for i in 0 ..< v.n: yield v.data[i]
+template toOpenArray*[T](v: ColumnView[T]): openArray[T] =
+  ## The values as an `openArray[T]`, for procs like `sum`: `sum(v.toOpenArray)`.
+  toOpenArray(v.data, 0, v.n - 1)
+
 proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
   ## Each value passed to a typed Nim proc or closure: `proc (x: int): string`.
   ## The values are read as `T` (an object or named tuple for a struct column,
@@ -4302,6 +4434,13 @@ proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
         if x.isSome: ys[i] = f(x.get)
       series(s.name, ys)
     else:
+      when T is SomeNumber and not (T is int and sizeof(int) != 8):
+        if s.nullCount == 0 and s.dtype == dataType(T):
+          # Numbers without nulls: read the batch in place (no copy in).
+          let v = s.view(T)
+          var ys = newSeq[U](v.len)
+          for i in 0 ..< v.len: ys[i] = f(v.data[i])
+          return series(s.name, ys)
       if s.nullCount == 0:
         # No nulls: plain seqs both ways, which skips the Option copies.
         let xs = s.toList(T)
@@ -4686,3 +4825,348 @@ proc groupBy*(lf: LazyFrame, by: varargs[string], maintainOrder: bool): LazyGrou
   lf.groupBy(by)
 proc groupBy*(df: DataFrame, by: varargs[Expr], maintainOrder: bool): GroupBy = df.groupBy(by)
 proc groupBy*(lf: LazyFrame, by: varargs[Expr], maintainOrder: bool): LazyGroupBy = lf.groupBy(by)
+
+# ---------------------------------------------------------------------------
+# Streaming engine, sinks and profiling (0.6)
+# ---------------------------------------------------------------------------
+
+type
+  Engine* {.pure.} = enum
+    ## Which engine runs a query (Python's `engine=`). `Auto` lets Polars pick
+    ## (today the in-memory engine); `Streaming` processes the data in batches,
+    ## so it can handle data larger than memory.
+    Auto, Streaming, InMemory
+
+  PartitionBy* = object
+    ## Target of a partitioned sink (Python's `pl.PartitionBy`): one Hive-style
+    ## directory per value of the `key` columns under `basePath`
+    ## (`basePath/year=2024/...`), or, without `key`, files of at most
+    ## `maxRowsPerFile` rows.
+    basePath*: string
+    key*: seq[string]
+    includeKey*: bool = true
+    maxRowsPerFile*: int
+
+proc collect*(lf: LazyFrame, engine: Engine): DataFrame =
+  ## Runs the query with the given engine: `collect(engine = Engine.Streaming)`.
+  wrap nq_lf_collect_engine(lf.raw, ord(engine).uint8)
+
+proc collectAll*(lfs: openArray[LazyFrame], engine: Engine): seq[DataFrame] =
+  ## `collectAll` with the given engine.
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  var outs = newSeq[ptr NqDataFrame](lfs.len)
+  if not nq_collect_all_engine(rs.firstOrNil, rs.len.csize_t, ord(engine).uint8,
+                               outs.firstOrNil): raiseLast()
+  for o in outs: result.add wrap(o)
+
+proc sinkOptions(format: uint8, maintainOrder, mkdir: bool): NqSinkOptions =
+  NqSinkOptions(format: format, parquetCompression: NqParquetCompression(ord(ParquetCompression.Zstd)),
+                compressionLevel: -1, statistics: true, separator: ','.uint8,
+                includeHeader: true, nullValue: "", floatPrecision: -1,
+                maintainOrder: maintainOrder, mkdir: mkdir)
+
+proc sinkImpl(lf: LazyFrame, path: string, part: ptr PartitionBy, o: NqSinkOptions,
+              lazy: bool): LazyFrame =
+  var o = o
+  if part == nil:
+    result = wrap nq_lf_sink(lf.raw, path.cstring, nil, nil, 0, true, 0, addr o)
+  else:
+    let keys = part[].key.mapIt(col(it))
+    let raws = keys.mapIt(it.raw)
+    result = wrap nq_lf_sink(lf.raw, nil, part[].basePath.cstring, raws.firstOrNil,
+                             raws.len.csize_t, part[].includeKey,
+                             part[].maxRowsPerFile.int64, addr o)
+  if not lazy:
+    discard result.collect(Engine.Streaming)
+
+proc parquetOpts(compression: ParquetCompression, compressionLevel: Option[int],
+                 statistics: bool, rowGroupSize: Option[int], maintainOrder,
+                 mkdir: bool): NqSinkOptions =
+  if compressionLevel.isSome and compression notin {ParquetCompression.Gzip,
+      ParquetCompression.Brotli, ParquetCompression.Zstd}:
+    raise newException(ValueError, "compressionLevel needs Gzip, Brotli or Zstd, not " &
+                       $compression)
+  result = sinkOptions(0, maintainOrder, mkdir)
+  result.parquetCompression = NqParquetCompression(ord(compression))
+  result.compressionLevel = (if compressionLevel.isSome: compressionLevel.get.int32 else: -1'i32)
+  result.statistics = statistics
+  result.rowGroupSize = (if rowGroupSize.isSome: rowGroupSize.get.int64 else: 0'i64)
+
+proc ipcOpts(compression: IpcCompression, maintainOrder, mkdir: bool): NqSinkOptions =
+  result = sinkOptions(1, maintainOrder, mkdir)
+  result.ipcCompression = NqIpcCompression(ord(compression))
+
+proc csvOpts(separator: char, includeHeader: bool, nullValue: string,
+             quoteStyle: QuoteStyle, floatPrecision: Option[int], decimalComma,
+             maintainOrder, mkdir: bool): NqSinkOptions =
+  result = sinkOptions(2, maintainOrder, mkdir)
+  result.separator = separator.uint8
+  result.includeHeader = includeHeader
+  result.nullValue = nullValue.cstring
+  result.quoteStyle = NqQuoteStyle(ord(quoteStyle))
+  result.floatPrecision = (if floatPrecision.isSome: floatPrecision.get.int32 else: -1'i32)
+  result.decimalComma = decimalComma
+
+type SinkTarget = string | PartitionBy
+
+proc sinkTo(lf: LazyFrame, target: SinkTarget, o: NqSinkOptions, lazy: bool): LazyFrame =
+  when target is string:
+    sinkImpl(lf, target, nil, o, lazy)
+  else:
+    var t = target
+    sinkImpl(lf, "", addr t, o, lazy)
+
+proc sinkParquet*(lf: LazyFrame, target: SinkTarget, compression = ParquetCompression.Zstd,
+                  compressionLevel: int | Option[int] = none(int), statistics = true,
+                  rowGroupSize: int | Option[int] = none(int), maintainOrder = true,
+                  mkdir = false, lazy: static bool = false): auto =
+  ## Runs the query with the streaming engine and writes the result to a
+  ## Parquet file (`target` a path) or to partitioned files (`PartitionBy`).
+  ## Options as in `writeParquet`; `mkdir` creates missing directories. With
+  ## `lazy = true` it returns the sink as a LazyFrame instead, which writes
+  ## the file when collected (several at once with `collectAll`).
+  let o = parquetOpts(compression, toOpt(compressionLevel), statistics, toOpt(rowGroupSize),
+                      maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true)
+  else: discard sinkTo(lf, target, o, false)
+
+proc sinkIpc*(lf: LazyFrame, target: SinkTarget, compression = IpcCompression.Uncompressed,
+              maintainOrder = true, mkdir = false, lazy: static bool = false): auto =
+  ## Like `sinkParquet`, to Arrow IPC files (options as in `writeIpc`).
+  let o = ipcOpts(compression, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true)
+  else: discard sinkTo(lf, target, o, false)
+
+proc sinkCsv*(lf: LazyFrame, target: SinkTarget, separator = ',', includeHeader = true,
+              nullValue = "", quoteStyle = QuoteStyle.Necessary,
+              floatPrecision: int | Option[int] = none(int), decimalComma = false,
+              maintainOrder = true, mkdir = false, lazy: static bool = false): auto =
+  ## Like `sinkParquet`, to CSV files (options as in `writeCsv`).
+  let o = csvOpts(separator, includeHeader, nullValue, quoteStyle, toOpt(floatPrecision),
+                  decimalComma, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true)
+  else: discard sinkTo(lf, target, o, false)
+
+proc sinkNdjson*(lf: LazyFrame, target: SinkTarget, maintainOrder = true, mkdir = false,
+                 lazy: static bool = false): auto =
+  ## Like `sinkParquet`, to newline-delimited JSON files.
+  let o = sinkOptions(3, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true)
+  else: discard sinkTo(lf, target, o, false)
+
+proc profile*(lf: LazyFrame): tuple[result, timings: DataFrame] =
+  ## Runs the query and returns its result and a frame of node timings
+  ## (`node`, `start`, `end`, in microseconds since the query started).
+  var t: ptr NqDataFrame
+  let r = nq_lf_profile(lf.raw, addr t)
+  if r == nil: raiseLast()
+  (wrap(r), wrap(t))
+
+# ---------------------------------------------------------------------------
+# Plan and expression serialization, more meta (0.6)
+# ---------------------------------------------------------------------------
+
+type
+  SerializationFormat* {.pure.} = enum
+    ## Format of `serialize` and `deserialize`: Polars' versioned binary format,
+    ## or JSON text.
+    Binary, Json
+
+proc takeBytes(b: NqBytes, ok: bool): string =
+  if not ok:
+    nq_bytes_free(b)
+    raiseLast()
+  result = newString(b.len.int)
+  if b.len > 0: copyMem(addr result[0], b.p, b.len.int)
+  nq_bytes_free(b)
+
+proc serialize*(lf: LazyFrame, format = SerializationFormat.Binary): string =
+  ## The query plan as bytes (in a string) or JSON text. In-memory frames in
+  ## the plan travel with it. Plans with Nim callbacks can't be serialized.
+  var ok: bool
+  let b = nq_lf_serialize(lf.raw, format == SerializationFormat.Json, addr ok)
+  takeBytes(b, ok)
+
+proc serialize*(lf: LazyFrame, path: string, format = SerializationFormat.Binary) =
+  ## Writes the serialized plan to a file.
+  writeFile(path, lf.serialize(format))
+
+proc deserialize*(T: typedesc[LazyFrame], data: string,
+                  format = SerializationFormat.Binary): LazyFrame =
+  ## Rebuilds a LazyFrame from `serialize`'s output (Python's
+  ## `pl.LazyFrame.deserialize`).
+  wrap nq_lf_deserialize((if data.len > 0: unsafeAddr data[0] else: nil), data.len.csize_t,
+                         format == SerializationFormat.Json)
+
+proc deserializeFile*(T: typedesc[LazyFrame], path: string,
+                      format = SerializationFormat.Binary): LazyFrame =
+  ## Rebuilds a LazyFrame from a file written by `serialize(path)`.
+  deserialize(LazyFrame, readFile(path), format)
+
+proc serialize*(m: MetaNameSpace, format = SerializationFormat.Binary): string =
+  ## The expression as bytes (in a string) or JSON text.
+  var ok: bool
+  let b = nq_expr_serialize(Expr(m).raw, format == SerializationFormat.Json, addr ok)
+  takeBytes(b, ok)
+
+proc deserialize*(T: typedesc[Expr], data: string,
+                  format = SerializationFormat.Binary): Expr =
+  ## Rebuilds an expression from `e.meta.serialize`'s output.
+  wrap nq_expr_deserialize((if data.len > 0: unsafeAddr data[0] else: nil), data.len.csize_t,
+                           format == SerializationFormat.Json)
+
+proc metaBool2(m: MetaNameSpace, other: Expr, what: int32, flag = false): bool =
+  let r = nq_expr_meta_bool2(Expr(m).raw, raw(other), what, flag)
+  if r < 0: raiseLast()
+  r == 1
+
+proc eq*(m: MetaNameSpace, other: Expr): bool = m.metaBool2(other, 0)
+  ## Whether both expressions are the same tree.
+proc ne*(m: MetaNameSpace, other: Expr): bool = not m.eq(other)
+proc isRegexProjection*(m: MetaNameSpace): bool = m.metaBool2(nil, 2)
+  ## Whether it selects columns by a regex (`col("^x.*$")`).
+proc isColumnSelection*(m: MetaNameSpace, allowAliasing = false): bool =
+  ## Whether it only selects columns (a name, a regex, a selector).
+  m.metaBool2(nil, 3, allowAliasing)
+proc isLiteral*(m: MetaNameSpace, allowAliasing: bool): bool = m.metaBool2(nil, 4, allowAliasing)
+proc pop*(m: MetaNameSpace): seq[Expr] =
+  ## The inputs of the outermost node.
+  var n: csize_t
+  let a = nq_expr_meta_pop(Expr(m).raw, addr n)
+  if a == nil: raiseLast()
+  for i in 0 ..< n.int: result.add wrap(a[i])
+  nq_expr_array_free(a, n)
+proc treeFormat*(m: MetaNameSpace): string =
+  ## The expression tree as text.
+  let s = nq_expr_meta_tree_format(Expr(m).raw)
+  if s == nil: raiseLast()
+  takeString s
+
+# ---------------------------------------------------------------------------
+# Binary and Decimal data, the bin namespace, bitwise operations (0.6)
+# ---------------------------------------------------------------------------
+
+proc binaryImpl(name: string, data: openArray[Option[string]]): Series =
+  var bytes: seq[uint8]
+  var offsets = newSeq[uint64](data.len + 1)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      valid[i] = true
+      for c in x.get: bytes.add c.uint8
+    offsets[i + 1] = bytes.len.uint64
+  wrap nq_series_new_binary(name.cstring, bytes.firstOrNil, offsets.firstOrNil,
+                            valid.firstOrNil, data.len.csize_t)
+
+proc series*(name: string, data: openArray[string], dtype: DataType): Series =
+  ## Strings as a column of `dtype`. With `Binary` each string is taken as raw
+  ## bytes (any bytes, not only UTF-8): `series("b", ["\x00\xff"], Binary)`.
+  ## Other types cast the strings: `series("d", ["1.25"], Decimal(5, 2))`.
+  if dtype.kind == DataTypeKind.Binary:
+    var opts = newSeq[Option[string]](data.len)
+    for i, x in data: opts[i] = some(x)
+    binaryImpl(name, opts)
+  else:
+    castSeries(series(name, data), dtype)
+
+proc series*(name: string, data: openArray[Option[string]], dtype: DataType): Series =
+  if dtype.kind == DataTypeKind.Binary: binaryImpl(name, data)
+  else: castSeries(series(name, data), dtype)
+
+type
+  BinNameSpace* = distinct Expr
+    ## `e.bin`: operations on Binary columns.
+  BinaryEncoding* {.pure.} = enum
+    ## Text encodings of bytes for `bin.encode`, `bin.decode` and `str.encode`.
+    Hex, Base64
+
+proc bin*(e: Expr): BinNameSpace = BinNameSpace(e)
+proc binOp(b: BinNameSpace, op: int32, a: Expr = nil): Expr =
+  wrap nq_expr_bin(Expr(b).raw, op, raw(a))
+proc binLit(x: string | Expr): Expr =
+  when x is string: series("", [x], Binary).lit else: x
+proc contains*(b: BinNameSpace, literal: string | Expr): Expr = binOp(b, 0, binLit(literal))
+  ## Whether the bytes contain `literal`.
+proc startsWith*(b: BinNameSpace, prefix: string | Expr): Expr = binOp(b, 1, binLit(prefix))
+proc endsWith*(b: BinNameSpace, suffix: string | Expr): Expr = binOp(b, 2, binLit(suffix))
+proc encode*(b: BinNameSpace, encoding: BinaryEncoding): Expr =
+  ## The bytes as hex or base64 text.
+  binOp(b, (if encoding == BinaryEncoding.Hex: 3 else: 4))
+proc decode*(b: BinNameSpace, encoding: BinaryEncoding): Expr =
+  ## Hex or base64 text (held as bytes) decoded; invalid input raises.
+  binOp(b, (if encoding == BinaryEncoding.Hex: 5 else: 6))
+proc size*(b: BinNameSpace, unit = SizeUnit.Bytes): Expr =
+  ## Number of bytes of each value (or kilobytes, ... as floats).
+  result = binOp(b, 7)
+  if unit != SizeUnit.Bytes:
+    result = result.cast(Float64) / pow(1024.0, ord(unit).float)
+
+proc encode*(s: StrNameSpace, encoding: BinaryEncoding): Expr =
+  ## The UTF-8 bytes of each string as hex or base64 text.
+  wrap nq_expr_str_codec(Expr(s).raw, (if encoding == BinaryEncoding.Hex: 0 else: 1), 0)
+proc toDecimal*(s: StrNameSpace, scale: int): Expr =
+  ## Parses strings as decimals with `scale` digits after the point
+  ## (`Decimal(38, scale)`).
+  wrap nq_expr_str_codec(Expr(s).raw, 4, scale.int64)
+
+proc bitwiseOp(e: Expr, op: int32): Expr = wrap nq_expr_bitwise(e.raw, op)
+proc bitwiseCountOnes*(e: Expr): Expr = bitwiseOp(e, 0)
+  ## Number of 1 bits in each integer.
+proc bitwiseCountZeros*(e: Expr): Expr = bitwiseOp(e, 1)
+proc bitwiseLeadingOnes*(e: Expr): Expr = bitwiseOp(e, 2)
+proc bitwiseLeadingZeros*(e: Expr): Expr = bitwiseOp(e, 3)
+proc bitwiseTrailingOnes*(e: Expr): Expr = bitwiseOp(e, 4)
+proc bitwiseTrailingZeros*(e: Expr): Expr = bitwiseOp(e, 5)
+proc bitwiseAnd*(e: Expr): Expr = bitwiseOp(e, 6)
+  ## All values combined with bitwise and (an aggregation).
+proc bitwiseOr*(e: Expr): Expr = bitwiseOp(e, 7)
+proc bitwiseXor*(e: Expr): Expr = bitwiseOp(e, 8)
+
+# ---------------------------------------------------------------------------
+# Excel (0.6): read with calamine, write with rust_xlsxwriter (Rust crates in the lib)
+# ---------------------------------------------------------------------------
+
+proc excelSheetNames(path: string): seq[string] =
+  let r = nq_excel_sheet_names(path.cstring)
+  if r == nil: raiseLast()
+  let t = takeString r
+  if t.len > 0: result = t.split('\n')
+
+proc readExcelImpl(path: string, sheetName: string, sheetIndex: int, hasHeader: bool,
+                   skipRows: int, columns: openArray[string],
+                   schemaOverrides: openArray[(string, DataType)]): DataFrame =
+  if skipRows < 0: raise newException(ValueError, "skipRows must not be negative")
+  result = wrap nq_read_excel(path.cstring, (if sheetName.len > 0: sheetName.cstring else: nil),
+                              sheetIndex.csize_t, hasHeader, skipRows.csize_t)
+  if schemaOverrides.len > 0: result = result.cast(schemaOverrides)
+  if columns.len > 0: result = result.select(columns)
+
+proc readExcel*(path: string, sheetName = "", sheetId = 1, hasHeader = true, skipRows = 0,
+                columns: openArray[string] = [],
+                schemaOverrides: openArray[(string, DataType)] = []): DataFrame =
+  ## Reads one sheet of an Excel (.xlsx, .xlsm, .xlsb, .xls) or OpenDocument
+  ## (.ods) file: the sheet named `sheetName`, else the `sheetId`-th (from 1).
+  ## The first row (after `skipRows`) holds the column names unless
+  ## `hasHeader = false` (`column_1`, ...). Column types are inferred from the
+  ## cells: Boolean, Int64 (whole numbers), Float64, Date (dates at midnight),
+  ## Datetime[ms], else String; `schemaOverrides` casts some columns.
+  if sheetName.len == 0 and sheetId < 1:
+    raise newException(ValueError, "sheetId counts from 1; use readExcelSheets for all sheets")
+  readExcelImpl(path, sheetName, sheetId - 1, hasHeader, skipRows, columns, schemaOverrides)
+
+proc readExcelSheets*(path: string, hasHeader = true, skipRows = 0): OrderedTable[string, DataFrame] =
+  ## Every sheet of a workbook, by name, in order (Python's `sheet_id = 0`).
+  for i, n in excelSheetNames(path):
+    result[n] = readExcelImpl(path, n, i, hasHeader, skipRows, [], [])
+
+proc writeExcel*(df: DataFrame, path: string, worksheet = "Sheet1", includeHeader = true,
+                 autofit = false, floatPrecision: int | Option[int] = none(int)) =
+  ## Writes `df` to a new .xlsx file with one worksheet: a bold header row, then
+  ## the values as Excel numbers, booleans, dates (`yyyy-mm-dd`), datetimes and
+  ## text. `floatPrecision` sets the decimals shown for floats; `autofit` sizes
+  ## the columns to their contents.
+  let p = toOpt(floatPrecision)
+  if not nq_write_excel(df.raw, path.cstring, worksheet.cstring, includeHeader, autofit,
+                        (if p.isSome: p.get.int32 else: -1'i32)):
+    raiseLast()

@@ -236,7 +236,7 @@ type
     nqBoolean, nqInt8, nqInt16, nqInt32, nqInt64,
     nqUInt8, nqUInt16, nqUInt32, nqUInt64,
     nqFloat32, nqFloat64, nqString, nqNull, nqDate, nqDatetime, nqDuration, nqTime,
-    nqCategorical, nqEnum, nqList, nqArray, nqStruct, nqOther
+    nqCategorical, nqEnum, nqList, nqArray, nqStruct, nqBinary, nqDecimal, nqOther
   NqTimeUnit* {.size: sizeof(cint).} = enum
     nquNanoseconds, nquMicroseconds, nquMilliseconds
   NqClosedWindow* {.size: sizeof(cint).} = enum
@@ -318,6 +318,63 @@ type
     nqaLen, nqaSum, nqaMin, nqaMax, nqaMean, nqaMedian, nqaStd, nqaVar, nqaArgMin, nqaArgMax,
     nqaGet, nqaJoin, nqaContains, nqaCountMatches, nqaSort, nqaSlice, nqaHead, nqaTail,
     nqaShift, nqaToList, nqaToStruct, nqaExplode, nqaEval, nqaAgg
+
+# streaming engine, sinks, profiling (0.6)
+type
+  NqSinkOptions* {.bycopy.} = object
+    format*: uint8
+    parquetCompression*: NqParquetCompression
+    compressionLevel*: int32
+    statistics*: bool
+    rowGroupSize*: int64
+    ipcCompression*: NqIpcCompression
+    separator*: uint8
+    includeHeader*: bool
+    nullValue*: cstring
+    quoteStyle*: NqQuoteStyle
+    floatPrecision*: int32
+    decimalComma*: bool
+    maintainOrder*: bool
+    mkdir*: bool
+
+# serialization and meta (0.6)
+type
+  NqBytes* {.bycopy.} = object
+    p*: ptr UncheckedArray[byte]
+    len*: csize_t
+
+# Arrow C Data Interface (0.6). The struct layouts are the Arrow standard ones.
+type
+  ArrowSchema* {.bycopy.} = object
+    ## Arrow C Data Interface schema (`struct ArrowSchema`).
+    format*: cstring
+    name*: cstring
+    metadata*: cstring
+    flags*: int64
+    nChildren*: int64
+    children*: ptr UncheckedArray[ptr ArrowSchema]
+    dictionary*: ptr ArrowSchema
+    release*: proc (s: ptr ArrowSchema) {.cdecl, gcsafe, raises: [].}
+    privateData*: pointer
+  ArrowArray* {.bycopy.} = object
+    ## Arrow C Data Interface array (`struct ArrowArray`).
+    length*: int64
+    nullCount*: int64
+    offset*: int64
+    nBuffers*: int64
+    nChildren*: int64
+    buffers*: ptr UncheckedArray[pointer]
+    children*: ptr UncheckedArray[ptr ArrowArray]
+    dictionary*: ptr ArrowArray
+    release*: proc (a: ptr ArrowArray) {.cdecl, gcsafe, raises: [].}
+    privateData*: pointer
+  ArrowArrayStream* {.bycopy.} = object
+    ## Arrow C stream interface (`struct ArrowArrayStream`).
+    getSchema*: proc (s: ptr ArrowArrayStream, o: ptr ArrowSchema): cint {.cdecl, gcsafe, raises: [].}
+    getNext*: proc (s: ptr ArrowArrayStream, o: ptr ArrowArray): cint {.cdecl, gcsafe, raises: [].}
+    getLastError*: proc (s: ptr ArrowArrayStream): cstring {.cdecl, gcsafe, raises: [].}
+    release*: proc (s: ptr ArrowArrayStream) {.cdecl, gcsafe, raises: [].}
+    privateData*: pointer
 
 {.push importc, cdecl.}
 
@@ -667,6 +724,40 @@ proc nq_df_estimated_size*(df: ptr NqDataFrame): int64
 proc nq_df_upsample*(df: ptr NqDataFrame, timeColumn, every: cstring, by: ptr cstring,
                      nBy: csize_t, maintainOrder: bool): ptr NqDataFrame
 proc nq_collect_all*(lfs: ptr ptr NqLazyFrame, n: csize_t, outp: ptr ptr NqDataFrame): bool
+proc nq_lf_collect_engine*(lf: ptr NqLazyFrame, engine: uint8): ptr NqDataFrame
+proc nq_collect_all_engine*(lfs: ptr ptr NqLazyFrame, n: csize_t, engine: uint8,
+                            outp: ptr ptr NqDataFrame): bool
+proc nq_lf_sink*(lf: ptr NqLazyFrame, path, basePath: cstring, keys: ptr ptr NqExpr,
+                 nKeys: csize_t, includeKeys: bool, maxRowsPerFile: int64,
+                 o: ptr NqSinkOptions): ptr NqLazyFrame
+proc nq_lf_profile*(lf: ptr NqLazyFrame, timings: ptr ptr NqDataFrame): ptr NqDataFrame
+proc nq_bytes_free*(b: NqBytes)
+proc nq_lf_serialize*(lf: ptr NqLazyFrame, json: bool, ok: ptr bool): NqBytes
+proc nq_lf_deserialize*(data: pointer, len: csize_t, json: bool): ptr NqLazyFrame
+proc nq_expr_serialize*(e: ptr NqExpr, json: bool, ok: ptr bool): NqBytes
+proc nq_expr_deserialize*(data: pointer, len: csize_t, json: bool): ptr NqExpr
+proc nq_expr_meta_bool2*(e, other: ptr NqExpr, what: int32, flag: bool): int32
+proc nq_expr_meta_pop*(e: ptr NqExpr, n: ptr csize_t): ptr UncheckedArray[ptr NqExpr]
+proc nq_expr_array_free*(a: ptr UncheckedArray[ptr NqExpr], n: csize_t)
+proc nq_expr_meta_tree_format*(e: ptr NqExpr): cstring
+# Binary, Decimal, bitwise (0.6)
+proc nq_dtype_decimal*(precision, scale: csize_t): ptr NqDataType
+proc nq_dtype_decimal_params*(d: ptr NqDataType, p, s: ptr csize_t): bool
+proc nq_series_new_binary*(name: cstring, data: ptr uint8, offsets: ptr uint64,
+                           valid: ptr bool, n: csize_t): ptr NqSeries
+proc nq_expr_bin*(e: ptr NqExpr, op: int32, a: ptr NqExpr): ptr NqExpr
+proc nq_expr_str_codec*(e: ptr NqExpr, op: int32, scale: int64): ptr NqExpr
+proc nq_expr_bitwise*(e: ptr NqExpr, op: int32): ptr NqExpr
+proc nq_series_to_arrow*(s: ptr NqSeries, schema: ptr ArrowSchema, arr: ptr ArrowArray): bool
+proc nq_series_from_arrow*(name: cstring, schema: ptr ArrowSchema, arr: ptr ArrowArray): ptr NqSeries
+proc nq_df_to_arrow_stream*(df: ptr NqDataFrame, stream: ptr ArrowArrayStream): bool
+proc nq_df_from_arrow_stream*(stream: ptr ArrowArrayStream): ptr NqDataFrame
+# Excel (0.6)
+proc nq_excel_sheet_names*(path: cstring): cstring
+proc nq_read_excel*(path, sheetName: cstring, sheetIndex: csize_t, hasHeader: bool,
+                    skipRows: csize_t): ptr NqDataFrame
+proc nq_write_excel*(df: ptr NqDataFrame, path, worksheet: cstring, includeHeader,
+                     autofit: bool, floatPrecision: int32): bool
 {.pop.}
 
 let compiledFor = nanuqLibVersion
