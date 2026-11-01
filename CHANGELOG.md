@@ -7,6 +7,35 @@ its OpenSpec change is archived. Format based on
 ## [Unreleased]
 
 ### Added
+- Math functions: `sqrt`, `cbrt`, `exp`, `log(base)`, `log10`, `log1p`, `sign`,
+  `floor`, `ceil`, `clip` (both bounds, or one named), trigonometry (`sin` ... `arctanh`,
+  `degrees`, `radians`, `arctan2`), `dot`, and NaN and infinity (`isNan`, `isFinite`,
+  `isInfinite`, `fillNan`, `dropNans`, `Expr.dropNulls`). The wrapper crate is
+  `0.4.0-dev`. (add-expr-math, #51)
+- `shift` (with `fillValue`), `diff` (with `NullBehavior`), `pctChange`, cumulative
+  functions (`cumSum`, `cumProd`, `cumMin`, `cumMax`, `cumCount`, with `reverse`),
+  `rleId`, `peakMax`, `peakMin`, and the aggregations `product`, `mode`, `argMin`,
+  `argMax`, `skew`, `kurtosis`. (add-cumulative-and-shift, #51)
+- Rolling windows: `rollingSum`, `rollingMean`, `rollingMin`, `rollingMax`,
+  `rollingMedian`, `rollingStd`, `rollingVar`, `rollingQuantile` over rows (with
+  `weights`, `minSamples`, `center`) and their `By` variants over a time column
+  (`rollingMeanBy("day", 7.days)`); `ewmMean`, `ewmStd`, `ewmVar`; `interpolate` and
+  `interpolateBy`. (add-rolling-and-ewm, #51)
+- Value functions: `Expr.sort`, `argSort`, `sortBy`, `reverse`, `head`, `tail`, `slice`,
+  `gather`, `gatherEvery`, `topK`, `bottomK`, `topKBy`, `bottomKBy`, `indexOf`,
+  `searchSorted`; `Expr.unique`, `isUnique`, `isDuplicated`, `isFirstDistinct`,
+  `isLastDistinct`, `argUnique`, `uniqueCounts`, `approxNUnique`; `replace` and
+  `replaceStrict` (with a mapping `{"a": "x"}`), `cut`, `qcut`; and `valueCounts` on
+  frames. (add-value-functions, #51)
+- Horizontal functions (`sumHorizontal`, `meanHorizontal`, `minHorizontal`,
+  `maxHorizontal`, `allHorizontal`, `anyHorizontal`, `coalesce`), `intRange`,
+  `linearSpace`, `repeat`, and `corr` (Pearson or Spearman) and `cov`.
+  (add-horizontal-and-ranges, #51)
+- Reshaping: `pivot` (with `PivotAgg` or an expression on `element()`), `unpivot`,
+  `transpose`, `partitionBy`, `toDummies`; `Expr.item`. (add-reshaping, #51)
+- Time-based grouping and as-of joins: `groupByDynamic` (with `every`, `period`,
+  `offset`, `Label`, `StartBy`), the rolling group-by `rolling(indexColumn, period)`, and
+  `joinAsof` (with `AsofStrategy`, `by`, `tolerance`). (add-dynamic-group-by, #51)
 - Dev log post "Aged 19", the 0.3 explainer: Paul Seixas's 2026 season and 130 years
   of cycling's age and speed records, using every 0.3 feature on Wikipedia data. Each
   output is checked against the same steps in Python Polars when the page is built.

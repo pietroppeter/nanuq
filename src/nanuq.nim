@@ -69,9 +69,18 @@ type
   Series* = ref SeriesObj
     ## A named column, used to build a DataFrame.
 
+  GroupKind = enum gkPlain, gkDynamic, gkRolling
   LazyGroupBy* = object
+    ## Grouped rows waiting for `agg`: from `groupBy`, `groupByDynamic` or `rolling`.
     lf: LazyFrame
     by: seq[Expr]
+    kind: GroupKind
+    index: Expr
+    every, period, offset: string
+    label: NqLabel
+    includeBoundaries: bool
+    closed: NqClosedWindow
+    startBy: NqStartBy
 
 # Polars objects are immutable from Nim's point of view, so values are shared
 # refs and the Rust object is freed when the last ref goes away.
@@ -942,6 +951,125 @@ proc `cast`*(e: Expr, T: typedesc, strict = true, timeUnit = TimeUnit.Microsecon
   e.cast(dataType(T, timeUnit, timeZone), strict)
 
 # ---------------------------------------------------------------------------
+# Math functions (0.4)
+# ---------------------------------------------------------------------------
+
+proc sqrt*(e: Expr): Expr = unary(e, nqSqrt)
+proc cbrt*(e: Expr): Expr = unary(e, nqCbrt)
+proc exp*(e: Expr): Expr = unary(e, nqExp)
+proc log10*(e: Expr): Expr = unary(e, nqLog10)
+proc log1p*(e: Expr): Expr = unary(e, nqLog1p)
+  ## Natural logarithm of `1 + value`.
+proc sign*(e: Expr): Expr = unary(e, nqSign)
+  ## -1, 0 or 1 (std/math calls it `sgn`).
+proc floor*(e: Expr): Expr = unary(e, nqFloor)
+proc ceil*(e: Expr): Expr = unary(e, nqCeil)
+proc sin*(e: Expr): Expr = unary(e, nqSin)
+proc cos*(e: Expr): Expr = unary(e, nqCos)
+proc tan*(e: Expr): Expr = unary(e, nqTan)
+proc cot*(e: Expr): Expr = unary(e, nqCot)
+proc arcsin*(e: Expr): Expr = unary(e, nqArcSin)
+proc arccos*(e: Expr): Expr = unary(e, nqArcCos)
+proc arctan*(e: Expr): Expr = unary(e, nqArcTan)
+proc sinh*(e: Expr): Expr = unary(e, nqSinh)
+proc cosh*(e: Expr): Expr = unary(e, nqCosh)
+proc tanh*(e: Expr): Expr = unary(e, nqTanh)
+proc arcsinh*(e: Expr): Expr = unary(e, nqArcSinh)
+proc arccosh*(e: Expr): Expr = unary(e, nqArcCosh)
+proc arctanh*(e: Expr): Expr = unary(e, nqArcTanh)
+proc degrees*(e: Expr): Expr = unary(e, nqDegrees)
+proc radians*(e: Expr): Expr = unary(e, nqRadians)
+proc isNan*(e: Expr): Expr = unary(e, nqIsNan)
+  ## True for NaN. NaN is a float value, not a null: nulls give null.
+proc isNotNan*(e: Expr): Expr = unary(e, nqIsNotNan)
+proc isFinite*(e: Expr): Expr = unary(e, nqIsFinite)
+proc isInfinite*(e: Expr): Expr = unary(e, nqIsInfinite)
+proc dropNans*(e: Expr): Expr = unary(e, nqDropNans)
+proc dropNulls*(e: Expr): Expr = unary(e, nqDropNulls)
+
+proc binaryFn(a, b: Expr, op: NqBinaryFn): Expr = wrap nq_expr_binary_fn(a.raw, b.raw, op)
+
+proc log*[T: SomeNumber | Expr](e: Expr, base: T): Expr =
+  ## Logarithm to `base` (`log(2.0)` for log2).
+  binaryFn(e, lit(when T is Expr: base else: base.float), nqbLog)
+proc log*(e: Expr): Expr =
+  ## Natural logarithm, as Polars' `log()` with its default base.
+  e.log(E)
+proc arctan2*[A, B: SomeNumber | Expr](y: A, x: B): Expr =
+  ## Angle of the point (x, y) in radians, like Python's `pl.arctan2(y, x)`.
+  binaryFn(lit(y), lit(x), nqbArctan2)
+proc dot*[T: SomeNumber | Expr](e: Expr, other: T): Expr =
+  ## Sum of the elementwise products (an aggregation).
+  binaryFn(e, lit(other), nqbDot)
+proc fillNan*[T: SomeNumber | Expr](e: Expr, value: T): Expr =
+  ## Replaces NaN (not nulls) with `value`.
+  binaryFn(e, lit(value), nqbFillNan)
+
+proc clipImpl(e: Expr, lo, hi: Expr): Expr =
+  wrap nq_expr_clip(e.raw, (if lo.isNil: nil else: lo.raw), (if hi.isNil: nil else: hi.raw))
+proc clip*[A, B: SomeNumber | TemporalValue | Expr](e: Expr, lowerBound: A, upperBound: B): Expr =
+  ## Limits values to `lowerBound..upperBound` (literals or expressions).
+  clipImpl(e, lit(lowerBound), lit(upperBound))
+proc clip*[A: SomeNumber | TemporalValue | Expr](e: Expr, lowerBound: A): Expr =
+  ## Limits values from below. Name the bound: `clip(lowerBound = 0)`.
+  clipImpl(e, lit(lowerBound), nil)
+proc clip*[B: SomeNumber | TemporalValue | Expr](e: Expr, upperBound: B): Expr =
+  ## Limits values from above. Name the bound: `clip(upperBound = 100)`.
+  clipImpl(e, nil, lit(upperBound))
+
+# ---------------------------------------------------------------------------
+# Shift, differences, cumulative functions (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  NullBehavior* {.pure.} = enum
+    ## What `diff` does with the first rows, which have no row above (Polars'
+    ## `NullBehavior`): keep them as null, or drop them.
+    Ignore, Drop
+
+proc shift*(e: Expr, n = 1): Expr =
+  ## Moves values down by `n` rows (up when negative); the rows left empty are null.
+  wrap nq_expr_shift(e.raw, n.int64, nil)
+proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](e: Expr, n = 1,
+    fillValue: T): Expr =
+  ## Like `shift`, filling the rows left empty with `fillValue`.
+  let f = lit(fillValue)
+  wrap nq_expr_shift(e.raw, n.int64, f.raw)
+proc diff*(e: Expr, n = 1, nullBehavior = NullBehavior.Ignore): Expr =
+  ## Each value minus the value `n` rows above.
+  wrap nq_expr_diff(e.raw, n.int64, nullBehavior == NullBehavior.Drop)
+proc pctChange*(e: Expr, n = 1): Expr =
+  ## Relative change from the value `n` rows above (0.1 = +10%).
+  wrap nq_expr_pct_change(e.raw, n.int64)
+
+proc cumSum*(e: Expr, reverse = false): Expr = wrap nq_expr_cum(e.raw, nqcSum, reverse)
+proc cumProd*(e: Expr, reverse = false): Expr = wrap nq_expr_cum(e.raw, nqcProd, reverse)
+proc cumMin*(e: Expr, reverse = false): Expr = wrap nq_expr_cum(e.raw, nqcMin, reverse)
+proc cumMax*(e: Expr, reverse = false): Expr = wrap nq_expr_cum(e.raw, nqcMax, reverse)
+proc cumCount*(e: Expr, reverse = false): Expr =
+  ## Running count of non-null values.
+  wrap nq_expr_cum(e.raw, nqcCount, reverse)
+
+proc rleId*(e: Expr): Expr = unary(e, nqRleId)
+  ## Numbers runs of equal consecutive values: 0, 0, 1, 1, 1, 2, ...
+proc peakMax*(e: Expr): Expr = unary(e, nqPeakMax)
+  ## True at local maxima.
+proc peakMin*(e: Expr): Expr = unary(e, nqPeakMin)
+  ## True at local minima.
+
+proc product*(e: Expr): Expr = unary(e, nqProduct)
+proc mode*(e: Expr): Expr = unary(e, nqMode)
+  ## Every most frequent value, in order of appearance (can be several rows).
+proc argMin*(e: Expr): Expr = unary(e, nqArgMin)
+  ## Row index of the first minimum.
+proc argMax*(e: Expr): Expr = unary(e, nqArgMax)
+  ## Row index of the first maximum.
+proc skew*(e: Expr, bias = true): Expr = wrap nq_expr_moment(e.raw, false, false, bias)
+proc kurtosis*(e: Expr, fisher = true, bias = true): Expr =
+  ## Fisher's (excess) kurtosis by default; `fisher = false` gives Pearson's.
+  wrap nq_expr_moment(e.raw, true, fisher, bias)
+
+# ---------------------------------------------------------------------------
 # More expressions: conditionals, membership, rounding, fill strategies, windows
 # ---------------------------------------------------------------------------
 
@@ -1098,6 +1226,8 @@ proc over*(e: Expr, partitionBy: openArray[string]): Expr =
   var keys: seq[Expr]
   for n in partitionBy: keys.add col(n)
   e.over(keys)
+proc over*(e: Expr, partitionBy: Expr): Expr = e.over([partitionBy])
+  ## Window over one key expression: `col.x.shift.over(col.g)`.
 proc over*(e: Expr, partitionBy: string): Expr = e.over([col(partitionBy)])
 
 # ---------------------------------------------------------------------------
@@ -1212,7 +1342,18 @@ proc groupBy*(lf: LazyFrame, by: varargs[Expr]): LazyGroupBy =
 proc agg*(g: LazyGroupBy, aggs: varargs[Expr]): LazyFrame =
   let b = raws(g.by)
   let a = raws(aggs)
-  wrap nq_lf_group_by_agg(g.lf.raw, b.firstOrNil, b.len.csize_t, a.firstOrNil, a.len.csize_t)
+  case g.kind
+  of gkPlain:
+    wrap nq_lf_group_by_agg(g.lf.raw, b.firstOrNil, b.len.csize_t, a.firstOrNil, a.len.csize_t)
+  of gkDynamic:
+    wrap nq_lf_group_by_dynamic_agg(g.lf.raw, g.index.raw, b.firstOrNil, b.len.csize_t,
+                                    g.every.cstring, g.period.cstring, g.offset.cstring,
+                                    g.label, g.includeBoundaries, g.closed, g.startBy,
+                                    a.firstOrNil, a.len.csize_t)
+  of gkRolling:
+    wrap nq_lf_rolling_agg(g.lf.raw, g.index.raw, b.firstOrNil, b.len.csize_t,
+                           g.period.cstring, g.offset.cstring, g.closed, a.firstOrNil,
+                           a.len.csize_t)
 
 proc sort*(lf: LazyFrame, by: openArray[Expr], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): LazyFrame =
@@ -2287,3 +2428,644 @@ dtTotal(totalSeconds, nqdTotalSeconds)  # Whole seconds of a duration.
 dtTotal(totalMilliseconds, nqdTotalMilliseconds)  # Whole milliseconds of a duration.
 dtTotal(totalMicroseconds, nqdTotalMicroseconds)  # Whole microseconds of a duration.
 dtTotal(totalNanoseconds, nqdTotalNanoseconds)  # Whole nanoseconds of a duration.
+
+# ---------------------------------------------------------------------------
+# Rolling windows, exponentially weighted functions, interpolation (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  InterpolationMethod* {.pure.} = enum
+    ## How `interpolate` fills nulls (Polars' `InterpolationMethod`).
+    Linear, Nearest
+
+proc rollingImpl(e: Expr, op: NqRolling, windowSize: int, weights: openArray[float],
+                 minSamples: Option[int], center: bool, quantile = 0.0,
+                 interpolation = QuantileMethod.Nearest, ddof = 1): Expr =
+  if windowSize < 1: raise newException(ValueError, "rolling windowSize must be at least 1")
+  if weights.len > 0 and weights.len != windowSize:
+    raise newException(ValueError, "rolling weights must have windowSize values")
+  let ms = minSamples.get(windowSize)
+  if ms < 0: raise newException(ValueError, "rolling minSamples must not be negative")
+  wrap nq_expr_rolling(e.raw, op, windowSize.csize_t, ms.csize_t, center,
+                       (if weights.len > 0: weights[0].unsafeAddr else: nil),
+                       weights.len.csize_t, quantile, NqQuantileMethod(ord(interpolation)),
+                       ddof.uint8)
+
+proc rollingByImpl(e: Expr, by: Expr, op: NqRolling, windowSize: string, minSamples: int,
+                   closed: ClosedWindow, quantile = 0.0,
+                   interpolation = QuantileMethod.Nearest, ddof = 1): Expr =
+  if minSamples < 0: raise newException(ValueError, "rolling minSamples must not be negative")
+  wrap nq_expr_rolling_by(e.raw, by.raw, op, windowSize.cstring, minSamples.csize_t,
+                          NqClosedWindow(ord(closed)), quantile,
+                          NqQuantileMethod(ord(interpolation)), ddof.uint8)
+
+proc byExpr(by: string | Expr): Expr =
+  when by is string: col(by) else: by
+
+template defRolling(name, nameBy, op, doc) =
+  proc name*(e: Expr, windowSize: int, weights: openArray[float] = [],
+             minSamples: int | Option[int] = none(int), center = false): Expr =
+    ## Rolling doc over the last `windowSize` rows (centred with `center`).
+    ## `minSamples` non-null values are needed for a result (default `windowSize`);
+    ## `weights` multiply the values of each window.
+    rollingImpl(e, op, windowSize, weights, toOpt(minSamples), center)
+  proc nameBy*(e: Expr, by: string | Expr, windowSize: string | TimeInterval,
+               minSamples = 1, closed = ClosedWindow.Right): Expr =
+    ## Rolling doc over a time window of column `by` (sorted): the window of each row
+    ## spans `windowSize` (`7.days`, `"1mo"`) back from its `by` value.
+    rollingByImpl(e, byExpr(by), op, toInterval(windowSize), minSamples, closed)
+
+defRolling(rollingSum, rollingSumBy, nqrSum, "sum")
+defRolling(rollingMean, rollingMeanBy, nqrMean, "mean")
+defRolling(rollingMin, rollingMinBy, nqrMin, "minimum")
+defRolling(rollingMax, rollingMaxBy, nqrMax, "maximum")
+defRolling(rollingMedian, rollingMedianBy, nqrMedian, "median")
+
+proc rollingStd*(e: Expr, windowSize: int, weights: openArray[float] = [],
+                 minSamples: int | Option[int] = none(int), center = false, ddof = 1): Expr =
+  ## Rolling standard deviation (sample, `ddof = 1`) over `windowSize` rows.
+  rollingImpl(e, nqrStd, windowSize, weights, toOpt(minSamples), center, ddof = ddof)
+proc rollingVar*(e: Expr, windowSize: int, weights: openArray[float] = [],
+                 minSamples: int | Option[int] = none(int), center = false, ddof = 1): Expr =
+  ## Rolling variance (sample, `ddof = 1`) over `windowSize` rows.
+  rollingImpl(e, nqrVar, windowSize, weights, toOpt(minSamples), center, ddof = ddof)
+proc rollingQuantile*(e: Expr, quantile: float, windowSize: int,
+                      interpolation = QuantileMethod.Nearest, weights: openArray[float] = [],
+                      minSamples: int | Option[int] = none(int), center = false): Expr =
+  ## Rolling `quantile` (0 to 1) over `windowSize` rows.
+  rollingImpl(e, nqrQuantile, windowSize, weights, toOpt(minSamples), center, quantile,
+              interpolation)
+proc rollingStdBy*(e: Expr, by: string | Expr, windowSize: string | TimeInterval,
+                   minSamples = 1, closed = ClosedWindow.Right, ddof = 1): Expr =
+  rollingByImpl(e, byExpr(by), nqrStd, toInterval(windowSize), minSamples, closed, ddof = ddof)
+proc rollingVarBy*(e: Expr, by: string | Expr, windowSize: string | TimeInterval,
+                   minSamples = 1, closed = ClosedWindow.Right, ddof = 1): Expr =
+  rollingByImpl(e, byExpr(by), nqrVar, toInterval(windowSize), minSamples, closed, ddof = ddof)
+proc rollingQuantileBy*(e: Expr, by: string | Expr, windowSize: string | TimeInterval,
+                        quantile: float, interpolation = QuantileMethod.Nearest,
+                        minSamples = 1, closed = ClosedWindow.Right): Expr =
+  rollingByImpl(e, byExpr(by), nqrQuantile, toInterval(windowSize), minSamples, closed,
+                quantile, interpolation)
+
+proc ewmAlpha(com, span, halfLife, alpha: float): float =
+  ## Python Polars' `_prepare_alpha`: exactly one of the four parameters.
+  var given = 0
+  for x in [com, span, halfLife, alpha]:
+    if not x.isNaN: inc given
+  if given != 1:
+    raise newException(ValueError, "give exactly one of com, span, halfLife and alpha")
+  if not com.isNaN:
+    if com < 0: raise newException(ValueError, "com must be >= 0")
+    1.0 / (1.0 + com)
+  elif not span.isNaN:
+    if span < 1: raise newException(ValueError, "span must be >= 1")
+    2.0 / (span + 1.0)
+  elif not halfLife.isNaN:
+    if halfLife <= 0: raise newException(ValueError, "halfLife must be > 0")
+    1.0 - exp(-ln(2.0) / halfLife)
+  else:
+    if alpha <= 0 or alpha > 1: raise newException(ValueError, "alpha must be in (0, 1]")
+    alpha
+
+proc ewmMean*(e: Expr, com = NaN, span = NaN, halfLife = NaN, alpha = NaN, adjust = true,
+              minSamples = 1, ignoreNulls = false): Expr =
+  ## Exponentially weighted mean. Give the decay as exactly one of `com` (centre
+  ## of mass), `span`, `halfLife` or `alpha`, by name: `ewmMean(span = 12)`.
+  wrap nq_expr_ewm(e.raw, 0, ewmAlpha(com, span, halfLife, alpha), adjust, false,
+                   minSamples.csize_t, ignoreNulls)
+proc ewmStd*(e: Expr, com = NaN, span = NaN, halfLife = NaN, alpha = NaN, adjust = true,
+             bias = false, minSamples = 1, ignoreNulls = false): Expr =
+  ## Exponentially weighted standard deviation (see `ewmMean`).
+  wrap nq_expr_ewm(e.raw, 1, ewmAlpha(com, span, halfLife, alpha), adjust, bias,
+                   minSamples.csize_t, ignoreNulls)
+proc ewmVar*(e: Expr, com = NaN, span = NaN, halfLife = NaN, alpha = NaN, adjust = true,
+             bias = false, minSamples = 1, ignoreNulls = false): Expr =
+  ## Exponentially weighted variance (see `ewmMean`).
+  wrap nq_expr_ewm(e.raw, 2, ewmAlpha(com, span, halfLife, alpha), adjust, bias,
+                   minSamples.csize_t, ignoreNulls)
+
+proc interpolate*(e: Expr, interpolation = InterpolationMethod.Linear): Expr =
+  ## Fills nulls between two values: on a straight line, or with the nearest value.
+  ## Nulls at the start and end stay null.
+  wrap nq_expr_interpolate(e.raw, interpolation == InterpolationMethod.Nearest)
+proc interpolateBy*(e: Expr, by: string | Expr): Expr =
+  ## Linear interpolation of nulls, weighted by the distances in column `by`.
+  binaryFn(e, byExpr(by), nqbInterpolateBy)
+
+# ---------------------------------------------------------------------------
+# Sorting, selecting and counting values (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  SearchSortedSide* {.pure.} = enum
+    ## Where `searchSorted` puts a value equal to existing ones (Polars'
+    ## `SearchSortedSide`).
+    Any, Left, Right
+
+proc sort*(e: Expr, descending = false, nullsLast = false): Expr =
+  ## The values of `e` sorted (nulls first unless `nullsLast`).
+  wrap nq_expr_sort(e.raw, descending, nullsLast, false)
+proc argSort*(e: Expr, descending = false, nullsLast = false): Expr =
+  ## The row indices that would sort `e`.
+  wrap nq_expr_sort(e.raw, descending, nullsLast, true)
+proc sortBy*(e: Expr, by: openArray[Expr], descending: openArray[bool] = []): Expr =
+  ## The values of `e` in the order that sorts `by` (one or more keys).
+  let b = raws(by)
+  let d = @descending
+  wrap nq_expr_sort_by(e.raw, b.firstOrNil, b.len.csize_t, d.firstOrNil, d.len.csize_t)
+proc sortBy*(e: Expr, by: string | Expr, descending = false): Expr =
+  e.sortBy([byExpr(by)], [descending])
+proc reverse*(e: Expr): Expr = unary(e, nqReverse)
+
+proc slice*(e: Expr, offset: int, length: int | Option[int] = none(int)): Expr =
+  ## `length` values from `offset` (negative counts from the end), or all the rest.
+  let l = toOpt(length)
+  wrap nq_expr_slice(e.raw, offset.int64, (if l.isSome: l.get.int64 else: -1))
+proc head*(e: Expr, n = 10): Expr =
+  ## The first `n` values (Python's default is 10 too).
+  e.slice(0, n)
+proc tail*(e: Expr, n = 10): Expr = e.slice(-n, n)
+  ## The last `n` values.
+
+proc gather*(e: Expr, indices: Expr): Expr =
+  ## The values at row `indices` (an integer expression).
+  binaryFn(e, indices, nqbGather)
+proc gather*(e: Expr, indices: openArray[int]): Expr =
+  ## The values at `indices`: `gather([0, 2])`.
+  binaryFn(e, wrap nq_expr_lit_values(series("", indices).raw), nqbGather)
+proc gather*(e: Expr, index: int): Expr = binaryFn(e, lit(index), nqbGather)
+proc gatherEvery*(e: Expr, n: int, offset = 0): Expr =
+  ## Every `n`-th value from `offset`.
+  if n < 1: raise newException(ValueError, "gatherEvery n must be at least 1")
+  if offset < 0: raise newException(ValueError, "gatherEvery offset must not be negative")
+  wrap nq_expr_gather_every(e.raw, n.csize_t, offset.csize_t)
+
+proc topK*(e: Expr, k = 5): Expr =
+  ## The `k` largest values, largest first.
+  binaryFn(e, lit(k), nqbTopK)
+proc bottomK*(e: Expr, k = 5): Expr =
+  ## The `k` smallest values, smallest first.
+  binaryFn(e, lit(k), nqbBottomK)
+proc topKByImpl(e: Expr, k: int, by: openArray[Expr], reverse: openArray[bool],
+                bottom: bool): Expr =
+  if k < 0: raise newException(ValueError, "k must not be negative")
+  let b = raws(by)
+  let r = @reverse
+  wrap nq_expr_top_k_by(e.raw, k.csize_t, b.firstOrNil, b.len.csize_t, r.firstOrNil,
+                        r.len.csize_t, bottom)
+proc topKBy*(e: Expr, by: openArray[Expr], k = 5, reverse: openArray[bool] = []): Expr =
+  ## The values of `e` in the `k` rows where `by` is largest.
+  topKByImpl(e, k, by, reverse, false)
+proc topKBy*(e: Expr, by: string | Expr, k = 5, reverse = false): Expr =
+  topKByImpl(e, k, [byExpr(by)], [reverse], false)
+proc bottomKBy*(e: Expr, by: openArray[Expr], k = 5, reverse: openArray[bool] = []): Expr =
+  ## The values of `e` in the `k` rows where `by` is smallest.
+  topKByImpl(e, k, by, reverse, true)
+proc bottomKBy*(e: Expr, by: string | Expr, k = 5, reverse = false): Expr =
+  topKByImpl(e, k, [byExpr(by)], [reverse], true)
+
+proc unique*(e: Expr, maintainOrder = false): Expr =
+  ## The distinct values (in order of appearance with `maintainOrder`).
+  unary(e, if maintainOrder: nqUniqueStable else: nqUnique)
+proc argUnique*(e: Expr): Expr = unary(e, nqArgUnique)
+  ## Row index of the first occurrence of each distinct value.
+proc isUnique*(e: Expr): Expr = unary(e, nqIsUnique)
+  ## True where the value occurs only once.
+proc isDuplicated*(e: Expr): Expr = unary(e, nqIsDuplicated)
+  ## True where the value occurs more than once.
+proc isFirstDistinct*(e: Expr): Expr = unary(e, nqIsFirstDistinct)
+proc isLastDistinct*(e: Expr): Expr = unary(e, nqIsLastDistinct)
+proc uniqueCounts*(e: Expr): Expr = unary(e, nqUniqueCounts)
+  ## How often each distinct value occurs, in order of appearance.
+proc approxNUnique*(e: Expr): Expr = unary(e, nqApproxNUnique)
+  ## Estimated number of distinct values (HyperLogLog).
+
+proc indexOf*[T: SomeNumber | string | bool | TemporalValue | Expr](e: Expr, value: T): Expr =
+  ## Index of the first occurrence of `value`, or null.
+  binaryFn(e, lit(value), nqbIndexOf)
+proc searchSorted*[T: SomeNumber | string | TemporalValue | Expr](e: Expr, element: T,
+    side = SearchSortedSide.Any): Expr =
+  ## Where `element` would go in the sorted `e` to keep it sorted.
+  let op = case side
+    of SearchSortedSide.Any: nqbSearchSortedAny
+    of SearchSortedSide.Left: nqbSearchSortedLeft
+    of SearchSortedSide.Right: nqbSearchSortedRight
+  binaryFn(e, lit(element), op)
+
+proc litValues[T](xs: openArray[T]): Expr =
+  wrap nq_expr_lit_values(series("", xs).raw)
+proc replaceImpl(e, old, new: Expr, strict: bool, default: Expr = nil): Expr =
+  wrap nq_expr_replace(e.raw, old.raw, new.raw, strict,
+                       (if default.isNil: nil else: default.raw))
+
+type ReplaceValue = int | float | bool | string | NimEnum
+
+proc replace*[T, U: ReplaceValue](e: Expr, old: openArray[T], new: openArray[U]): Expr =
+  ## Replaces each value of `old` by the value of `new` at the same position; other
+  ## values stay. The column keeps its data type.
+  if old.len != new.len: raise newException(ValueError, "replace needs as many new values as old")
+  replaceImpl(e, litValues(old), litValues(new), false)
+proc replace*[T, U: ReplaceValue](e: Expr, mapping: openArray[(T, U)]): Expr =
+  ## Replaces values with a mapping: `replace({"N": "north", "S": "south"})`.
+  var olds: seq[T]
+  var news: seq[U]
+  for (o, n) in mapping:
+    olds.add o
+    news.add n
+  e.replace(olds, news)
+proc replace*[T, U: ReplaceValue | Expr](e: Expr, old: T, new: U): Expr =
+  replaceImpl(e, lit(old), lit(new), false)
+proc replaceStrict*[T, U: ReplaceValue](e: Expr, old: openArray[T], new: openArray[U]): Expr =
+  ## Like `replace`, but every value must be in `old` (else the query fails with
+  ## `InvalidOperationError`), and the result takes the data type of `new`.
+  if old.len != new.len: raise newException(ValueError, "replace needs as many new values as old")
+  replaceImpl(e, litValues(old), litValues(new), true)
+proc replaceStrict*[T, U: ReplaceValue; D: ReplaceValue | Expr](e: Expr, old: openArray[T],
+    new: openArray[U], default: D): Expr =
+  ## Like `replaceStrict`, with `default` for the values not in `old`.
+  if old.len != new.len: raise newException(ValueError, "replace needs as many new values as old")
+  replaceImpl(e, litValues(old), litValues(new), true, lit(default))
+proc replaceStrict*[T, U: ReplaceValue](e: Expr, mapping: openArray[(T, U)]): Expr =
+  var olds: seq[T]
+  var news: seq[U]
+  for (o, n) in mapping:
+    olds.add o
+    news.add n
+  e.replaceStrict(olds, news)
+proc replaceStrict*[T, U: ReplaceValue; D: ReplaceValue | Expr](e: Expr,
+    mapping: openArray[(T, U)], default: D): Expr =
+  var olds: seq[T]
+  var news: seq[U]
+  for (o, n) in mapping:
+    olds.add o
+    news.add n
+  e.replaceStrict(olds, news, default)
+
+proc cutImpl(e: Expr, breaks: openArray[float], labels: openArray[string], leftClosed,
+             quantile, allowDuplicates: bool): Expr =
+  if labels.len > 0 and labels.len != breaks.len + 1:
+    raise newException(ValueError, "cut needs one label more than breaks")
+  let b = @breaks
+  let l = cstrings(labels)
+  wrap nq_expr_cut(e.raw, b.firstOrNil, b.len.csize_t, l.firstOrNil, l.len.csize_t,
+                   leftClosed, quantile, allowDuplicates)
+proc cut*(e: Expr, breaks: openArray[float], labels: openArray[string] = [],
+          leftClosed = false): Expr =
+  ## Bins values into a Categorical at `breaks`: intervals like "(0, 1]" (or
+  ## "[0, 1)" with `leftClosed`), or `labels`, one more than breaks.
+  cutImpl(e, breaks, labels, leftClosed, false, false)
+proc qcut*(e: Expr, quantiles: openArray[float], labels: openArray[string] = [],
+           leftClosed = false, allowDuplicates = false): Expr =
+  ## Bins values at their `quantiles` (0 to 1), as `cut`.
+  cutImpl(e, quantiles, labels, leftClosed, true, allowDuplicates)
+proc qcut*(e: Expr, quantiles: int, labels: openArray[string] = [],
+           leftClosed = false, allowDuplicates = false): Expr =
+  ## Bins values into `quantiles` groups of equal size: `qcut(4)` for quartiles.
+  if quantiles < 1: raise newException(ValueError, "qcut needs at least one bin")
+  var probs: seq[float]
+  for b in 1 ..< quantiles: probs.add b / quantiles
+  cutImpl(e, probs, labels, leftClosed, true, allowDuplicates)
+
+proc valueCounts*(lf: LazyFrame, column: string | Expr, sort = false, normalize = false,
+                  name = ""): LazyFrame =
+  ## How often each value of `column` occurs: a frame with the values and a
+  ## `count` column (`proportion` with `normalize`), most frequent first with `sort`.
+  let n = if name.len > 0: name elif normalize: "proportion" else: "count"
+  wrap nq_lf_value_counts(lf.raw, byExpr(column).raw, sort, normalize, n.cstring)
+proc valueCounts*(df: DataFrame, column: string | Expr, sort = false, normalize = false,
+                  name = ""): DataFrame =
+  ## How often each value of `column` occurs (see the LazyFrame version).
+  df.lazy.valueCounts(column, sort, normalize, name).collect
+
+# ---------------------------------------------------------------------------
+# Horizontal functions, ranges, correlation (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  CorrelationMethod* {.pure.} = enum
+    ## Which correlation `corr` computes (Python's `method` strings).
+    Pearson, Spearman
+
+proc horizontal(es: openArray[Expr], op: NqHorizontal, ignoreNulls = true): Expr =
+  let r = raws(es)
+  wrap nq_expr_horizontal(r.firstOrNil, r.len.csize_t, op, ignoreNulls)
+
+template defHorizontal(name, op, doc) =
+  proc name*(exprs: varargs[Expr, lit]): Expr =
+    ## doc
+    horizontal(exprs, op)
+  proc name*(names: openArray[string]): Expr =
+    var es: seq[Expr]
+    for n in names: es.add col(n)
+    horizontal(es, op)
+
+defHorizontal(minHorizontal, nqhMin, "Row-wise minimum of the expressions (or a selector).")
+defHorizontal(maxHorizontal, nqhMax, "Row-wise maximum of the expressions (or a selector).")
+defHorizontal(allHorizontal, nqhAll, "Row-wise `and` of boolean expressions.")
+defHorizontal(anyHorizontal, nqhAny, "Row-wise `or` of boolean expressions.")
+defHorizontal(coalesce, nqhCoalesce, "The first non-null value of the expressions, row by row.")
+
+proc sumHorizontal*(exprs: varargs[Expr, lit]): Expr =
+  ## Row-wise sum of the expressions (or a selector: `sumHorizontal(col(SomeNumber))`).
+  ## Nulls count as zero; see the `ignoreNulls` overload.
+  horizontal(exprs, nqhSum, true)
+proc sumHorizontal*(exprs: openArray[Expr], ignoreNulls: bool): Expr =
+  ## Row-wise sum; with `ignoreNulls = false` a null anywhere makes the sum null.
+  horizontal(exprs, nqhSum, ignoreNulls)
+proc sumHorizontal*(names: openArray[string], ignoreNulls = true): Expr =
+  var es: seq[Expr]
+  for n in names: es.add col(n)
+  horizontal(es, nqhSum, ignoreNulls)
+proc meanHorizontal*(exprs: varargs[Expr, lit]): Expr =
+  ## Row-wise mean of the non-null values.
+  horizontal(exprs, nqhMean, true)
+proc meanHorizontal*(exprs: openArray[Expr], ignoreNulls: bool): Expr =
+  horizontal(exprs, nqhMean, ignoreNulls)
+proc meanHorizontal*(names: openArray[string], ignoreNulls = true): Expr =
+  var es: seq[Expr]
+  for n in names: es.add col(n)
+  horizontal(es, nqhMean, ignoreNulls)
+
+proc intRange*(start, stop: int | Expr, step = 1, dtype = Int64): Expr =
+  ## Integers from `start` up to `stop` (excluded) by `step`, as an expression:
+  ## `select(intRange(0, 5))`, or `intRange(0, col.x.len)` for a row number.
+  if step == 0: raise newException(ValueError, "intRange step must not be zero")
+  let a = lit(start)
+  let b = lit(stop)
+  let sp = toSpecs([dtype])
+  wrap nq_expr_int_range(a.raw, b.raw, step.int64, sp.specs[0].unsafeAddr)
+proc intRange*(stop: int | Expr): Expr =
+  ## Integers from 0 up to `stop` (excluded).
+  intRange(0, stop)
+proc linearSpace*[A, B: SomeNumber | Expr](start: A, stop: B, numSamples: int | Expr,
+                                         closed = ClosedInterval.Both): Expr =
+  ## `numSamples` evenly spaced floats from `start` to `stop` (ends as `closed` says).
+  let a = lit(when A is Expr: start else: start.float)
+  let b = lit(when B is Expr: stop else: stop.float)
+  let n = lit(numSamples)
+  wrap nq_expr_linear_space(a.raw, b.raw, n.raw, NqClosedInterval(ord(closed)))
+proc repeat*[T: SomeNumber | string | bool | TemporalValue | Expr](value: T,
+                                                                 n: int | Expr): Expr =
+  ## `value` repeated `n` times: `select(repeat(1.5, 3))`. Wrap strings in `lit`
+  ## (`repeat(lit("x"), 3)`): std/strutils' `repeat` takes plain strings.
+  let v = lit(value)
+  let k = lit(n)
+  wrap nq_expr_repeat(v.raw, k.raw)
+
+proc corr*(a, b: Expr | string, correlationMethod = CorrelationMethod.Pearson,
+           propagateNans = false): Expr =
+  ## Correlation of two columns, as an aggregation (Python's `pl.corr`, whose
+  ## `method` is a Nim keyword): `corr("a", "b", Spearman)`.
+  let x = byExpr(a)
+  let y = byExpr(b)
+  wrap nq_expr_corr(x.raw, y.raw, ord(correlationMethod).uint8, 1, propagateNans)
+proc cov*(a, b: Expr | string, ddof = 1): Expr =
+  ## Covariance of two columns, as an aggregation (Python's `pl.cov`).
+  let x = byExpr(a)
+  let y = byExpr(b)
+  wrap nq_expr_corr(x.raw, y.raw, 2, ddof.uint8, false)
+
+# ---------------------------------------------------------------------------
+# Reshaping (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  ColumnNames* = object
+    ## One column name or several, for parameters that take either:
+    ## `index = "year"` or `index = ["year", "month"]`.
+    names*: seq[string]
+  PivotAgg* {.pure.} = enum
+    ## How `pivot` combines the values that land in the same cell (Python's
+    ## `aggregate_function` strings). `Item` requires at most one value.
+    Item, First, Last, Sum, Mean, Median, Min, Max, Len
+
+converter toColumnNames*(x: string): ColumnNames = ColumnNames(names: @[x])
+converter toColumnNames*(x: seq[string]): ColumnNames = ColumnNames(names: x)
+converter toColumnNames*[N: static int](x: array[N, string]): ColumnNames =
+  ColumnNames(names: @x)
+
+proc element*(): Expr = wrap nq_expr_element()
+  ## The values being aggregated, in a `pivot` aggregation: `element().tanh.mean`.
+proc item*(e: Expr, allowEmpty = false): Expr = wrap nq_expr_item(e.raw, allowEmpty)
+  ## The single value of a group; more than one value is an error.
+
+proc pivotAgg(a: PivotAgg): Expr =
+  let el = element()
+  case a
+  of PivotAgg.Item: el.item(allowEmpty = true)
+  of PivotAgg.First: el.first
+  of PivotAgg.Last: el.last
+  of PivotAgg.Sum: el.sum
+  of PivotAgg.Mean: el.mean
+  of PivotAgg.Median: el.median
+  of PivotAgg.Min: el.min
+  of PivotAgg.Max: el.max
+  of PivotAgg.Len: el.len
+
+proc pivotNames(all: seq[string], on, index, values: seq[string]): (seq[string], seq[string]) =
+  ## Python's rule: index or values may be left out, and then means "the rest".
+  if index.len == 0 and values.len == 0:
+    raise newException(InvalidOperationError, "pivot needs index or values")
+  var idx = index
+  var vals = values
+  if idx.len == 0:
+    for c in all:
+      if c notin on and c notin values: idx.add c
+  elif vals.len == 0:
+    for c in all:
+      if c notin on and c notin index: vals.add c
+  (idx, vals)
+
+proc pivot*(lf: LazyFrame, on: ColumnNames, onColumns: DataFrame,
+            index: ColumnNames = ColumnNames(), values: ColumnNames = ColumnNames(),
+            aggregateFunction: PivotAgg | Expr = PivotAgg.Item, maintainOrder = true,
+            separator = "_"): LazyFrame =
+  ## Long to wide, lazily: the values of the `on` columns listed in `onColumns`
+  ## become columns, one row per `index` value, cells from `values` combined with
+  ## `aggregateFunction`. DataFrame's `pivot` finds `onColumns` itself.
+  var all: seq[string]
+  for k in lf.collectSchema.keys: all.add k
+  let (idx, vals) = pivotNames(all, on.names, index.names, values.names)
+  let o = cstrings(on.names)
+  let i = cstrings(idx)
+  let v = cstrings(vals)
+  let agg = when aggregateFunction is Expr: aggregateFunction else: pivotAgg(aggregateFunction)
+  wrap nq_lf_pivot(lf.raw, o.firstOrNil, o.len.csize_t, onColumns.raw, i.firstOrNil,
+                   i.len.csize_t, v.firstOrNil, v.len.csize_t, agg.raw, maintainOrder,
+                   separator.cstring)
+
+proc pivot*(df: DataFrame, on: ColumnNames, index: ColumnNames = ColumnNames(),
+            values: ColumnNames = ColumnNames(),
+            aggregateFunction: PivotAgg | Expr = PivotAgg.Item, maintainOrder = true,
+            sortColumns = false, separator = "_"): DataFrame =
+  ## Long to wide: each distinct value of `on` becomes a column (in order of
+  ## appearance, or sorted with `sortColumns`), one row per `index` value; cells
+  ## hold `values` combined with `aggregateFunction` (a `PivotAgg`, or an
+  ## expression on `element()`). Leave out `index` or `values` for "the rest".
+  var onCols = df.lazy.select(col(on.names)).unique(maintainOrder = true)
+  if sortColumns: onCols = onCols.sort(on.names)
+  df.lazy.pivot(on, onCols.collect, index, values, aggregateFunction, maintainOrder,
+                separator).collect
+
+proc unpivot*(lf: LazyFrame, on: ColumnNames = ColumnNames(),
+              index: ColumnNames = ColumnNames(), variableName = "variable",
+              valueName = "value"): LazyFrame =
+  ## Wide to long: one row per `index` value and `on` column, with the column's
+  ## name in `variableName` and its value in `valueName`. `on` defaults to every
+  ## column not in `index`.
+  let o = cstrings(on.names)
+  let i = cstrings(index.names)
+  wrap nq_lf_unpivot(lf.raw, o.firstOrNil, o.len.csize_t, i.firstOrNil, i.len.csize_t,
+                     variableName.cstring, valueName.cstring)
+proc unpivot*(df: DataFrame, on: ColumnNames = ColumnNames(),
+              index: ColumnNames = ColumnNames(), variableName = "variable",
+              valueName = "value"): DataFrame =
+  ## Wide to long (see the LazyFrame version).
+  df.lazy.unpivot(on, index, variableName, valueName).collect
+
+proc transpose*(df: DataFrame, includeHeader = false, headerName = "column",
+                columnNames: openArray[string] = []): DataFrame =
+  ## Rows become columns. With `includeHeader`, the old column names go in a first
+  ## column `headerName`; new columns are `columnNames` or column_0, column_1, ...
+  let n = cstrings(columnNames)
+  wrap nq_df_transpose(df.raw, (if includeHeader: headerName.cstring else: nil),
+                       n.firstOrNil, n.len.csize_t)
+
+proc partitionBy*(df: DataFrame, by: ColumnNames, maintainOrder = true,
+                  includeKey = true): seq[DataFrame] =
+  ## Splits `df` into one frame per distinct value of the `by` columns, in order of
+  ## appearance with `maintainOrder`.
+  let b = cstrings(by.names)
+  var n: csize_t
+  let arr = nq_df_partition_by(df.raw, b.firstOrNil, b.len.csize_t, maintainOrder, includeKey,
+                               n.addr)
+  if arr.isNil: raiseLast()
+  let parts = cast[ptr UncheckedArray[ptr NqDataFrame]](arr)
+  for i in 0 ..< n.int: result.add wrap(parts[i])
+  nq_df_array_free(arr, n)
+
+proc toDummies*(df: DataFrame, columns: ColumnNames = ColumnNames(), separator = "_",
+                dropFirst = false, dropNulls = false): DataFrame =
+  ## One-hot encoding: each listed column (all by default) becomes one 0/1 column
+  ## per distinct value, named `column_value`.
+  let c = cstrings(columns.names)
+  wrap nq_df_to_dummies(df.raw, c.firstOrNil, c.len.csize_t, separator.cstring, dropFirst,
+                        dropNulls)
+
+# ---------------------------------------------------------------------------
+# Time-based grouping and as-of joins (0.4)
+# ---------------------------------------------------------------------------
+
+type
+  Label* {.pure.} = enum
+    ## Which time labels the windows of `groupByDynamic` (Polars' `Label`).
+    Left, Right, DataPoint
+  StartBy* {.pure.} = enum
+    ## Where the first window of `groupByDynamic` starts (Polars' `StartBy`).
+    WindowBound, DataPoint, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+  AsofStrategy* {.pure.} = enum
+    ## Which row of the right frame `joinAsof` takes (Polars' `AsofStrategy`).
+    Backward, Forward, Nearest
+  OptInterval* = object
+    ## An optional interval parameter: a std/times interval or a Polars duration
+    ## string; empty when not given.
+    value*: string
+  JoinKey* = object
+    ## A join key: a column name or an expression; nil when not given.
+    expr*: Expr
+  AsofTolerance* = object
+    ## `joinAsof`'s tolerance: an interval (`7.days`, `"1w"`) or a number.
+    kind: uint8
+    str: string
+    i: int64
+    f: float
+
+converter toOptInterval*(x: string): OptInterval = OptInterval(value: x)
+converter toOptInterval*(x: TimeInterval): OptInterval = OptInterval(value: toPolarsInterval(x))
+converter toJoinKey*(x: string): JoinKey = JoinKey(expr: col(x))
+converter toJoinKey*(x: Expr): JoinKey = JoinKey(expr: x)
+converter toAsofTolerance*(x: string): AsofTolerance = AsofTolerance(kind: 1, str: x)
+converter toAsofTolerance*(x: TimeInterval): AsofTolerance =
+  AsofTolerance(kind: 1, str: toPolarsInterval(x))
+converter toAsofTolerance*(x: int): AsofTolerance = AsofTolerance(kind: 2, i: x.int64)
+converter toAsofTolerance*(x: float): AsofTolerance = AsofTolerance(kind: 3, f: x)
+
+proc negated(interval: string): string =
+  if interval.startsWith("-"): interval[1 .. ^1] else: "-" & interval
+
+proc groupByDynamic*(lf: LazyFrame, indexColumn: string | Expr,
+                     every: string | TimeInterval, period: OptInterval = OptInterval(),
+                     offset: OptInterval = OptInterval(), includeBoundaries = false,
+                     closed = ClosedWindow.Left, label = Label.Left,
+                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): LazyGroupBy =
+  ## Groups rows into time windows of the sorted `indexColumn`: a window starts
+  ## every `every` (`1.months`, `"1y"`) and spans `period` (default `every`),
+  ## shifted by `offset`. Follow with `agg`. `groupBy` groups within the windows.
+  let p = period.value
+  let o = offset.value
+  LazyGroupBy(lf: lf, by: @groupBy, kind: gkDynamic, index: byExpr(indexColumn),
+              every: toInterval(every), period: (if p.len == 0: toInterval(every) else: p),
+              offset: (if o.len == 0: "0ns" else: o), label: NqLabel(ord(label)),
+              includeBoundaries: includeBoundaries, closed: NqClosedWindow(ord(closed)),
+              startBy: NqStartBy(ord(startBy)))
+proc groupByDynamic*(df: DataFrame, indexColumn: string | Expr,
+                     every: string | TimeInterval, period: OptInterval = OptInterval(),
+                     offset: OptInterval = OptInterval(), includeBoundaries = false,
+                     closed = ClosedWindow.Left, label = Label.Left,
+                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): LazyGroupBy =
+  df.lazy.groupByDynamic(indexColumn, every, period, offset, includeBoundaries, closed, label,
+                         groupBy, startBy)
+
+proc rolling*(lf: LazyFrame, indexColumn: string | Expr, period: string | TimeInterval,
+              offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
+              groupBy: openArray[Expr] = []): LazyGroupBy =
+  ## One group per row: the rows whose `indexColumn` lies in the `period` before
+  ## it (shift the window with `offset`, default minus `period`). Follow with `agg`.
+  let p = toInterval(period)
+  let o = offset.value
+  LazyGroupBy(lf: lf, by: @groupBy, kind: gkRolling, index: byExpr(indexColumn), period: p,
+              offset: (if o.len == 0: negated(p) else: o), closed: NqClosedWindow(ord(closed)))
+proc rolling*(df: DataFrame, indexColumn: string | Expr, period: string | TimeInterval,
+              offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
+              groupBy: openArray[Expr] = []): LazyGroupBy =
+  df.lazy.rolling(indexColumn, period, offset, closed, groupBy)
+
+proc joinAsofImpl(lf, other: LazyFrame, leftOn, rightOn: Expr, byLeft, byRight: seq[string],
+                  strategy: AsofStrategy, suffix: string, tolKind: uint8, tolStr: string,
+                  tolInt: int64, tolFloat: float, allowExactMatches, checkSortedness,
+                  coalesce: bool): LazyFrame =
+  let bl = cstrings(byLeft)
+  let br = cstrings(byRight)
+  wrap nq_lf_join_asof(lf.raw, other.raw, leftOn.raw, rightOn.raw, bl.firstOrNil,
+                       bl.len.csize_t, br.firstOrNil, br.len.csize_t, ord(strategy).uint8,
+                       suffix.cstring, tolKind, tolStr.cstring, tolInt, tolFloat,
+                       allowExactMatches, checkSortedness, coalesce)
+
+proc joinAsof*(lf, other: LazyFrame, on: JoinKey = JoinKey(), leftOn: JoinKey = JoinKey(),
+               rightOn: JoinKey = JoinKey(), by: ColumnNames = ColumnNames(),
+               byLeft: ColumnNames = ColumnNames(), byRight: ColumnNames = ColumnNames(),
+               strategy = AsofStrategy.Backward, suffix = "_right",
+               tolerance: AsofTolerance = AsofTolerance(),
+               allowExactMatches = true, checkSortedness = true, coalesce = true): LazyFrame =
+  ## Joins each left row to the nearest right row by a sorted key (`on`, or
+  ## `leftOn`/`rightOn`): the last one at or before it (`Backward`), the first at
+  ## or after it (`Forward`) or the closest (`Nearest`), within `tolerance` (an
+  ## interval like `7.days` or a number). `by` columns must match exactly.
+  let l = (if on.expr.isNil: leftOn.expr else: on.expr)
+  let r = (if on.expr.isNil: rightOn.expr else: on.expr)
+  if l.isNil or r.isNil:
+    raise newException(ValueError, "joinAsof needs `on`, or `leftOn` and `rightOn`")
+  let bl = if by.names.len > 0: by.names else: byLeft.names
+  let br = if by.names.len > 0: by.names else: byRight.names
+  joinAsofImpl(lf, other, l, r, bl, br, strategy, suffix, tolerance.kind, tolerance.str,
+               tolerance.i, tolerance.f, allowExactMatches, checkSortedness, coalesce)
+
+proc joinAsof*(df, other: DataFrame, on: JoinKey = JoinKey(), leftOn: JoinKey = JoinKey(),
+               rightOn: JoinKey = JoinKey(), by: ColumnNames = ColumnNames(),
+               byLeft: ColumnNames = ColumnNames(), byRight: ColumnNames = ColumnNames(),
+               strategy = AsofStrategy.Backward, suffix = "_right",
+               tolerance: AsofTolerance = AsofTolerance(),
+               allowExactMatches = true, checkSortedness = true, coalesce = true): DataFrame =
+  ## As-of join (see the LazyFrame version).
+  df.lazy.joinAsof(other.lazy, on, leftOn, rightOn, by, byLeft, byRight, strategy, suffix,
+                   tolerance, allowExactMatches, checkSortedness, coalesce).collect
