@@ -120,6 +120,15 @@ two), L (more).
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
 - **Official documentation** (L). A reference and guides, separate from the dev log.
+- **One shared repo for the docs theme and the Nim/Python machinery** (M). The same
+  pieces now live twice: the dev-log theme (`docs/nanuqtheme.nim`) and the nanuq-book
+  theme (`book/nanuqbook.nim`, `theme/`), and the 👑 Nim / 🐍 Python tabs, written once in
+  the book (Python run live via nimpy, frame HTML compared) and again in the 0.4 explainer
+  `docs/blog/counting_el_ninos.nim` (Python code and outputs recorded by `expected.py`,
+  text and Plotly figures compared). Move them into one small Nimble package that both
+  repos use: theme (CSS, fonts, highlighting), tabs with both Python modes (live or
+  recorded), output checks, and the jupytext cell reader. Fixes to one stop drifting from
+  the other.
 
 ## CI
 

@@ -6,6 +6,12 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+- Dev log post "Counting El Niños", the 0.4 explainer: what El Niño is, how NOAA counts
+  it (ONI and the new RONI), and what it does to rain in Peru and to the world's
+  temperature, using the 0.4 features on NOAA and NASA data. Every step and figure is
+  shown in Nim (Nanuq, nim-plotly) and Python (py-polars, Plotly) tabs, and each Nim
+  output is checked against the recorded Python one when the page is built.
+
 ## [0.4.0] - 2026-11-01
 
 Nanuq 0.4 is "a real Series, and shaping": math, cumulative and rolling windows,
