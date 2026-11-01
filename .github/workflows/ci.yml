@@ -103,8 +103,15 @@ jobs:
       # tests/test_datamancer.nim and test_arraymancer.nim need Datamancer (an optional
       # dependency, which brings Arraymancer); tests/test_database.nim needs db_connector
       - run: nimble install -y datamancer db_connector
-      # tests/test_cloud.nim writes to a local S3 (moto) when moto_server is installed
-      - run: pip install "moto[server]"
+      # tests/test_cloud.nim writes to a local S3 (moto) when moto_server is installed.
+      # A venv keeps it away from the runner's system pyOpenSSL, which breaks with
+      # the cryptography that pip brings; only moto_server goes on the PATH.
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/moto"
+          "$RUNNER_TEMP/moto/bin/pip" install -q "moto[server]"
+          mkdir -p "$RUNNER_TEMP/bin"
+          ln -s "$RUNNER_TEMP/moto/bin/moto_server" "$RUNNER_TEMP/bin/moto_server"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
