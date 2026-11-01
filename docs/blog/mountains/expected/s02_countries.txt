@@ -1,0 +1,15 @@
+shape: (8, 3)
+┌──────────────────────────┬────────┬──────────────────────────┐
+│ summit                   ┆ height ┆ countries                │
+│ ---                      ┆ ---    ┆ ---                      │
+│ str                      ┆ i64    ┆ list[str]                │
+╞══════════════════════════╪════════╪══════════════════════════╡
+│ Mont Blanc               ┆ 4809   ┆ ["France", "Italy"]      │
+│ Mont Blanc de Courmayeur ┆ 4748   ┆ ["France", "Italy"]      │
+│ Dufourspitze             ┆ 4634   ┆ ["Italy", "Switzerland"] │
+│ Nordend                  ┆ 4608   ┆ ["Italy", "Switzerland"] │
+│ Zumsteinspitze           ┆ 4563   ┆ ["Italy", "Switzerland"] │
+│ Signalkuppe              ┆ 4554   ┆ ["Italy", "Switzerland"] │
+│ Dom                      ┆ 4546   ┆ ["Switzerland"]          │
+│ Lyskamm (Eastern Summit) ┆ 4532   ┆ ["Italy", "Switzerland"] │
+└──────────────────────────┴────────┴──────────────────────────┘

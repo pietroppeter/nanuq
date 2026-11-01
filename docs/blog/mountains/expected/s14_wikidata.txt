@@ -1,0 +1,14 @@
+1201
+shape: (6, 4)
+┌─────────────────┬─────────┬───────────────────────────────────────────┬───────────────┐
+│ mLabel          ┆ elev    ┆ coord                                     ┆ countries     │
+│ ---             ┆ ---     ┆ ---                                       ┆ ---           │
+│ str             ┆ f64     ┆ str                                       ┆ str           │
+╞═════════════════╪═════════╪═══════════════════════════════════════════╪═══════════════╡
+│ Olympus Mons    ┆ 21229.0 ┆ <http://www.wikidata.org/entity/Q111> Po… ┆ null          │
+│ Ascraeus Mons   ┆ 18225.0 ┆ <http://www.wikidata.org/entity/Q111> Po… ┆ null          │
+│ Tharsis Montes  ┆ 18200.0 ┆ <http://www.wikidata.org/entity/Q111> Po… ┆ null          │
+│ Boösaule Montes ┆ 17850.0 ┆ <http://www.wikidata.org/entity/Q3123> P… ┆ null          │
+│ Arsia Mons      ┆ 17761.0 ┆ <http://www.wikidata.org/entity/Q111> Po… ┆ null          │
+│ Mount Blackburn ┆ 16390.0 ┆ Point(-143.439297222 61.731908333)        ┆ United States │
+└─────────────────┴─────────┴───────────────────────────────────────────┴───────────────┘

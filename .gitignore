@@ -19,3 +19,4 @@ nimcache/
 /tests/test_temporal
 /tests/test_io
 /tests/test_categorical
+__pycache__/

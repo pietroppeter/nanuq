@@ -1,0 +1,28 @@
+shape: (15, 6)
+┌───────────────┬────────┬────────┬──────┬──────────────────────────────────────┬──────────────────────────────────────┐
+│ peak          ┆ height ┆ prom_m ┆ year ┆ party                                ┆ countries                            │
+│ ---           ┆ ---    ┆ ---    ┆ ---  ┆ ---                                  ┆ ---                                  │
+│ str           ┆ f64    ┆ f64    ┆ i32  ┆ list[str]                            ┆ list[str]                            │
+╞═══════════════╪════════╪════════╪══════╪══════════════════════════════════════╪══════════════════════════════════════╡
+│ Mount Everest ┆ 8848.9 ┆ 8848.9 ┆ 1953 ┆ ["Edmund Hillary", "Tenzing Norgay"] ┆ ["Nepal", "People's Republic of      │
+│               ┆        ┆        ┆      ┆                                      ┆ China"]                              │
+│ K2            ┆ 8611.0 ┆ 4020.0 ┆ 1954 ┆ ["Lino Lacedelli", "Achille          ┆ ["Pakistan"]                         │
+│               ┆        ┆        ┆      ┆ Compagnoni"]                         ┆                                      │
+│ Kanchenjunga  ┆ 8586.0 ┆ 3922.0 ┆ 1955 ┆ ["George Band", "Joe Brown"]         ┆ ["Nepal", "India"]                   │
+│ Lhotse        ┆ 8516.0 ┆ 610.0  ┆ 1956 ┆ ["Ernst Reiss", "Fritz Luchsinger"]  ┆ ["Nepal", "People's Republic of      │
+│               ┆        ┆        ┆      ┆                                      ┆ China"]                              │
+│ Makalu        ┆ 8485.0 ┆ 2378.0 ┆ 1955 ┆ ["Lionel Terray", "Jean Couzy"]      ┆ ["Nepal", "People's Republic of      │
+│               ┆        ┆        ┆      ┆                                      ┆ China"]                              │
+│ Lhotse Shar   ┆ 8383.0 ┆ 86.0   ┆ 1970 ┆ ["Sepp Mayerl"]                      ┆ ["Nepal", "People's Republic of      │
+│               ┆        ┆        ┆      ┆                                      ┆ China"]                              │
+│ …             ┆ …      ┆ …      ┆ …    ┆ …                                    ┆ …                                    │
+│ Nanga Parbat  ┆ 8126.0 ┆ 4608.0 ┆ 1953 ┆ ["Hermann Buhl"]                     ┆ ["Pakistan"]                         │
+│ Annapurna I   ┆ 8091.0 ┆ 2984.0 ┆ 1950 ┆ ["Louis Lachenal", "Maurice Herzog"] ┆ ["Nepal"]                            │
+│ Gasherbrum    ┆ 8080.0 ┆ 2155.0 ┆ 1958 ┆ null                                 ┆ ["Pakistan", "People's Republic of   │
+│               ┆        ┆        ┆      ┆                                      ┆ China…                               │
+│ Broad Peak    ┆ 8051.0 ┆ 1701.0 ┆ 1957 ┆ ["Kurt Diemberger", "Fritz           ┆ ["Pakistan", "People's Republic of   │
+│               ┆        ┆        ┆      ┆ Wintersteller…                       ┆ China…                               │
+│ Gasherbrum II ┆ 8034.0 ┆ 1524.0 ┆ 1956 ┆ ["Fritz Moravec", "Hans Willenpart", ┆ ["Pakistan", "People's Republic of   │
+│               ┆        ┆        ┆      ┆ "Se…                                 ┆ China…                               │
+│ Shishapangma  ┆ 8027.0 ┆ 2897.0 ┆ 1964 ┆ ["Wang Fuzhou"]                      ┆ ["People's Republic of China"]       │
+└───────────────┴────────┴────────┴──────┴──────────────────────────────────────┴──────────────────────────────────────┘

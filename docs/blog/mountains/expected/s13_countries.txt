@@ -1,0 +1,28 @@
+shape: (6, 3)
+┌────────────────────────────┬─────┬────────┐
+│ MapName                    ┆ n   ┆ top    │
+│ ---                        ┆ --- ┆ ---    │
+│ str                        ┆ u32 ┆ f64    │
+╞════════════════════════════╪═════╪════════╡
+│ Caribbean Islands          ┆ 17  ┆ 3086.0 │
+│ European Alps              ┆ 10  ┆ 4713.0 │
+│ Cordillera Centroamericana ┆ 9   ┆ 4171.0 │
+│ Dinaric Alps               ┆ 8   ┆ 2616.0 │
+│ Tian Shan                  ┆ 7   ┆ 7130.0 │
+│ Albertine Rift Mountains   ┆ 7   ┆ 4829.0 │
+└────────────────────────────┴─────┴────────┘
+shape: (8, 3)
+┌────────────────┬─────┬─────────┐
+│ system         ┆ n   ┆ highest │
+│ ---            ┆ --- ┆ ---     │
+│ str            ┆ u32 ┆ f64     │
+╞════════════════╪═════╪═════════╡
+│ Eurasia        ┆ 140 ┆ 8718.0  │
+│ South America  ┆ 30  ┆ 6898.0  │
+│ North America  ┆ 52  ┆ 6145.0  │
+│ Africa         ┆ 36  ┆ 5869.0  │
+│ Oceania        ┆ 24  ┆ 4180.0  │
+│ Atlantic Ocean ┆ 3   ┆ 3645.0  │
+│ Indian Ocean   ┆ 3   ┆ 3033.0  │
+│ Pacific Ocean  ┆ 2   ┆ 2273.0  │
+└────────────────┴─────┴─────────┘

@@ -1,0 +1,1 @@
+166 4wd_only, FIXME, abandoned:piste:difficulty, abandoned:piste:name, abandoned:piste:ref, abandoned:piste:type, access, access:conditional, alt_name:fr, assisted_trail, bicycle, bridge
