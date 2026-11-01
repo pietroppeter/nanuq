@@ -6,6 +6,64 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+Nanuq 0.6 is "engine and edges": the streaming engine and sinks, saving query plans,
+Binary and Decimal columns, the Arrow C Data Interface (zero-copy column views), Excel
+and SQLite, testing helpers, and the functions the book ports still missed. The dev
+log post "Designing Nanuq 0.6" explains the API choices. The prebuilt library is
+`lib-v0.6.0` (Polars 0.55). Excel support is two pure-Rust crates (calamine and
+rust_xlsxwriter) compiled into the library: no Python and no new system dependency.
+
+Known limitations compared with Polars: no cloud storage (S3, GCS, Azure), no plotting
+namespace (use nim-plotly or ggplotnim with `toSeq`/`toDatamancer`), databases other
+than SQLite, and the Polars version drift described in 0.5.
+
+### Added
+- Streaming: `collect(Engine.Streaming)`, `collectAll(lfs, engine)`, `profile`, and the
+  sinks `sinkParquet`, `sinkIpc`, `sinkCsv`, `sinkNdjson` to a path or partitioned by
+  key (`PartitionBy`), with `lazy = true` to return the sink as a frame for
+  `collectAll`. (add-streaming-and-sinks, #PR)
+- Saving queries: `serialize`/`deserialize` for LazyFrames and expressions (binary or
+  JSON, to bytes or files), and the `meta` functions `eq`, `ne`, `pop`,
+  `isRegexProjection`, `isColumnSelection`, `isLiteral`, `treeFormat`.
+  (add-plan-serialization, #PR)
+- `Binary` and `Decimal(precision, scale)` data types, the `bin` namespace
+  (`contains`, `startsWith`, `endsWith`, `encode`, `decode`, `size`), `str.encode`,
+  `str.toDecimal` and the `bitwise*` expressions. (add-binary-decimal-bitwise, #PR)
+- Arrow C Data Interface: `toArrow`/`fromArrow` for Series (`ArrowSchema` +
+  `ArrowArray`) and DataFrames (`ArrowArrayStream`), and zero-copy `view(T)` of a
+  numeric column as an `openArray`. `mapElements` on numeric columns without nulls now
+  reads through a view. (add-arrow-c-data, #PR)
+- Excel: `readExcel` (sheet by name or index, `hasHeader`, `skipRows`, `columns`,
+  `schemaOverrides`), `readExcelSheets` and `writeExcel`. (add-excel-io, #PR)
+- Databases: the optional module `nanuq/database` (on db_connector) with
+  `readDatabase`, `readDatabaseUri` and `writeDatabase` for SQLite.
+  (add-database-io, #PR)
+- Testing helpers: the module `nanuq/testing` with `assertFrameEqual`,
+  `assertFrameNotEqual`, `assertSeriesEqual`, `assertSeriesNotEqual`.
+  (add-testing-helpers, #PR)
+- Smaller functions from the book map: method spellings of operators (`add`, `sub`,
+  `mul`, `truediv`, `floordiv`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `neg`), `xor`,
+  `intRanges`, `dateRanges`, `datetimeRanges`, `arange`, `joinWhere`, `explainAll`,
+  `hist`, `setSorted`, `isSorted`, `append`, `remove`, `fromEpoch`,
+  `readParquetSchema`, `threadPoolSize`, `unstack`, `rollingMap`, `scatter`, `set`,
+  `dtypeOf`. (add-frame-utilities-0-6, #PR)
+- Book needs: frame aggregations (`df.sum`, `mean`, `median`, `product`, `min`, `max`,
+  `nUnique`, `count`, `std`, `var`, `quantile`, `nullCount`), group-by shortcuts
+  (`g.sum`, ..., `len`, `count`, `head`, `tail`, `quantile`), `for key, part in
+  df.groupBy(...)`, frame `fillNan`, `select(...)` without a frame, `over` with several
+  names, `concatStr` with selectors. (add-book-port-needs-0-6, #PR)
+
+### Changed
+- Operators take selectors on either side (`all() > 0` keeps each column's name), and
+  a comparison with a value on the left is mirrored as in Python (`0 < col("a")` is
+  `col("a") > 0`, named `a` instead of `literal`). (add-book-port-needs-0-6, #PR)
+- `describe` prints Datetime statistics and the mean of Date columns as Python does
+  (`1986-09-04 00:00:00`, no `.000000`). (add-book-port-needs-0-6, #PR)
+- The wrapper crate is `0.6.0`, with the Polars features `serde`, `serde-lazy`,
+  `binary_encoding`, `bitwise`, `hist` and `string_encoding`.
+
 ## [0.5.0] - 2026-11-01
 
 Nanuq 0.5 is "nested data and user code": List, Array and Struct columns with the

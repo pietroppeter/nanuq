@@ -167,7 +167,7 @@ type
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
     ## with a Nim type (`dtype == Date`, `dtype == DateTime`). Nested types are
     ## built with `List(inner)`, `Array(inner, width)` and `Struct(fields)`.
-    ## Dtypes Nanuq does not model yet (decimals, binary, ...) have kind
+    ## Dtypes Nanuq does not model yet (Int128, Object, ...) have kind
     ## `DataTypeKind.Other` and keep Polars' name.
     case kind*: DataTypeKind
     of DataTypeKind.Other: name*: string
@@ -1192,16 +1192,23 @@ template defBinOp(name, op) =
   proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Expr, b: T): Expr = binary(a, op, lit(b))
   proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Expr): Expr = binary(lit(a), op, b)
 
+template defCmpOp(name, op, mirrored) =
+  ## Comparisons with a value on the left are mirrored (`0 < x` is `x > 0`), as in
+  ## Python, so the result keeps the column's name instead of "literal".
+  proc name*(a, b: Expr): Expr = binary(a, op, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Expr, b: T): Expr = binary(a, op, lit(b))
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Expr): Expr = binary(b, mirrored, lit(a))
+
 defBinOp(`+`, nqAdd)
 defBinOp(`-`, nqSub)
 defBinOp(`*`, nqMul)
 defBinOp(`/`, nqDiv)    # true division, as in Python Polars and Nim
-defBinOp(`==`, nqEq)
-defBinOp(`!=`, nqNotEq)
-defBinOp(`<`, nqLt)
-defBinOp(`<=`, nqLtEq)
-defBinOp(`>`, nqGt)
-defBinOp(`>=`, nqGtEq)
+defCmpOp(`==`, nqEq, nqEq)
+defCmpOp(`!=`, nqNotEq, nqNotEq)
+defCmpOp(`<`, nqLt, nqGt)
+defCmpOp(`<=`, nqLtEq, nqGtEq)
+defCmpOp(`>`, nqGt, nqLt)
+defCmpOp(`>=`, nqGtEq, nqLtEq)
 defBinOp(`and`, nqAnd)
 defBinOp(`or`, nqOr)
 defBinOp(`mod`, nqMod)
@@ -1559,6 +1566,9 @@ proc over*(e: Expr, partitionBy: openArray[string]): Expr =
 proc over*(e: Expr, partitionBy: Expr): Expr = e.over([partitionBy])
   ## Window over one key expression: `col.x.shift.over(col.g)`.
 proc over*(e: Expr, partitionBy: string): Expr = e.over([col(partitionBy)])
+proc over*(e: Expr, a, b: string, more: varargs[string]): Expr =
+  ## Window over several key columns: `col.x.sum.over("g", "h")`.
+  e.over(@[a, b] & @more)
 
 # ---------------------------------------------------------------------------
 # Column selectors
@@ -1636,6 +1646,33 @@ proc exclude*(s: Selector, names: varargs[string]): Selector =
   ## The selection without the named columns.
   result = s
   for n in names: result.excluded.add n
+
+template defSelectorOp(name) =
+  # Without these, `all() > 0` goes through system's `>` template (`0 < all()`), which
+  # puts the literal first and names every result column "literal".
+  proc name*(a: Selector, b: Expr): Expr = name(a.toExpr, b)
+  proc name*(a: Expr, b: Selector): Expr = name(a, b.toExpr)
+  proc name*(a, b: Selector): Expr = name(a.toExpr, b.toExpr)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Selector, b: T): Expr =
+    name(a.toExpr, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Selector): Expr =
+    name(a, b.toExpr)
+
+defSelectorOp(`+`)
+defSelectorOp(`-`)
+defSelectorOp(`*`)
+defSelectorOp(`/`)
+defSelectorOp(`==`)
+defSelectorOp(`!=`)
+defSelectorOp(`<`)
+defSelectorOp(`<=`)
+defSelectorOp(`>`)
+defSelectorOp(`>=`)
+defSelectorOp(`and`)
+defSelectorOp(`or`)
+defSelectorOp(`mod`)
+defSelectorOp(`div`)
+defSelectorOp(`^`)
 
 proc name*(e: Expr): ExprName = ExprName(e: e)
 proc suffix*(n: ExprName, s: string): Expr =
@@ -2291,6 +2328,13 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
           if dt.kind == DataTypeKind.Duration and metric notin ["count", "null_count"]:
             # Polars can't cast durations to str
             wrap nq_expr_dt(e.raw, nqdToString, nil, "polars", false, nquMicroseconds, 0)
+          elif metric notin ["count", "null_count"] and
+              (dt.kind == DataTypeKind.Datetime or (dt.kind == DataTypeKind.Date and metric == "mean")):
+            # as Python, which prints the values with str(datetime): no ".000000"
+            let tz = dt.kind == DataTypeKind.Datetime and dt.timeZone.len > 0
+            wrap nq_expr_dt(e.raw, nqdToString, nil,
+                            (if tz: "%Y-%m-%d %H:%M:%S%.f%:z" else: "%Y-%m-%d %H:%M:%S%.f"),
+                            false, nquMicroseconds, 0)
           else: e.cast(target)
         exprs.add v.alias(metric & ":" & name)
     let c = col(name)
@@ -2554,6 +2598,11 @@ proc concatStr*(exprs: openArray[Expr], separator = "", ignoreNulls = false): Ex
   ## `ignoreNulls = false`, a null anywhere gives null.
   let r = raws(exprs)
   wrap nq_expr_concat_str(r.firstOrNil, r.len.csize_t, separator.cstring, ignoreNulls)
+proc concatStr*(exprs: openArray[Selector], separator = "", ignoreNulls = false): Expr =
+  ## `concatStr([all()], "-")`: selectors expand to their columns.
+  var e: seq[Expr]
+  for x in exprs: e.add x.toExpr
+  concatStr(e, separator, ignoreNulls)
 
 proc format*(fstring: string, args: varargs[Expr]): Expr =
   ## Builds a string column from a template with `{}` placeholders, as Polars'

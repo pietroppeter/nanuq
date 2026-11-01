@@ -52,3 +52,35 @@ suite "book needs (0.6)":
     let r = select(lit(1).alias("one"), intRange(0, 3).alias("i"))
     check r.toList("i", int) == @[0, 1, 2]
     check r.toList("one", int) == @[1, 1, 1]
+
+suite "book gaps, round 2":
+  test "comparisons on selectors keep the column names":
+    let df = newDataFrame(series("a", @[1, -1]), series("b", @[0, 2]))
+    let r = df.select((all() > 0).name.suffix(" > 0"))
+    check r.columns == @["a > 0", "b > 0"]
+    check r["b > 0", 1, bool]
+    check df.select(all() >= 0).columns == @["a", "b"]
+    check df.select(0 < all()).columns == @["a", "b"]
+    check df.select(all() * 2)["a", 0, int] == 2
+
+  test "over several column names":
+    let df = newDataFrame(series("c", @["x", "x", "y"]), series("b", @["p", "q", "p"]),
+                          series("v", @[1, 2, 3]))
+    check df.select(col("v").sum.over("c", "b"))["v", 1, int] == 2
+
+  test "concatStr with selectors":
+    let df = newDataFrame(series("a", @["x"]), series("b", @["y"]))
+    check df.select(concatStr([all()], "-").alias("s"))["s", 0, string] == "x-y"
+
+  test "describe prints dates like Python":
+    let df = newDataFrame(series("d", @[date(1986, 9, 1), date(1986, 9, 7)]))
+    let d = df.describe
+    check d["d", 2, string] == "1986-09-04 00:00:00"
+    check d["d", 4, string] == "1986-09-01"
+
+  test "a value on the left of a comparison is mirrored, as in Python":
+    let df = newDataFrame(series("a", @[1, 3]))
+    let r = df.select(2 < col("a"))
+    check r.columns == @["a"]
+    check r.toList("a", bool) == @[false, true]
+    check df.select(2 >= col("a")).toList("a", bool) == @[true, false]
