@@ -436,7 +436,8 @@ tr.gap td{color:var(--mute);text-align:center}
 .where{font:600 .7rem/1.2 var(--mono);color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.2rem}
 .nav{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin:1rem 0 0;font:600 .8rem/1 var(--mono)}
 .nav label{color:var(--mute);cursor:pointer;display:inline-flex;gap:.4rem;align-items:center}
-body:not(.show-archived) .archived{display:none}
+.archived{display:none}
+body:has(#show-archived:checked) .archived,body.show-archived .archived{display:revert}
 .hint{font:.8rem/1.4 var(--mono);color:var(--mute)}
 .spec{background:var(--floe);border:1px solid var(--rule);border-radius:10px;padding:.6rem 1.4rem;margin:.8rem 0}
 .spec>summary{font-size:1.15rem}
@@ -783,8 +784,12 @@ proc main() =
     now().format("yyyy-MM-dd HH:mm") & "</div>" &
     "<nav class=\"nav\"><a href=\"#overview\">Changes</a><a href=\"#specs\">Specs</a>" &
     (if base.len > 0: "<a href=\"#raw-diff\">Diff</a>" else: "") &
-    "<label><input type=\"checkbox\" id=\"show-archived\"> Show archived changes (" &
-    $changes.countIt(it.archived and not it.touched) & ")</label></nav></header><main>"
+    "<label><input type=\"checkbox\" id=\"show-archived\"> " &
+    (if base.len > 0: "Show older archived changes (" else: "Show archived changes (") &
+    $changes.countIt(it.archived and not it.touched) & ")</label></nav>" &
+    (if base.len > 0: "<p class=\"hint\">Compared with " & esc(base) &
+      ": changes this branch added, edited or archived are always shown; archived " &
+      "changes it did not touch are hidden.</p>" else: "") & "</header><main>"
 
   let active = changes.filterIt(not it.archived)
   html.add "<h2 id=\"overview\">Changes</h2><table class=\"overview\"><tr><th>Change</th><th>Stage</th><th>Tasks</th><th>Specs</th></tr>"
