@@ -1,0 +1,12 @@
+Rows: 82
+Columns: 10
+$ Nr.                              <f64> 1.0, 2.0, 3.0
+$ Summit                           <str> 'Mont Blanc[Note 2]', 'Mont Blanc de Courmayeur', 'Dufourspitze'
+$ Height (m)                       <f64> 4809.0, 4748.0, 4634.0
+$ Range                            <str> 'Mont Blanc Group', 'Mont Blanc Group', 'Monte Rosa Massif'
+$ Country                          <str> 'France/ Italy [9]', 'France[10]/ Italy [11][12][9]', 'Italy/Switzerland'
+$ Isolation[6] (km)                <str> '2,812  Elbrus (RU)', '0.6  Mont Blanc', '78.3  Mont Blanc de Courmayeur'
+$ Prominence[6] (m)                <str> '4,697  near Lake Kubenskoye (RU) [Note 3]', '18  Col Major', '2,165  Grosser Sankt Bernhard'
+$ First ascent[7]                  <str> '8 August 1786  Jacques Balmat, Michel-Gabriel Paccard', '18 August 1822  F. Clissold, J. M. Couttet and five guides[13][14]', '1 August 1855  Charles Hudson and 7 companions'
+$ Easiest (normal) route to summit <str> 'Goûter Route (PD-/PD+)', 'Goûter Route (PD-/PD+) extension from summit of Mont Blanc', 'From Monte Rosa Hut via Monte Rosa glacier (III, 40°, AD-)'
+$ Observations                     <str> 'Highest mountain of the Alps, border dispute France/Italy', 'Fore-summit of Mont Blanc, border dispute France/Italy', 'Highest peak of the Monte Rosa Massif, highest peak of the Alps outside of the Mont Blanc Massif'

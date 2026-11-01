@@ -1,0 +1,15 @@
+shape: (8, 2)
+┌─────────────────────────┬───────┐
+│ party                   ┆ count │
+│ ---                     ┆ ---   │
+│ str                     ┆ u32   │
+╞═════════════════════════╪═══════╡
+│ Melchior Anderegg       ┆ 6     │
+│ Christian Almer         ┆ 5     │
+│ Michel-Clément Payot    ┆ 4     │
+│ Leslie Stephen          ┆ 4     │
+│ Armand Charlet          ┆ 4     │
+│ Johann Zumtaugwald      ┆ 3     │
+│ Florence Crauford Grove ┆ 3     │
+│ Michel Croz             ┆ 3     │
+└─────────────────────────┴───────┘

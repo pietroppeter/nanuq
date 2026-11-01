@@ -1,0 +1,13 @@
+shape: (6, 4)
+┌──────────────────┬───────────────────────────────────────────┬───────────┬───────────────────────────────────────────┐
+│ MapName          ┆ path                                      ┆ Elev_High ┆ countries                                 │
+│ ---              ┆ ---                                       ┆ ---       ┆ ---                                       │
+│ str              ┆ list[str]                                 ┆ f64       ┆ list[str]                                 │
+╞══════════════════╪═══════════════════════════════════════════╪═══════════╪═══════════════════════════════════════════╡
+│ Himalaya         ┆ ["Eurasia", "Central Asia", "Himalaya"]   ┆ 8718.0    ┆ ["Afghanistan", "Bhutan", … "Pakistan"]   │
+│ Karakoram        ┆ ["Eurasia", "Central Asia", "Karakoram"]  ┆ 8527.0    ┆ ["Afghanistan", "China", … "Pakistan"]    │
+│ Hindu Kush       ┆ ["Eurasia", "Central Asia", "Hindu Kush"… ┆ 7645.0    ┆ ["Afghanistan", "Pakistan", … "Turkmenis… │
+│ Kunlun Mountains ┆ ["Eurasia", "Central Asia", … "Kunlun Mo… ┆ 7414.0    ┆ ["China", "Pakistan"]                     │
+│ Pamir Mountains  ┆ ["Eurasia", "Central Asia", "Pamir Mount… ┆ 7405.0    ┆ ["Afghanistan", "China", … "Tajikistan"]  │
+│ Transhimalaya    ┆ ["Eurasia", "Central Asia", … "Transhima… ┆ 7141.0    ┆ ["China", "India", "Myanmar"]             │
+└──────────────────┴───────────────────────────────────────────┴───────────┴───────────────────────────────────────────┘

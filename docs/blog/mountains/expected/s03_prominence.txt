@@ -1,0 +1,23 @@
+shape: (1, 3)
+┌───────────┬───────────┬──────────┐
+│ over_1000 ┆ under_100 ┆ under_30 │
+│ ---       ┆ ---       ┆ ---      │
+│ u32       ┆ u32       ┆ u32      │
+╞═══════════╪═══════════╪══════════╡
+│ 12        ┆ 33        ┆ 6        │
+└───────────┴───────────┴──────────┘
+shape: (8, 6)
+┌──────────────────────┬────────┬────────┬─────────────────────────────┬────────┬──────────────────────────┐
+│ summit               ┆ height ┆ prom_m ┆ col                         ┆ iso_km ┆ higher                   │
+│ ---                  ┆ ---    ┆ ---    ┆ ---                         ┆ ---    ┆ ---                      │
+│ str                  ┆ i64    ┆ i64    ┆ str                         ┆ f64    ┆ str                      │
+╞══════════════════════╪════════╪════════╪═════════════════════════════╪════════╪══════════════════════════╡
+│ Mont Blanc           ┆ 4809   ┆ 4697   ┆ near Lake Kubenskoye (RU)   ┆ 2812.0 ┆ Elbrus (RU)              │
+│ Finsteraarhorn       ┆ 4274   ┆ 2279   ┆ west of the Simplon Pass    ┆ 51.7   ┆ Nadelhorn                │
+│ Piz Bernina          ┆ 4048   ┆ 2236   ┆ Maloja Pass                 ┆ 138.0  ┆ Finsteraarhorn           │
+│ Dufourspitze         ┆ 4634   ┆ 2165   ┆ Grosser Sankt Bernhard      ┆ 78.3   ┆ Mont Blanc de Courmayeur │
+│ Barre des Écrins     ┆ 4102   ┆ 2045   ┆ Col du Lautaret             ┆ 107.3  ┆ Picco Luigi Amedeo       │
+│ Gran Paradiso        ┆ 4061   ┆ 1888   ┆ Nahe Kleiner Sankt Bernhard ┆ 45.1   ┆ Grandes Jorasses         │
+│ Combin de Grafeneire ┆ 4309   ┆ 1512   ┆ Fenêtre de Durand           ┆ 26.5   ┆ Dent Blanche             │
+│ Weisshorn            ┆ 4505   ┆ 1234   ┆ Furggjoch                   ┆ 11.1   ┆ Dom                      │
+└──────────────────────┴────────┴────────┴─────────────────────────────┴────────┴──────────────────────────┘

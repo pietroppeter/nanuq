@@ -1,0 +1,13 @@
+shape: (6, 4)
+┌──────────────────────────┬────────┬──────┬───────────────────────────────────────────┐
+│ summit                   ┆ height ┆ year ┆ party                                     │
+│ ---                      ┆ ---    ┆ ---  ┆ ---                                       │
+│ str                      ┆ i64    ┆ i32  ┆ list[str]                                 │
+╞══════════════════════════╪════════╪══════╪═══════════════════════════════════════════╡
+│ Mont Blanc               ┆ 4809   ┆ 1786 ┆ ["Jacques Balmat", "Michel-Gabriel Pacca… │
+│ Mont Blanc de Courmayeur ┆ 4748   ┆ 1822 ┆ ["F. Clissold", "J. M. Couttet", "five g… │
+│ Dufourspitze             ┆ 4634   ┆ 1855 ┆ ["Charles Hudson", "7 companions"]        │
+│ Nordend                  ┆ 4608   ┆ 1861 ┆ ["Edward N. Buxton", "T.F. Buxton", … "B… │
+│ Zumsteinspitze           ┆ 4563   ┆ 1820 ┆ ["Joseph Zumstein", "Joseph Vincent", … … │
+│ Signalkuppe              ┆ 4554   ┆ 1842 ┆ ["Giovanni Gnifetti", "7 companions"]     │
+└──────────────────────────┴────────┴──────┴───────────────────────────────────────────┘

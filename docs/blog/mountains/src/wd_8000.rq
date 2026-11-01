@@ -1,0 +1,9 @@
+SELECT ?m ?mLabel ?elev ?prom ?coord ?rangeLabel ?date (GROUP_CONCAT(DISTINCT ?pLabel; separator="|") AS ?climbers) (GROUP_CONCAT(DISTINCT ?cLabel; separator="|") AS ?countries) WHERE {
+  ?m wdt:P31/wdt:P279* wd:Q8502 ; wdt:P2044 ?elev . FILTER(?elev >= 7999)
+  OPTIONAL { ?m wdt:P2660 ?prom }
+  OPTIONAL { ?m wdt:P625 ?coord }
+  OPTIONAL { ?m wdt:P4552 ?range }
+  OPTIONAL { ?m wdt:P17 ?c . ?c rdfs:label ?cLabel FILTER(lang(?cLabel)="en") }
+  OPTIONAL { ?m p:P793 ?ev . ?ev ps:P793 wd:Q1194369 . OPTIONAL { ?ev pq:P585 ?date } OPTIONAL { ?ev pq:P710 ?p . ?p rdfs:label ?pLabel FILTER(lang(?pLabel)="en") } }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+} GROUP BY ?m ?mLabel ?elev ?prom ?coord ?rangeLabel ?date ORDER BY DESC(?elev)

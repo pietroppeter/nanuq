@@ -124,7 +124,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2 liblapack3 libblas3
       # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror;
-      # plotly (nim-plotly) is for the El Niño post
+      # plotly (nim-plotly) is for the explainers' figures (El Niño, Above 4000)
       - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim plotly@0.3.3
       - name: Render dev log posts
         run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done

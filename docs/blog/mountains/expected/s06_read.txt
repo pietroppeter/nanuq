@@ -1,0 +1,17 @@
+(8, 6)
+id, name, itinerary, ways
+shape: (8, 3)
+┌──────────┬───────────────────────────────────────────┬──────────┐
+│ id       ┆ name                                      ┆ n_stages │
+│ ---      ┆ ---                                       ┆ ---      │
+│ i64      ┆ str                                       ┆ u32      │
+╞══════════╪═══════════════════════════════════════════╪══════════╡
+│ 9678362  ┆ Tour du Mont Blanc - Itinéraire principa… ┆ 1        │
+│ 1176308  ┆ Tour du Cervin                            ┆ 1        │
+│ 10353523 ┆ Tour Monte Rosa                           ┆ 9        │
+│ 49181    ┆ Tour des Combins                          ┆ 9        │
+│ 177743   ┆ Alta via n. 1 delle Dolomiti - Dolomiten… ┆ 1        │
+│ 404914   ┆ Alta Via n. 2 delle Dolomiti - Dolomiten… ┆ 1        │
+│ 1706143  ┆ Alta Via n. 1 della Valle d'Aosta         ┆ 17       │
+│ 3020521  ┆ Walker's Haute Route                      ┆ 23       │
+└──────────┴───────────────────────────────────────────┴──────────┘

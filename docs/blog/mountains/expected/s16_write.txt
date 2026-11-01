@@ -1,0 +1,1 @@
+{"trek":"Tour des Combins","km":100.2,"up":6434.8,"down":6430.2,"hours":46.8,"days_of_7h":6.7,"stages":["Tour des Combins - stage 1 - BOURG-ST- PIERRE - CABANE COL DE MILLE","Tour des Combins - stage 
