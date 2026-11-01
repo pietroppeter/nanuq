@@ -412,7 +412,7 @@ scene "s05_strength":
     col.peak.cut([1.0, 1.5, 2.0], labels = ["weak", "moderate", "strong", "very strong"],
                  leftClosed = true).alias("strength"))
   echo ninos["strength"].valueCounts.sort("strength")
-  echo ninos.topK(5, by = "peak").select(col("start", "end", "seasons", "peak", "strength"))
+  echo ninos.topK(5, by = "peak").select("start", "end", "seasons", "peak", "strength")
 
 nbText: """
 The famous ones are all there: 1982-83, 1997-98 and 2015-16 (which by this index
@@ -439,8 +439,8 @@ takes an El Niño to grow.
 scene "s06_rise":
   let rise = oni.withColumns(col.oni.diff.alias("step"),
                              (col.oni - col.oni.shift(4)).alias("rise4"))
-  echo rise.filter(col.year == 2026).select(col("season", "oni", "step", "rise4"))
-  echo rise.topK(5, by = "rise4").select(col("year", "season", "oni", "rise4"))
+  echo rise.filter(col.year == 2026).select("season", "oni", "step", "rise4")
+  echo rise.topK(5, by = "rise4").select("year", "season", "oni", "rise4")
 
 nbText: """
 From MAM to JAS 2026 the index climbed 1.7 °C, the fastest four-season rise since
@@ -479,7 +479,7 @@ ten-year window gives the mean anomaly of each decade.
 scene "s07_drift":
   let monthly = readCsv("data/nino34.csv")
     .withColumns(date(col.year, col.month, 1).alias("date"))
-    .join(nino.select(col("year", "month", "anomaly")), on = ["year", "month"])
+    .join(nino.select("year", "month", "anomaly"), on = ["year", "month"])
   echo monthly.filter(col.year >= 1950).groupByDynamic("date", every = "10y").agg(
     col.anomaly.mean.alias("fixed_base"), col("cpc_anomaly").mean.alias("sliding_base"))
 
@@ -511,13 +511,13 @@ scene "s07_roni":
          col.oni.max.alias("roni_peak"),
          date(col.year.first, col.month.first, 15).alias("start_date"))
     .filter(col.phase == "El Niño" and col.seasons >= 5)
-    .select(col("start_date", "roni_start", "roni_peak"))
+    .select("start_date", "roni_start", "roni_peak")
   echo &"ONI: {ninos.height} El Niños, RONI: {roniEvents.height}"
   let paired = ninos.sort("start_date").joinAsof(
     roniEvents.sort("start_date"), on = "start_date", strategy = AsofStrategy.Nearest,
     tolerance = 183.days, coalesce = false)
   echo paired.filter(col("start_date").dt.year >= 2000)
-    .select(col("start", "peak", "roni_start", "roni_peak"))
+    .select("start", "peak", "roni_start", "roni_peak")
   echo roniEvents.topK(3, by = "roni_peak")
     .sort(["roni_peak", "start_date"], descending = [true, false])
 
@@ -586,7 +586,7 @@ average of the four.
 
 scene "s09_boxes":
   let anoms = ["nino12_anom", "nino3_anom", "nino34_anom", "nino4_anom"]
-  let boxes = readCsv("data/nino_boxes.csv").select(col(@["year", "month"] & @anoms))
+  let boxes = readCsv("data/nino_boxes.csv").select(@["year", "month"] & @anoms)
     .withColumns(maxHorizontal(anoms).alias("hottest"), meanHorizontal(anoms).alias("mean"))
   echo boxes.tail(3)
   let coastal = boxes.filter(col("nino12_anom") >= 1.0 and col("nino34_anom").abs < 0.5)
@@ -671,10 +671,10 @@ scene "s11_world":
   var monthNo: seq[(string, int)]
   for i, m in months: monthNo.add (m, i + 1)
   let gistemp = readCsv("data/gistemp.csv", skipRows = 1, nullValues = ["***"])
-  let world = gistemp.select(col(@["Year"] & @months))
+  let world = gistemp.select(@["Year"] & @months)
     .unpivot(index = "Year", variableName = "mon", valueName = "temp")
     .withColumns(date(col("Year"), col.mon.replaceStrict(monthNo), 1).alias("date"))
-    .dropNulls("temp").sort("date").select(col("date", "temp"))
+    .dropNulls("temp").sort("date").select("date", "temp")
   let yearly = gistemp.select(col("Year").alias("year"), col("J-D").alias("temp")).dropNulls
   echo yearly.topK(5, by = "temp")
 
@@ -729,7 +729,7 @@ its middle (1 July), if one started in the two years before.
 scene "s12_records":
   let recs = records.filter(col.year >= 1980).withColumns(date(col.year, 7, 1).alias("date"))
   withConfig(tblRows = 20):
-    echo recs.joinAsof(ninos.select(col("start_date", "start", "peak", "strength")).sort("start_date"),
+    echo recs.joinAsof(ninos.select("start_date", "start", "peak", "strength").sort("start_date"),
                        leftOn = "date", rightOn = "start_date", tolerance = 730.days)
       .drop(["date", "start_date"])
 
