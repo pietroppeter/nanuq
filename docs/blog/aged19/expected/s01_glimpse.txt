@@ -1,0 +1,9 @@
+Rows: 36
+Columns: 7
+$ race    <str> 'Tour Down Under', 'Cadel Evans Great Ocean Road Race', 'UAE Tour', 'Omloop Het Nieuwsblad', 'Strade Bianche', 'Paris–Nice', 'Tirreno–Adriatico', 'Milan–San Remo', 'Volta a Catalunya', 'Tour of Bruges'
+$ start  <date> 2026-01-20, 2026-02-01, 2026-02-16, 2026-02-28, 2026-03-07, 2026-03-08, 2026-03-09, 2026-03-21, 2026-03-23, 2026-03-25
+$ end    <date> 2026-01-25, 2026-02-01, 2026-02-22, 2026-02-28, 2026-03-07, 2026-03-15, 2026-03-15, 2026-03-21, 2026-03-29, 2026-03-25
+$ winner  <str> 'Jay Vine', 'Tobias Lund Andresen', 'Isaac del Toro', 'Mathieu van der Poel', 'Tadej Pogačar', 'Jonas Vingegaard', 'Isaac del Toro', 'Tadej Pogačar', 'Jonas Vingegaard', 'Dylan Groenewegen'
+$ nat     <str> 'AUS', 'DEN', 'MEX', 'NED', 'SLO', 'DEN', 'MEX', 'SLO', 'DEN', 'NED'
+$ second  <str> 'Mauro Schmid', 'Matthew Brennan', 'Antonio Tiberi', 'Tim van Dijke', 'Paul Seixas', 'Daniel Martínez', 'Matteo Jorgenson', 'Tom Pidcock', 'Lenny Martinez', 'Jasper Philipsen'
+$ third   <str> 'Harry Sweeny', 'Brady Gilmore', 'Luke Plapp', 'Florian Vermeersch', 'Isaac del Toro', 'Georg Steinhauser', 'Giulio Pellizzari', 'Wout van Aert', 'Florian Lipowitz', 'Max Kanter'

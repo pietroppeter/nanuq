@@ -6,6 +6,11 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- Dev log post "Aged 19", the 0.3 explainer: Paul Seixas's 2026 season and 130 years
+  of cycling's age and speed records, using every 0.3 feature on Wikipedia data. Each
+  output is checked against the same steps in Python Polars when the page is built.
+
 ## [0.3.0] - 2026-11-01
 
 Nanuq 0.3 adds the data types and functions real tables need: dates, datetimes,

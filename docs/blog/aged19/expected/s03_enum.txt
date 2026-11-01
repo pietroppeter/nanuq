@@ -1,0 +1,12 @@
+shape: (5, 4)
+┌──────────────────────┬────────────┬───────────────┬─────┐
+│ race                 ┆ date       ┆ winner        ┆ nat │
+│ ---                  ┆ ---        ┆ ---           ┆ --- │
+│ enum                 ┆ date       ┆ str           ┆ str │
+╞══════════════════════╪════════════╪═══════════════╪═════╡
+│ Milano-Sanremo       ┆ 2026-03-21 ┆ Tadej Pogačar ┆ SLO │
+│ Ronde van Vlaanderen ┆ 2026-04-05 ┆ Tadej Pogačar ┆ SLO │
+│ Paris-Roubaix        ┆ 2026-04-12 ┆ Wout van Aert ┆ BEL │
+│ Liège-Bastogne-Liège ┆ 2026-04-26 ┆ Tadej Pogačar ┆ SLO │
+│ Il Lombardia         ┆ 2026-10-10 ┆ Paul Seixas   ┆ FRA │
+└──────────────────────┴────────────┴───────────────┴─────┘

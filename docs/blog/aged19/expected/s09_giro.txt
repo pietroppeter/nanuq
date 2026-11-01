@@ -1,0 +1,26 @@
+shape: (10, 3)
+┌───────┬────────────┬─────────────────────────────────────────────────────┐
+│ stage ┆ date       ┆ podium                                              │
+│ ---   ┆ ---        ┆ ---                                                 │
+│ i64   ┆ date       ┆ str                                                 │
+╞═══════╪════════════╪═════════════════════════════════════════════════════╡
+│ 12    ┆ 2026-05-21 ┆ Afonso Eulálio / Jonas Vingegaard / Thymen Arensman │
+│ 13    ┆ 2026-05-22 ┆ Afonso Eulálio / Jonas Vingegaard / Thymen Arensman │
+│ 14    ┆ 2026-05-23 ┆ Jonas Vingegaard / Afonso Eulálio / Felix Gall      │
+│ 15    ┆ 2026-05-24 ┆ Jonas Vingegaard / Afonso Eulálio / Felix Gall      │
+│ 16    ┆ 2026-05-26 ┆ Jonas Vingegaard / Felix Gall / Thymen Arensman     │
+│ 17    ┆ 2026-05-27 ┆ Jonas Vingegaard / Felix Gall / Thymen Arensman     │
+│ 18    ┆ 2026-05-28 ┆ Jonas Vingegaard / Felix Gall / Thymen Arensman     │
+│ 19    ┆ 2026-05-29 ┆ Jonas Vingegaard / Felix Gall / Jai Hindley         │
+│ 20    ┆ 2026-05-30 ┆ Jonas Vingegaard / Felix Gall / Jai Hindley         │
+│ 21    ┆ 2026-05-31 ┆ Jonas Vingegaard / Felix Gall / Jai Hindley         │
+└───────┴────────────┴─────────────────────────────────────────────────────┘
+shape: (2, 4)
+┌─────────────┬──────┬───────┬───────────┐
+│ rider       ┆ best ┆ worst ┆ final_gap │
+│ ---         ┆ ---  ┆ ---   ┆ ---       │
+│ str         ┆ i64  ┆ i64   ┆ str       │
+╞═════════════╪══════╪═══════╪═══════════╡
+│ Felix Gall  ┆ 2    ┆ 4     ┆ 5′ 22″    │
+│ Jai Hindley ┆ 3    ┆ 6     ┆ 6′ 25″    │
+└─────────────┴──────┴───────┴───────────┘

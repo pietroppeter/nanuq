@@ -1,0 +1,17 @@
+shape: (10, 6)
+┌──────────────────────┬──────┬─────────┬─────┬───────┬───────────────────────────────────────────┐
+│ winner               ┆ wins ┆ one-day ┆ GC  ┆ stage ┆ races                                     │
+│ ---                  ┆ ---  ┆ ---     ┆ --- ┆ ---   ┆ ---                                       │
+│ str                  ┆ u32  ┆ u32     ┆ u32 ┆ u32   ┆ str                                       │
+╞══════════════════════╪══════╪═════════╪═════╪═══════╪═══════════════════════════════════════════╡
+│ Tadej Pogačar        ┆ 22   ┆ 4       ┆ 3   ┆ 15    ┆ Strade Bianche, Milan-San Remo, Tour of … │
+│ Jonas Vingegaard     ┆ 12   ┆ 0       ┆ 3   ┆ 9     ┆ Paris-Nice, Volta a Catalunya, Giro d'It… │
+│ Isaac del Toro       ┆ 10   ┆ 1       ┆ 3   ┆ 6     ┆ UAE Tour, Tirreno-Adriatico, Tour Auverg… │
+│ Jonathan Milan       ┆ 9    ┆ 0       ┆ 0   ┆ 9     ┆                                           │
+│ Jasper Philipsen     ┆ 7    ┆ 2       ┆ 1   ┆ 4     ┆ Gent-Wevelgem, Copenhagen Sprint, Renewi… │
+│ Paul Seixas          ┆ 6    ┆ 2       ┆ 1   ┆ 3     ┆ Tour of the Basque Country, La Flèche Wa… │
+│ Mathieu van der Poel ┆ 6    ┆ 2       ┆ 0   ┆ 4     ┆ Omloop Het Nieuwsblad, E3 Saxo Classic    │
+│ Matthew Brennan      ┆ 6    ┆ 0       ┆ 0   ┆ 6     ┆                                           │
+│ Paul Magnier         ┆ 6    ┆ 1       ┆ 0   ┆ 5     ┆ Hamburg Cyclassics                        │
+│ Remco Evenepoel      ┆ 6    ┆ 3       ┆ 0   ┆ 3     ┆ Amstel Gold Race, Clásica de San Sebasti… │
+└──────────────────────┴──────┴─────────┴─────┴───────┴───────────────────────────────────────────┘
