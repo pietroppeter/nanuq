@@ -6,6 +6,12 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- The Polars coverage map, a page on the Nanuq site (`polars_coverage.html`, linked
+  from the dev-log index): every Polars feature group with its status in each Nanuq
+  release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.
+  (add-polars-coverage-page, #PR)
+
 ## [0.5.0] - 2026-11-01
 
 Nanuq 0.5 is "nested data and user code": List, Array and Struct columns with the
