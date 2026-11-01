@@ -9,8 +9,12 @@ proc freePort(): int =
   result = s.getLocalAddr[1].int
   s.close()
 
-proc waitFor(port: int) =
-  for _ in 0 ..< 100:
+proc waitFor(port: int, p: Process = nil) =
+  ## Waits up to 60 s: moto imports a lot on its first start on a CI runner.
+  for _ in 0 ..< 600:
+    if p != nil and not p.running:
+      raise newException(IOError, "server on port " & $port & " exited with code " &
+                         $p.peekExitCode)
     try:
       let s = newSocket()
       s.connect("127.0.0.1", Port(port))
@@ -98,8 +102,8 @@ else:
   suite "S3 (moto)":
     let port = freePort()
     let server = startProcess(moto, args = ["-H", "127.0.0.1", "-p", $port],
-                              options = {poStdErrToStdOut})
-    waitFor(port)
+                              options = {poParentStreams})
+    waitFor(port, server)
     let endpoint = "http://127.0.0.1:" & $port
     let client = newHttpClient()
     discard client.request(endpoint & "/nanuq", httpMethod = HttpPut)
