@@ -3986,3 +3986,73 @@ proc eval*(a: ArrayNameSpace, e: Expr, asList = false): Expr =
   ## Evaluates `e` on the values of each array (`element()`).
   arrOp(a, nqaEval, e, f1 = asList)
 proc agg*(a: ArrayNameSpace, e: Expr): Expr = arrOp(a, nqaAgg, e)
+
+# ---------------------------------------------------------------------------
+# JSON and NDJSON (0.5)
+# ---------------------------------------------------------------------------
+
+type SchemaArg = openArray[(string, DataType)]
+
+proc schemaArgs(schema, overrides: SchemaArg): (seq[cstring], DtypeSpecs, bool) =
+  if schema.len > 0 and overrides.len > 0:
+    raise newException(ValueError, "give schema or schemaOverrides, not both")
+  let full = schema.len > 0
+  var names: seq[cstring]
+  var ts: seq[DataType]
+  for (n, t) in (if full: schema else: overrides):
+    names.add n.cstring
+    ts.add t
+  (names, toSpecs(ts), full)
+
+proc readJsonImpl(path: string, data: ptr string, lines: bool, schema, overrides: SchemaArg,
+                  inferSchemaLength: Option[int], ignoreErrors: bool): DataFrame =
+  let (dp, dl) = dataArg(data)
+  let (names, specs, full) = schemaArgs(schema, overrides)
+  wrap nq_df_read_json(path.cstring, dp, dl, lines, names.firstOrNil, specs.specs.firstOrNil,
+                       names.len.csize_t, full, inferSchemaLength.toC, ignoreErrors)
+
+proc readJson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+               inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads a JSON file holding an array of objects, one row each; nested
+  ## values become List and Struct columns. `schema` fixes all column types,
+  ## `schemaOverrides` some of them (`{"kg": Float64}`); `none(int)` infers from
+  ## all rows.
+  readJsonImpl(path, nil, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readJson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+               inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads JSON from a stream: `readJson(newStringStream(text))`.
+  var data = source.readAll
+  readJsonImpl("", addr data, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readNdjson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  ## Reads newline-delimited JSON, one object per line (options as in `readJson`).
+  readJsonImpl(path, nil, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+  var data = source.readAll
+  readJsonImpl("", addr data, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+
+proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
+                 rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): LazyFrame =
+  ## Lazily reads newline-delimited JSON files (a path or a glob).
+  let (names, specs, full) = schemaArgs(schema, schemaOverrides)
+  wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC, cOrNil(rowIndexName),
+                         rowIndexOffset.uint32, names.firstOrNil, specs.specs.firstOrNil,
+                         names.len.csize_t, full, toOpt(inferSchemaLength).toC, ignoreErrors)
+
+proc writeJsonImpl(df: DataFrame, path: cstring, lines: bool): string =
+  let r = nq_df_write_json(df.raw, path, lines)
+  if r == nil: raiseLast()
+  takeString r
+
+proc toJson*(df: DataFrame): string = writeJsonImpl(df, nil, false)
+  ## The frame as a JSON array of row objects.
+proc toNdjson*(df: DataFrame): string = writeJsonImpl(df, nil, true)
+  ## The frame as newline-delimited JSON, one object per row.
+proc writeJson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, false)
+  ## Writes the frame as a JSON array of row objects.
+proc writeJson*(df: DataFrame, dest: Stream) = dest.write(df.toJson)
+proc writeNdjson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, true)
+  ## Writes the frame as newline-delimited JSON.
+proc writeNdjson*(df: DataFrame, dest: Stream) = dest.write(df.toNdjson)

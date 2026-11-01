@@ -4292,3 +4292,123 @@ pub unsafe extern "C" fn nq_expr_arr(
         })
     }))
 }
+
+// ---------------------------------------------------------------------------
+// 0.5: JSON and NDJSON (add-json-io)
+// ---------------------------------------------------------------------------
+
+unsafe fn schema_of(
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+) -> Result<Option<SchemaRef>, String> {
+    if n == 0 {
+        return Ok(None);
+    }
+    let ns = names(names_, n)?;
+    let ds = dtypes_from_specs(specs, n)?;
+    Ok(Some(Arc::new(Schema::from_iter(
+        ns.iter().zip(ds).map(|(n, d)| Field::new((*n).into(), d)),
+    ))))
+}
+
+/// Reads JSON (an array of objects, or with `lines` NDJSON) from `path`, or
+/// from `data_len` bytes at `data` when `data` is not NULL. `full_schema`
+/// says whether the named dtypes are the whole schema or overrides.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_read_json(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    lines: bool,
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+    full_schema: bool,
+    infer_schema_length: i64,
+    ignore_errors: bool,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let bytes: Vec<u8> = if data.is_null() {
+            std::fs::read(cstr(path)?).map_err(ioe)?
+        } else {
+            std::slice::from_raw_parts(data, data_len).to_vec()
+        };
+        let schema = schema_of(names_, specs, n)?;
+        let fmt = if lines { JsonFormat::JsonLines } else { JsonFormat::Json };
+        let infer = if infer_schema_length < 0 {
+            None
+        } else {
+            std::num::NonZeroUsize::new(infer_schema_length as usize)
+        };
+        let mut r = JsonReader::new(std::io::Cursor::new(bytes))
+            .with_json_format(fmt)
+            .infer_schema_len(infer)
+            .with_ignore_errors(ignore_errors);
+        let ov;
+        match (&schema, full_schema) {
+            (Some(s), true) => r = r.with_schema(s.clone()),
+            (Some(s), false) => {
+                ov = s.clone();
+                r = r.with_schema_overwrite(&ov);
+                return r.finish().map_err(pe);
+            }
+            _ => {}
+        }
+        r.finish().map_err(pe)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_scan_ndjson(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+    n_rows: i64,
+    row_index_name: *const c_char,
+    row_index_offset: u32,
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+    full_schema: bool,
+    infer_schema_length: i64,
+    ignore_errors: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let sources = scan_sources(path, data, data_len)?;
+        let schema = schema_of(names_, specs, n)?;
+        let infer = if infer_schema_length < 0 {
+            None
+        } else {
+            std::num::NonZeroUsize::new(infer_schema_length as usize)
+        };
+        let mut r = LazyJsonLineReader::new_with_sources(sources)
+            .with_n_rows((n_rows >= 0).then_some(n_rows as usize))
+            .with_row_index(row_index(row_index_name, row_index_offset)?)
+            .with_infer_schema_length(infer)
+            .with_ignore_errors(ignore_errors);
+        r = if full_schema { r.with_schema(schema) } else { r.with_schema_overwrite(schema) };
+        r.finish().map_err(pe)
+    }))
+}
+
+/// Writes `df` as JSON (with `lines`, NDJSON) to `path`, or, when `path` is
+/// NULL, returns the text (free with `nq_string_free`). Returns "" after
+/// writing a file, NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_write_json(df: *const DataFrame, path: *const c_char, lines: bool) -> *mut c_char {
+    guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let fmt = if lines { JsonFormat::JsonLines } else { JsonFormat::Json };
+        if path.is_null() {
+            let mut buf: Vec<u8> = Vec::new();
+            JsonWriter::new(&mut buf).with_json_format(fmt).finish(&mut df).map_err(pe)?;
+            Ok(to_c_string(String::from_utf8(buf).map_err(|e| e.to_string())?))
+        } else {
+            let file = File::create(cstr(path)?).map_err(ioe)?;
+            JsonWriter::new(file).with_json_format(fmt).finish(&mut df).map_err(pe)?;
+            Ok(to_c_string(String::new()))
+        }
+    })
+    .unwrap_or(ptr::null_mut())
+}

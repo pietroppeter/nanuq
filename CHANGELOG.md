@@ -27,6 +27,9 @@ its OpenSpec change is archived. Format based on
   `struct["x"]`, `unnest`, `renameFields`, `withFields`, `jsonEncode`), `unnest` on
   frames, `Expr.valueCounts`, and the `arr` namespace for Array columns.
   (add-struct-namespace, #53)
+- JSON and NDJSON: `readJson`, `readNdjson` (paths and streams), `scanNdjson`, with
+  `schema`, `schemaOverrides`, `inferSchemaLength`, `ignoreErrors`; `writeJson`,
+  `writeNdjson`, `toJson`, `toNdjson`. (add-json-io, #53)
 
 ## [0.4.0] - 2026-11-01
 

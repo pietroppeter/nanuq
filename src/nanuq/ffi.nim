@@ -608,6 +608,17 @@ proc nq_lf_unnest*(lf: ptr NqLazyFrame, names: ptr cstring, n: csize_t,
                    separator: cstring): ptr NqLazyFrame
 proc nq_expr_arr*(e: ptr NqExpr, op: NqArrOp, a, b: ptr NqExpr, f1, f2: bool,
                   n: int64): ptr NqExpr
+
+# JSON and NDJSON (0.5)
+proc nq_df_read_json*(path: cstring, data: ptr uint8, dataLen: csize_t, lines: bool,
+                      names: ptr cstring, specs: ptr NqDtypeSpec, n: csize_t,
+                      fullSchema: bool, inferSchemaLength: int64,
+                      ignoreErrors: bool): ptr NqDataFrame
+proc nq_lf_scan_ndjson*(path: cstring, data: ptr uint8, dataLen: csize_t, nRows: int64,
+                        rowIndexName: cstring, rowIndexOffset: uint32, names: ptr cstring,
+                        specs: ptr NqDtypeSpec, n: csize_t, fullSchema: bool,
+                        inferSchemaLength: int64, ignoreErrors: bool): ptr NqLazyFrame
+proc nq_df_write_json*(df: ptr NqDataFrame, path: cstring, lines: bool): cstring
 {.pop.}
 
 let compiledFor = nanuqLibVersion
