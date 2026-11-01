@@ -268,6 +268,10 @@ the `nightly` feature).
   (where Rust has no enum, the name follows Python's strings). There are no string options.
 - Where Nim knows the expected type, write the bare value: `how = Left, maintainOrder = Left`.
   Elsewhere qualify it (`let h = JoinType.Left`), since several enums share value names.
+- Python's `method` parameter (a Nim keyword) is `how`: `rank(how = Dense)`, `corr(a, b, how = Spearman)`.
+- A parameter that takes several types uses a small converter type (`ColumnNames`,
+  `OptInterval`, `JoinKey`, `AsofTolerance`), so `pivot("m", index = "year")` and
+  `index = ["year", "month"]` both work.
 - Operators keep Polars' meaning, not Nim's: `mod` and `div` round towards negative
   infinity (`-7 mod 3 == 2`), and `round` breaks ties to the even digit. `/` is true
   division (`7 / 2 == 3.5`), as in Python Polars and in Nim.

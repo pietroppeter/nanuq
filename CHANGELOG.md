@@ -70,6 +70,8 @@ its OpenSpec change is archived. Format based on
   `agg` return a DataFrame, as in Python (they returned a LazyFrame). A leftover
   `.collect` on a DataFrame is now a compile error with a hint, instead of being taken
   by std/sugar's `collect`. (#51)
+- API conventions now also cover converter parameter types (`ColumnNames`, `OptInterval`,
+  `JoinKey`, `AsofTolerance`) for parameters that take several types. (#51)
 - **Breaking:** Python's `method` parameter is `how` in Nanuq (`method` is a Nim keyword):
   `rank(how = Dense)` (was `rankMethod`), `corr(a, b, how = Spearman)`,
   `interpolate(how = Nearest)`. The rule is in api-conventions. (#51)
