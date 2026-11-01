@@ -11,15 +11,20 @@ nb.useNanuqTheme(
   eyebrow = "Nanuq dev log · 1 November 2026",
   epigraph = "Rolling windows, reshaping, a real Series and rows as objects: the API choices 0.4 had to make, and what we picked.",
   meta = "API design · runs on Nanuq 0.4 · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.4: math, rolling windows, pivot, time windows, Series, row objects and Arraymancer.",
+  summary = "The API decisions behind Nanuq 0.4: math, rolling windows, pivot, time windows, Series, row objects, Arraymancer, and what the explainer and the book ports changed.",
 )
 
 nbText: """
 Nanuq 0.4 is the release the roadmap called "a real Series, and shaping". It adds about
-two hundred functions, in ten OpenSpec changes: math, cumulative and rolling functions,
-value functions (top k, recoding, binning), horizontal functions and correlation,
-reshaping (pivot and friends), time windows and as-of joins, a Series you can compute
-with, row objects, and Arraymancer tensors.
+two hundred functions, in ten planned OpenSpec changes: math, cumulative and rolling
+functions, value functions (top k, recoding, binning), horizontal functions and
+correlation, reshaping (pivot and friends), time windows and as-of joins, a Series you can
+compute with, row objects, and Arraymancer tensors.
+
+Then three more changes came from using it. Reviewing this post renamed a parameter.
+Writing the 0.4 explainer in Python first, and porting the Nanuq Book chapters to 0.4,
+turned up calls that Python users write all the time and Nanuq could not yet mirror.
+Sections 9 to 11 are about those.
 
 Most of it maps onto Polars without a question: `rollingMean`, `cumSum`, `topK`,
 `unpivot` are Polars' names in camelCase. This post is about the places where Nim and
@@ -59,7 +64,7 @@ nbText: """
 ## 2. Option values stay enums
 
 The 0.2 rule holds: a closed set of options is a pure enum named after Rust Polars. So
-`diff(nullBehavior = NullBehavior.Drop)`, `interpolate(InterpolationMethod.Nearest)`,
+`diff(nullBehavior = NullBehavior.Drop)`, `interpolate(how = InterpolationMethod.Nearest)`,
 `searchSorted(x, SearchSortedSide.Left)`, `pivot(aggregateFunction = PivotAgg.Sum)`,
 `joinAsof(strategy = AsofStrategy.Nearest)` and `groupByDynamic(label = Label.Right,
 startBy = StartBy.Monday)`.
@@ -255,6 +260,12 @@ column or Series, and `toSeries` and `toDataFrame` back. Nulls become NaN in flo
 tensors and raise in integer ones. It copies; zero-copy waits for the Arrow C Data
 Interface. The bridge doesn't re-export Arraymancer, so to print, slice or compute with
 the tensor you import Arraymancer itself, as here.
+
+Making this example run (it was first left unrun) found a bug. `toDataFrame(tensor)`
+took a tensor column with Arraymancer's slicing syntax, `t[_, j]`. That syntax is a
+macro, and inside a generic proc it is resolved where the proc is *called*. So
+`toDataFrame` compiled in the tests, which import Arraymancer, and failed for a user who
+imported only `nanuq/arraymancer`. The bridge now copies with plain `t[i, j]` indexing.
 """
 
 nbCode:
@@ -265,18 +276,143 @@ nbCode:
   echo t.toDataFrame(["anomaly"]).head(3)
 
 nbText: """
+## 9. `method` is a keyword, so it is `how`
+
+Python Polars picks the variant of `rank`, `corr` and `interpolate` with a parameter
+called `method`: `rank(method="dense")`, `pl.corr(a, b, method="spearman")`. In Nim,
+`method` is a reserved word (it declares a dynamically dispatched proc), so no parameter
+can have that name.
+
+The first drafts of 0.4 worked around it three different ways: `rank(rankMethod = ...)`
+(from 0.3), `corr(a, b, correlationMethod = ...)` and `interpolate(interpolation = ...)`.
+Each was defensible alone, but together they were long and inconsistent, and you had to
+remember which one each function used. We looked at four options:
+
+| Option | Looks like | Verdict |
+|---|---|---|
+| A short common name | `corr(a, b, how = Spearman)` | chosen |
+| Separate functions, as Rust Polars does | `spearmanRankCorr(a, b)` | long, and unfamiliar to Python users |
+| Backticks | ``corr(a, b, `method` = Spearman)`` | Python's name, but ugly whenever you write it |
+| `kind` | `corr(a, b, kind = Spearman)` | short, but vaguer |
+
+`how` won because Polars already uses it for exactly this, "which variant": `join(how=
+"left")` and `concat(how="vertical")`. Now there is one rule, written into the API
+conventions: **where Python has `method`, Nanuq has `how`**. Where Python uses another
+name, Nanuq keeps it (`quantile(interpolation = ...)`). Most calls pass the enum by
+position anyway, so they don't change:
+"""
+
+nbCode:
+  let scores = newDataFrame:
+    year: [1982, 1997, 2015, 2023]
+    oni: [2.2, 2.4, 2.6, 2.0]
+    rain: [1400.0, 1700.0, 600.0, 450.0]
+  echo scores.select(col.year,
+                     col.oni.rank(how = Dense, descending = true).alias("oni_rank"),
+                     col.rain.rank(Min, descending = true).alias("rain_rank"))
+  echo scores.select(corr("oni", "rain").round(2).alias("pearson"),
+                     corr("oni", "rain", how = Spearman).round(2).alias("spearman"))
+
+nbText: """
+## 10. An eager group-by returns a frame
+
+In Python, `df.group_by("a").agg(...)` on a DataFrame returns a DataFrame, and on a
+LazyFrame a LazyFrame. Until this release, Nanuq's eager `groupBy` was a shortcut for
+`df.lazy.groupBy(...)`, so `agg` returned a LazyFrame and every eager group-by ended in
+`.collect`. Porting the book chapters made the difference obvious: every eager group-by
+needed one more call in Nim than in Python.
+
+Now a DataFrame's `groupBy` (and `groupByDynamic` and `rolling`) returns a small
+`GroupBy` type, whose `agg` runs the query and returns a DataFrame. A LazyFrame keeps
+`LazyGroupBy`, whose `agg` stays lazy. `groupBy` also takes column names now, as in
+Python:
+"""
+
+nbCode:
+  let byPhase = oni
+    .withColumns((col.anomaly >= 0.5).alias("warm"))
+    .groupBy("warm")
+    .agg(col.anomaly.mean.round(2).alias("mean"), col.season.len.alias("seasons"))
+  echo byPhase    # a DataFrame: nothing to collect
+
+nbText: """
+The change broke every `.collect` after an eager group-by, and here Nim had a surprise.
+Once a DataFrame has no `collect`, `df.groupBy(...).agg(...).collect` still compiles: Nim
+finds std/sugar's `collect` macro (which builds a seq from a loop) and applies it. The
+query then prints as `@[shape: ...]`, a seq holding one frame. No error, just wrong output.
+
+So Nanuq defines `collect` for a DataFrame on purpose, as an error:
+
+```nim
+proc collect*(df: DataFrame): DataFrame {.error: "this is already a DataFrame " &
+    "(eager groupBy(...).agg(...) returns one since 0.4): drop the .collect".}
+```
+
+A leftover `.collect` now fails at compile time with that message, pointing at the right
+line. It found every leftover in our tests and older posts at once.
+
+## 11. What the explainer and the book asked for
+
+Writing the El Niño explainer in Python Polars first, and porting the book, gave us two
+lists of calls that 0.4 could not mirror. Most were small. Each one got the Python
+behaviour, with a Nim twist where Nim needed one. The events below are made up, shaped
+like the strong El Niños since 1970.
+
+**Whole-row top k.** The explainer's most used call was `df.top_k(5, by="peak")`, the five
+strongest events as whole rows. 0.4 had `topK` only on expressions, which returns one
+column. Frames now have `topK(k, by, reverse)` and `bottomK`, where `by` is a name, a list
+of names, or expressions. Python doesn't promise an order for the result; Nanuq returns
+the largest first, which is what Rust Polars does and what you want to print.
+
+**`any` and `all`** are aggregations on boolean columns, with `ignoreNulls` as in Python.
+The name `all` was already taken by the `all()` column selector; Nim overloads by
+arguments, so `all()` stays the selector and `col.x.all` is the aggregation.
+
+**`date` from parts.** `pl.date(year, month, 15)` builds a Date column from integer
+columns. Nanuq already had `date(2026, 1, 15)`, which returns a Nim `Date` value. Now, if
+any part is an expression, `date` returns an expression instead; with three numbers it
+still gives a value. We did not add Python's `datetime(...)` constructor: Nim names are
+style-insensitive, so `datetime` would be the same name as std/times' `dateTime`, and
+the two would clash in ordinary code.
+
+**`floatPrecision`.** Python's `pl.Config(float_precision=2)` keeps tables readable. It
+joins the other display options in `setConfig` and `withConfig`.
+"""
+
+nbCode:
+  let events = newDataFrame:
+    year: [1972, 1982, 1997, 2015, 2023]
+    month: [11, 12, 11, 11, 12]
+    peak: [2.1, 2.2, 2.4, 2.6, 2.0]
+    floods: [false, true, true, false, false]
+  withConfig(floatPrecision = 1):
+    echo events.topK(3, by = "peak")
+      .withColumns(date(col.year, col.month, 15).alias("peak_month"),
+                   (col.peak / 3.0).alias("third"))
+  echo events.select(col.floods.any.alias("any_floods"), col.floods.all.alias("all_floods"))
+
+nbText: """
+**`nil` as Python's `None`.** Python writes `fill_nan(None)` to turn NaN into missing
+values. Nim's closest word is `nil`, and a proc can take a parameter of type
+`typeof(nil)`, so `lit(nil)` is a null literal and `fillNan(nil)` works as in Python.
+`gatherEvery(n, offset)` also works on frames now, keeping every n-th row.
+"""
+
+nbCode:
+  let raw = newDataFrame:
+    month: [1, 2, 3, 4, 5, 6]
+    sst: [26.1, NaN, 26.8, 27.4, NaN, 28.0]
+  echo raw.withColumns(col.sst.fillNan(nil)).gatherEvery(2)
+
+nbText: """
+The longer items from the book's list (`over` with a mapping strategy, `shuffle`, `hash`,
+`extendConstant`, `partitionBy` as a dict, printing dtypes as Python does) are in the
+backlog.
+
 ## Small things
 
-- `corr(a, b, how = Spearman)`, `rank(how = Dense)`, `interpolate(how = Nearest)`:
-  Python calls this parameter `method`, which is a Nim keyword. Nanuq calls it `how`,
-  the word Polars already uses for `join` and `concat`. In 0.3 `rank`'s was `rankMethod`.
 - `repeat(lit("x"), 3)`: with a plain string, std/strutils' `repeat` wins the overload, so
   strings go through `lit`.
-- `df.groupBy(...).agg(...)` on a DataFrame now returns a DataFrame, as in Python; it
-  used to return a LazyFrame that needed `.collect`. A leftover `.collect` on a
-  DataFrame is a compile error with a hint, because otherwise std/sugar's `collect`
-  macro would quietly take it.
-- `lit(nil)` is Python's `pl.lit(None)`, so `fillNan(nil)` turns NaN into null.
 - `Expr.head` and `tail` default to 10 values, as in Python; frames keep 5.
 - `pivot` with `PivotAgg.Sum` gives 0 for empty cells, as Python does.
 
