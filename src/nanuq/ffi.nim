@@ -431,6 +431,13 @@ proc nq_lf_join_asof*(left, right: ptr NqLazyFrame, leftOn, rightOn: ptr NqExpr,
                       nByRight: csize_t, strategy: uint8, suffix: cstring, toleranceKind: uint8,
                       tolStr: cstring, tolInt: int64, tolFloat: cdouble,
                       allowExactMatches, checkSortedness, coalesce: bool): ptr NqLazyFrame
+proc nq_df_get_column*(df: ptr NqDataFrame, name: cstring): ptr NqSeries
+proc nq_df_to_series*(df: ptr NqDataFrame, idx: csize_t): ptr NqSeries
+proc nq_series_to_frame*(s: ptr NqSeries): ptr NqDataFrame
+proc nq_series_name*(s: ptr NqSeries): cstring
+proc nq_series_len*(s: ptr NqSeries): csize_t
+proc nq_series_rename*(s: ptr NqSeries, name: cstring): ptr NqSeries
+proc nq_series_to_string*(s: ptr NqSeries): cstring
 proc nq_lf_value_counts*(lf: ptr NqLazyFrame, e: ptr NqExpr, sort, normalize: bool,
                          name: cstring): ptr NqLazyFrame
 proc nq_expr_alias*(e: ptr NqExpr, name: cstring): ptr NqExpr

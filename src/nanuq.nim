@@ -3069,3 +3069,174 @@ proc joinAsof*(df, other: DataFrame, on: JoinKey = JoinKey(), leftOn: JoinKey = 
   ## As-of join (see the LazyFrame version).
   df.lazy.joinAsof(other.lazy, on, leftOn, rightOn, by, byLeft, byRight, strategy, suffix,
                    tolerance, allowExactMatches, checkSortedness, coalesce).collect
+
+# ---------------------------------------------------------------------------
+# Series (0.4)
+# ---------------------------------------------------------------------------
+
+proc `[]`*(df: DataFrame, column: string): Series = wrap nq_df_get_column(df.raw, column.cstring)
+  ## The column `column` as a Series: `df["oni"]`.
+proc getColumn*(df: DataFrame, column: string): Series = df[column]
+proc toSeries*(df: DataFrame, index = 0): Series =
+  ## The column at `index` as a Series (negative counts from the end).
+  let i = if index < 0: df.width + index else: index
+  wrap nq_df_to_series(df.raw, i.csize_t)
+
+proc toFrame*(s: Series): DataFrame = wrap nq_series_to_frame(s.raw)
+  ## A one-column DataFrame.
+proc name*(s: Series): string = takeString nq_series_name(s.raw)
+proc len*(s: Series): int = nq_series_len(s.raw).int
+proc `$`*(s: Series): string = takeString nq_series_to_string(s.raw)
+proc alias*(s: Series, name: string): Series = wrap nq_series_rename(s.raw, name.cstring)
+  ## The same values under another name (Python's `Series.alias` and `rename`).
+proc rename*(s: Series, name: string): Series = s.alias(name)
+proc dtype*(s: Series): DataType = s.toFrame.dtype(s.name)
+proc nullCount*(s: Series): int = s.toFrame.nullCount(s.name)
+
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+    _: typedesc[T]): seq[T] =
+  ## The values as a seq; raises `InvalidOperationError` on nulls.
+  s.toFrame.toList(s.name, T)
+proc toList*[T: int | float | bool | string | TemporalValue | NimEnum](s: Series,
+    _: typedesc[Option[T]]): seq[Option[T]] =
+  s.toFrame.toList(s.name, Option[T])
+proc `[]`*[T](s: Series, row: int, _: typedesc[T]): T =
+  ## One value: `s[0, float]`, or `s[2, Option[int]]`.
+  s.toFrame[s.name, row, T]
+proc item*[T](s: Series, _: typedesc[T]): T =
+  ## The only value of a one-value Series, such as the result of `s.sum`.
+  if s.len != 1:
+    raise newException(InvalidOperationError, "item needs a Series of length 1, not " & $s.len)
+  s[0, T]
+
+proc lit*(s: Series): Expr = wrap nq_expr_lit_values(s.raw)
+  ## A Series as a column in an expression, under its name.
+proc withColumns*(df: DataFrame, columns: varargs[Series]): DataFrame =
+  ## Adds or replaces columns with Series of the frame's height: `df.withColumns(s)`.
+  var es: seq[Expr]
+  for c in columns: es.add lit(c)
+  df.withColumns(es)
+
+proc eval*(s: Series, e: Expr): Series =
+  ## Evaluates `e` on a frame holding `s`, which `e` refers to as `col(s.name)`:
+  ## the engine behind the Series methods.
+  s.toFrame.select(e).toSeries(0)
+
+proc pairFrame(a, b: Series): DataFrame =
+  newDataFrame(a, b.alias("__nq_rhs"))
+
+proc filter*(s: Series, mask: Series): Series =
+  ## The values where `mask` is true.
+  pairFrame(s, mask).select(col(s.name).filter(col("__nq_rhs"))).toSeries(0)
+proc castTo*(s: Series, dtype: DataType, strict = true): Series =
+  s.eval(col(s.name).cast(dtype, strict))
+proc `cast`*(s: Series, T: typedesc, strict = true): Series =
+  ## Converts to the data type of a Nim type: `s.cast(float)`.
+  s.eval(col(s.name).cast(T, strict))
+
+template defSeriesBinOp(op) =
+  proc op*[T: SomeNumber | string | bool | TemporalValue](s: Series, v: T): Series =
+    s.eval(op(col(s.name), lit(v)).alias(s.name))
+  proc op*[T: SomeNumber | string | bool | TemporalValue](v: T, s: Series): Series =
+    s.eval(op(lit(v), col(s.name)).alias(s.name))
+  proc op*(a, b: Series): Series =
+    pairFrame(a, b).select(op(col(a.name), col("__nq_rhs")).alias(a.name)).toSeries(0)
+
+defSeriesBinOp(`+`)
+defSeriesBinOp(`-`)
+defSeriesBinOp(`*`)
+defSeriesBinOp(`/`)
+defSeriesBinOp(`div`)
+defSeriesBinOp(`mod`)
+defSeriesBinOp(`^`)
+defSeriesBinOp(`==`)
+defSeriesBinOp(`!=`)
+defSeriesBinOp(`<`)
+defSeriesBinOp(`<=`)
+defSeriesBinOp(`>`)
+defSeriesBinOp(`>=`)
+defSeriesBinOp(`and`)
+defSeriesBinOp(`or`)
+proc `-`*(s: Series): Series = s.eval(-col(s.name))
+proc `not`*(s: Series): Series = s.eval(not col(s.name))
+
+macro callFirst(f: untyped, first: untyped, args: varargs[untyped]): untyped =
+  ## `f(first, args...)`, keeping named arguments.
+  result = newCall(f, first)
+  for a in args: result.add a
+
+macro forwardToSeries(names: varargs[untyped]): untyped =
+  ## For each expression method `f`, a Series method `s.f(args)` that evaluates
+  ## `col(s.name).f(args)` on `s`.
+  result = newStmtList()
+  for n in names:
+    let name = if n.kind == nnkAccQuoted: n else: n
+    result.add quote do:
+      template `name`*(s: Series, args: varargs[untyped]): Series =
+        bind eval, col, callFirst
+        s.eval(callFirst(`name`, col(s.name), args))
+
+forwardToSeries(
+  # aggregations (a Series of one value; read it with `item`)
+  sum, mean, min, max, median, std, `var`, count, first, last, nUnique, quantile,
+  product, mode, argMin, argMax, skew, kurtosis, approxNUnique,
+  # elementwise
+  abs, round, sqrt, cbrt, exp, log, log10, log1p, sign, floor, ceil, clip,
+  sin, cos, tan, arcsin, arccos, arctan, degrees, radians,
+  isNull, isNotNull, isNan, isNotNan, isFinite, isInfinite, isIn, isBetween,
+  fillNull, fillNan, forwardFill, backwardFill, interpolate, dropNulls, dropNans,
+  # order and position
+  shift, diff, pctChange, cumSum, cumProd, cumMin, cumMax, cumCount, rleId,
+  rank, sort, argSort, reverse, head, tail, slice, gather, gatherEvery, topK, bottomK,
+  unique, isUnique, isDuplicated, isFirstDistinct, isLastDistinct, uniqueCounts,
+  replace, replaceStrict, cut, qcut, indexOf, searchSorted,
+  rollingSum, rollingMean, rollingMin, rollingMax, rollingMedian, rollingStd,
+  rollingVar, rollingQuantile, ewmMean, ewmStd, ewmVar)
+
+proc valueCounts*(s: Series, sort = false, normalize = false, name = ""): DataFrame =
+  ## How often each value occurs, as a frame (Python's `Series.value_counts`).
+  s.toFrame.valueCounts(s.name, sort, normalize, name)
+proc describe*(s: Series, percentiles: openArray[float] = [0.25, 0.5, 0.75]): DataFrame =
+  s.toFrame.describe(percentiles)
+
+# ---------------------------------------------------------------------------
+# Row objects (0.4)
+# ---------------------------------------------------------------------------
+
+proc rows*[T: object | tuple](df: DataFrame, _: typedesc[T]): seq[T] =
+  ## The rows as Nim objects or named tuples, one field per column of the same
+  ## name: `df.rows(tuple[station: string, rain: float])`. Fields may be int,
+  ## float, bool, string, temporal values, Nim enums, or `Option` of these (for
+  ## columns with nulls). Columns without a field are ignored.
+  result = newSeq[T](df.height)
+  var proto: T
+  for name, field in proto.fieldPairs:
+    let vals = df.toList(name, typeof(field))
+    for i in 0 ..< vals.len:
+      for n2, f2 in result[i].fieldPairs:
+        when n2 == name: f2 = vals[i]
+
+iterator iterRows*[T: object | tuple](df: DataFrame, _: typedesc[T]): T =
+  ## Iterates the rows as objects or named tuples (see `rows`). The columns are
+  ## read once, before the first row.
+  for r in df.rows(T): yield r
+
+proc row*[T: object | tuple](df: DataFrame, index: int, _: typedesc[T]): T =
+  ## One row as an object or named tuple (negative counts from the end).
+  let i = if index < 0: df.height + index else: index
+  if i < 0 or i >= df.height:
+    raise newException(IndexDefect, "row " & $index & " out of bounds for height " & $df.height)
+  df.slice(i, 1).rows(T)[0]
+
+proc toDataFrame*[T: object | tuple](rows: openArray[T]): DataFrame =
+  ## A frame with one column per field and one row per object, like Python's
+  ## `pl.DataFrame(list_of_dicts)`. An `Option` field gives a column with nulls.
+  var proto: T
+  var cols: seq[Series]
+  for name, field in proto.fieldPairs:
+    var vals: seq[typeof(field)]
+    for r in rows:
+      for n2, f2 in r.fieldPairs:
+        when n2 == name: vals.add f2
+    cols.add series(name, vals)
+  newDataFrameOf(cols)

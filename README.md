@@ -232,6 +232,31 @@ the `nightly` feature).
   pass `maintainOrder`
 - Concatenation: `concat([a, b])`, with `how = VerticalRelaxed`, `Horizontal`, `Diagonal`
   or `DiagonalRelaxed`
+- Math: `sqrt`, `exp`, `log(2.0)`, `log10`, `sign`, `floor`, `ceil`,
+  `clip(-1.0, 1.0)` (or `clip(lowerBound = 0)`), trigonometry, `dot`, and NaN
+  (`isNan`, `fillNan`, `dropNans`), which stays distinct from null
+- Rows before and after: `shift(1, fillValue = 0)`, `diff`, `pctChange`, `cumSum`,
+  `cumMax`, `rleId` (runs of equal values), `peakMax`; rolling windows over rows
+  (`rollingMean(3, center = true)`) or time (`rollingSumBy("day", 7.days)`),
+  `ewmMean(span = 12)`, `interpolate`
+- Values of a column: `sort`, `sortBy`, `topK`, `topKBy("score", k = 3)`, `gather`,
+  `unique`, `isDuplicated`, `replace({"N": "north"})`, `replaceStrict(..., default = ...)`,
+  `cut([-0.5, 0.5], labels = [...])`, `qcut(4)`, and `df.valueCounts("col", sort = true)`
+- Across a row: `sumHorizontal(col(float))`, `maxHorizontal("a", "b")`,
+  `anyHorizontal`, `coalesce`; generated columns `intRange`, `linearSpace`, `repeat`;
+  `corr("a", "b", Spearman)`, `cov`
+- Reshaping: `pivot("season", index = "year", values = "oni")` (with `PivotAgg.Sum` or an
+  expression on `element()`), `unpivot(index = "year")`, `transpose`, `partitionBy`,
+  `toDummies`
+- Time windows: `groupByDynamic("day", every = 1.months).agg(...)`, the rolling group-by
+  `rolling("day", period = 7.days)`, and `joinAsof(other, leftOn = "t", rightOn = "day",
+  by = "site", tolerance = 1.days)`
+- Series: `df["oni"]`, `s.max.item(float)`, `s * 2`, `s.filter(s > 0)`,
+  `s.rollingMean(3)` (every expression method works on a Series), `df.withColumns(s)`
+- Rows as objects: `df.rows(Reading)`, `for r in df.iterRows(tuple[a: int, b: string])`,
+  `seqOfObjects.toDataFrame`
+- Arraymancer (optional, `import nanuq/arraymancer`): `df.toTensor(float)`,
+  `tensor.toDataFrame(["a", "b"])`
 
 ## Conventions
 

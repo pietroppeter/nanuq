@@ -36,6 +36,15 @@ its OpenSpec change is archived. Format based on
 - Time-based grouping and as-of joins: `groupByDynamic` (with `every`, `period`,
   `offset`, `Label`, `StartBy`), the rolling group-by `rolling(indexColumn, period)`, and
   `joinAsof` (with `AsofStrategy`, `by`, `tolerance`). (add-dynamic-group-by, #51)
+- A real Series: `df["col"]`, `getColumn`, `toSeries`; `name`, `len`, `dtype`,
+  `nullCount`, `toList`, `item`, `toFrame`, `alias`; operators with literals and other
+  Series, `filter`, and the expression methods (`s.max`, `s.rollingMean(3)`,
+  `s.cut([0.0])`, ...) evaluated through expressions; `df.withColumns(series)` and
+  `lit(series)`. (add-series-api, #51)
+- `nanuq/arraymancer`, an optional module: `toTensor` for a Series, a column or a whole
+  frame (2-D), and `toSeries`/`toDataFrame` from tensors. (add-arraymancer-interop, #51)
+- Row objects: `df.rows(T)`, `df.iterRows(T)` and `df.row(i, T)` for Nim objects and
+  named tuples, and `toDataFrame(seq[T])`. (add-row-objects, #51)
 - Dev log post "Aged 19", the 0.3 explainer: Paul Seixas's 2026 season and 130 years
   of cycling's age and speed records, using every 0.3 feature on Wikipedia data. Each
   output is checked against the same steps in Python Polars when the page is built.

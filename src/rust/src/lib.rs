@@ -3482,3 +3482,56 @@ pub unsafe extern "C" fn nq_lf_join_asof(
 pub unsafe extern "C" fn nq_expr_lit_values(s: *const Series) -> *mut Expr {
     boxed(guard(|| Ok(lit(borrow(s, "Series")?.clone()))))
 }
+
+// ---------------------------------------------------------------------------
+// 0.4: Series (add-series-api)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_get_column(df: *const DataFrame, name: *const c_char) -> *mut Series {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        Ok(df.column(cstr(name)?).map_err(pe)?.as_materialized_series().clone())
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_to_series(df: *const DataFrame, idx: usize) -> *mut Series {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let c = df
+            .columns()
+            .get(idx)
+            .ok_or_else(|| format!("column index {idx} out of bounds"))?;
+        Ok(c.as_materialized_series().clone())
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_to_frame(s: *const Series) -> *mut DataFrame {
+    boxed(guard(|| Ok(borrow(s, "Series")?.clone().into_frame())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_name(s: *const Series) -> *mut c_char {
+    guard(|| Ok(to_c_string(borrow(s, "Series")?.name().to_string()))).unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_len(s: *const Series) -> usize {
+    guard(|| Ok(borrow(s, "Series")?.len())).unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_rename(s: *const Series, name: *const c_char) -> *mut Series {
+    boxed(guard(|| {
+        let mut s = borrow(s, "Series")?.clone();
+        s.rename(PlSmallStr::from_str(cstr(name)?));
+        Ok(s)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_to_string(s: *const Series) -> *mut c_char {
+    guard(|| Ok(to_c_string(format!("{}", borrow(s, "Series")?)))).unwrap_or(ptr::null_mut())
+}

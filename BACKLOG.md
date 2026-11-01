@@ -97,8 +97,6 @@ two), L (more).
   Open questions:
   is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
   operations goes in, and how expressions are represented.
-- **Arraymancer tensors** (S). Copy numeric columns to and from `Tensor[T]` for numerical
-  work.
 
 ## Datasets
 
