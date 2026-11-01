@@ -64,5 +64,9 @@ proc toDataFrame*[T: TensorValue](t: Tensor[T], columns: openArray[string] = [])
   var cols: seq[Series]
   for j in 0 ..< t.shape[1]:
     let name = if columns.len > 0: columns[j] else: "column_" & $j
-    cols.add series(name, t[_, j].squeeze(1).toSeq1D)
+    # plain indexing: the slicing macros (`t[_, j]`) only compile where the
+    # caller has imported arraymancer too
+    var vals = newSeq[T](t.shape[0])
+    for i in 0 ..< t.shape[0]: vals[i] = t[i, j]
+    cols.add series(name, vals)
   newDataFrame(cols)
