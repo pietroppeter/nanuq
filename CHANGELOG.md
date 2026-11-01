@@ -7,6 +7,11 @@ its OpenSpec change is archived. Format based on
 ## [Unreleased]
 
 ### Added
+- Dev log post "Counting El Niños", the 0.4 explainer: what El Niño is, how NOAA counts
+  it (ONI and the new RONI), and what it does to rain in Peru and to the world's
+  temperature, using the 0.4 features on NOAA and NASA data. Every step and figure is
+  shown in Nim (Nanuq, nim-plotly) and Python (py-polars, Plotly) tabs, and each Nim
+  output is checked against the recorded Python one when the page is built.
 - Nested data types: `List(inner)`, `Array(inner, width)` (or a shape) and
   `Struct(fields)` with `inner`, `width`, `shape`, `fields`; `dataType` maps `seq`,
   `array`, objects and named tuples to them. Nested columns from Nim (`series`, the

@@ -46,6 +46,7 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 the posts newest first:
 
 - [Designing Nanuq 0.5](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-5.html) (1 November 2026)
+- [Counting El Niños](https://pietroppeter.github.io/nanuq/blog/2026-11-01-counting-el-ninos.html) (1 November 2026)
 - [Designing Nanuq 0.4](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-4.html) (1 November 2026)
 - [Aged 19](https://pietroppeter.github.io/nanuq/blog/2026-11-01-aged-19.html) (1 November 2026)
 - [Designing Nanuq 0.3](https://pietroppeter.github.io/nanuq/blog/2026-10-31-designing-0-3.html) (31 October 2026)
