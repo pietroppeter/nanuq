@@ -16,7 +16,7 @@ duration strings; `groupBy` SHALL group within the windows.
 let df = newDataFrame:
   day: [date(2026, 1, 1), date(2026, 1, 20), date(2026, 2, 3), date(2026, 3, 30)]
   rain: [12, 3, 40, 7]
-echo df.groupByDynamic("day", every = 1.months).agg(col.rain.sum).collect
+echo df.groupByDynamic("day", every = 1.months).agg(col.rain.sum)
 ```
 
 ```text
@@ -49,7 +49,7 @@ row, holding the rows whose `indexColumn` lies in the `period` up to that row's 
 let df = newDataFrame:
   day: [date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 5)]
   rain: [4, 0, 10]
-echo df.rolling("day", period = 3.days).agg(col.rain.sum.alias("rain_3d")).collect
+echo df.rolling("day", period = 3.days).agg(col.rain.sum.alias("rain_3d"))
 ```
 
 ```text

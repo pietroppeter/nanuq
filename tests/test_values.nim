@@ -12,7 +12,7 @@ suite "ordering":
     let df = newDataFrame(series("g", ["a", "a", "b", "b"]), series("s", ["p", "q", "r", "t"]),
                           series("w", [1, 5, 9, 2]))
     let r = df.groupBy(col("g")).agg(col("s").sortBy(col("w"), descending = true).first
-      .alias("top")).sort("g").collect
+      .alias("top")).sort("g")
     check r.toList("top", string) == @["q", "r"]
     check col("s").sortBy([col("g"), col("w")], [true, false]).one(df).toList("r", string) ==
       @["t", "r", "p", "q"]

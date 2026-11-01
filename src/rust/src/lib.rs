@@ -3595,3 +3595,22 @@ pub extern "C" fn nq_set_float_precision(n: i32) {
 pub extern "C" fn nq_get_float_precision() -> i32 {
     polars_core::fmt::get_float_precision().map_or(-1, |n| n as i32)
 }
+
+// ---------------------------------------------------------------------------
+// Null literal and boolean aggregations (0.4)
+// ---------------------------------------------------------------------------
+
+/// A null literal (Python's `pl.lit(None)`).
+#[no_mangle]
+pub extern "C" fn nq_expr_lit_null() -> *mut Expr {
+    boxed(Some(lit(Null {})))
+}
+
+/// `any` (or `all` when `all` is true) of a boolean column, as an aggregation.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_any_all(e: *const Expr, all: bool, ignore_nulls: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(if all { e.all(ignore_nulls) } else { e.any(ignore_nulls) })
+    }))
+}

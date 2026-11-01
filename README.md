@@ -220,6 +220,7 @@ the `nightly` feature).
 - Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
   and `over("group")` for per-group values on every row
 - Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
+  (on a DataFrame, `df.groupBy("species").agg(...)` returns a DataFrame directly)
   (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)
 - Frame verbs (lazy and eager): `drop("a")` or `drop(["a", "b"])`, `rename({"old": "new"})`,
   `head`, `tail`, `slice(offset, length)`, `reverse`, `withRowIndex`,

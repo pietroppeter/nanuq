@@ -17,7 +17,7 @@ let df = newDataFrame:
   storm: ["Ana", "Bud", "Cleo", "Dan"]
   wind: [120, 185, 150, 95]
 echo df.groupBy(col.basin).agg(col.storm.sortBy(col.wind, descending = true).first
-                               .alias("strongest")).sort("basin").collect
+                               .alias("strongest")).sort("basin")
 ```
 
 ```text

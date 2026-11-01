@@ -78,7 +78,6 @@ nbCode:
     .agg(col.season.first.alias("from"), col.season.last.alias("to"),
          col.anomaly.max.alias("peak"), col.season.len.alias("seasons"))
     .filter(col.seasons >= 5)
-    .collect
   echo runs
 
 nbText: """
@@ -273,6 +272,11 @@ nbText: """
   the word Polars already uses for `join` and `concat`. In 0.3 `rank`'s was `rankMethod`.
 - `repeat(lit("x"), 3)`: with a plain string, std/strutils' `repeat` wins the overload, so
   strings go through `lit`.
+- `df.groupBy(...).agg(...)` on a DataFrame now returns a DataFrame, as in Python; it
+  used to return a LazyFrame that needed `.collect`. A leftover `.collect` on a
+  DataFrame is a compile error with a hint, because otherwise std/sugar's `collect`
+  macro would quietly take it.
+- `lit(nil)` is Python's `pl.lit(None)`, so `fillNan(nil)` turns NaN into null.
 - `Expr.head` and `tail` default to 10 values, as in Python; frames keep 5.
 - `pivot` with `PivotAgg.Sum` gives 0 for empty cells, as Python does.
 

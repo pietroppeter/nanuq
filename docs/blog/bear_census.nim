@@ -299,7 +299,6 @@ scene("s13_selectors"):
     .agg(col(SomeNumber).exclude("report", "week", "cubs", "ringed", "bearded", "lat", "lon")
            .mean.round(1).name.suffix("_mean"))
     .sort("station")
-    .collect
 
 nbText: """
 Hopen sees the most bears but weighs the lightest. That fits: Hopen is a denning
@@ -377,7 +376,6 @@ scene("s18_dens"):
          col("dens").mean.round(1).alias("dens"),
          col("cub_kg").mean.round(2).alias("cub_kg"))
     .sort("ice_arrived", descending = true)
-    .collect
 
 nbText: """
 In years when the ice came late, there were fewer dens and the cubs were lighter.

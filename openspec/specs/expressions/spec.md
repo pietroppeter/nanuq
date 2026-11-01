@@ -322,7 +322,7 @@ let df = newDataFrame:
   stage: ["TT", "road", "TT", "road"]
   secs: [3120, 15400, 3150, 15390]
 echo df.groupBy(col.rider).agg(col.secs.filter(col.stage == "TT").sum.alias("tt_secs"))
-  .sort("rider").collect
+  .sort("rider")
 ```
 
 ```text
@@ -372,3 +372,33 @@ shape: (1, 3)
 #### Scenario: Several modes
 - **WHEN** `mode` runs on 1, 2, 2, 3, 3
 - **THEN** the result holds 2 and 3
+
+### Requirement: Boolean aggregations
+`Expr` SHALL support `any(ignoreNulls = true)` and `all(ignoreNulls = true)` on boolean
+columns, as aggregations: whether any value, or every value, is true. With
+`ignoreNulls = false` they SHALL follow Kleene logic: `any` is null when there are nulls
+and no true value, `all` is null when there are nulls and no false value. The `all()`
+selector (no arguments) SHALL keep working.
+
+```nim
+let df = newDataFrame:
+  team: ["a", "a", "b", "b"]
+  won: [true, false, true, true]
+echo df.groupBy("team").agg(col.won.all.alias("always"), col.won.any.alias("ever"))
+```
+
+```text
+shape: (2, 3)
+┌──────┬────────┬──────┐
+│ team ┆ always ┆ ever │
+│ ---  ┆ ---    ┆ ---  │
+│ str  ┆ bool   ┆ bool │
+╞══════╪════════╪══════╡
+│ a    ┆ false  ┆ true │
+│ b    ┆ true   ┆ true │
+└──────┴────────┴──────┘
+```
+
+#### Scenario: Kleene logic
+- **WHEN** `any(ignoreNulls = false)` runs on false and null
+- **THEN** the result is null

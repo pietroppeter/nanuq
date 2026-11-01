@@ -539,6 +539,8 @@ proc nq_lf_top_k*(lf: ptr NqLazyFrame, k: csize_t, by: ptr ptr NqExpr, nby: csiz
                   reverse, bottom: bool): ptr NqLazyFrame
 proc nq_set_float_precision*(n: int32)
 proc nq_get_float_precision*(): int32
+proc nq_expr_lit_null*(): ptr NqExpr
+proc nq_expr_any_all*(e: ptr NqExpr, all, ignoreNulls: bool): ptr NqExpr
 {.pop.}
 
 let compiledFor = nanuqLibVersion

@@ -9,28 +9,28 @@ proc daily(): DataFrame =
 
 suite "groupByDynamic":
   test "monthly windows":
-    let r = daily().groupByDynamic("day", every = 1.months).agg(col("rain").sum).collect
+    let r = daily().groupByDynamic("day", every = 1.months).agg(col("rain").sum)
     check r.toList("day", Date) == @[date(2026, 1, 1), date(2026, 2, 1)]
     check r.toList("rain", int) == @[6, 9]
   test "weekly windows with string interval and boundaries":
     let r = daily().groupByDynamic(col("day"), every = "1w", includeBoundaries = true,
-                                   startBy = StartBy.DataPoint).agg(col("rain").sum).collect
+                                   startBy = StartBy.DataPoint).agg(col("rain").sum)
     check "_lower_boundary" in r.columns
     check r.toList("rain", int)[0] == 3
   test "period and groupBy":
     let r = daily().groupByDynamic("day", every = 1.months, period = 14.days,
                                    groupBy = [col("site")]).agg(col("rain").sum)
-      .sort(["site", "day"]).collect
+      .sort(["site", "day"])
     check r.toList("site", string) == @["a", "a", "b", "b"]
     check r.toList("rain", int) == @[4, 4, 2, 5]
 
 suite "rolling group-by":
   test "last 7 days":
-    let r = daily().rolling("day", period = 7.days).agg(col("rain").sum.alias("week")).collect
+    let r = daily().rolling("day", period = 7.days).agg(col("rain").sum.alias("week"))
     check r.toList("week", int) == @[1, 3, 5, 4, 9]
   test "string period, groupBy":
     let r = daily().rolling("day", period = "7d", groupBy = [col("site")])
-      .agg(col("rain").sum.alias("week")).collect
+      .agg(col("rain").sum.alias("week"))
     check r.height == 5
 
 suite "joinAsof":

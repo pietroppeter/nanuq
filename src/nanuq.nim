@@ -70,6 +70,10 @@ type
     ## A named column, used to build a DataFrame.
 
   GroupKind = enum gkPlain, gkDynamic, gkRolling
+  GroupBy* = object
+    ## Grouped rows of a DataFrame waiting for `agg`, which returns a DataFrame
+    ## (the eager twin of `LazyGroupBy`).
+    lazy: LazyGroupBy
   LazyGroupBy* = object
     ## Grouped rows waiting for `agg`: from `groupBy`, `groupByDynamic` or `rolling`.
     lf: LazyFrame
@@ -855,6 +859,8 @@ proc lit*(v: float): Expr = wrap nq_expr_lit_f64(v)
 proc lit*(v: bool): Expr = wrap nq_expr_lit_bool(v)
 proc lit*(v: string): Expr = wrap nq_expr_lit_str(v.cstring)
 proc lit*(v: Expr): Expr = v
+proc lit*(v: typeof(nil)): Expr = wrap nq_expr_lit_null()
+  ## A null: `lit(nil)` (Python's `pl.lit(None)`).
 proc lit*[T: NimEnum](v: T): Expr = lit($v)
   ## A Nim enum value is its string: compare it with Enum columns
   ## (`col.monument == Flanders`).
@@ -1004,6 +1010,18 @@ proc dot*[T: SomeNumber | Expr](e: Expr, other: T): Expr =
 proc fillNan*[T: SomeNumber | Expr](e: Expr, value: T): Expr =
   ## Replaces NaN (not nulls) with `value`.
   binaryFn(e, lit(value), nqbFillNan)
+proc fillNan*(e: Expr, value: typeof(nil)): Expr =
+  ## Turns NaN into null: `fillNan(nil)` (Python's `fill_nan(None)`).
+  binaryFn(e, lit(nil), nqbFillNan)
+
+proc any*(e: Expr, ignoreNulls = true): Expr =
+  ## Whether any value of a boolean column is true (an aggregation). With
+  ## `ignoreNulls = false`, nulls and no true value give null.
+  wrap nq_expr_any_all(e.raw, false, ignoreNulls)
+proc all*(e: Expr, ignoreNulls = true): Expr =
+  ## Whether every value of a boolean column is true (an aggregation). With
+  ## `ignoreNulls = false`, nulls and no false value give null.
+  wrap nq_expr_any_all(e.raw, true, ignoreNulls)
 
 proc clipImpl(e: Expr, lo, hi: Expr): Expr =
   wrap nq_expr_clip(e.raw, (if lo.isNil: nil else: lo.raw), (if hi.isNil: nil else: hi.raw))
@@ -1322,6 +1340,11 @@ proc prefix*(n: ExprName, s: string): Expr =
 proc lazy*(df: DataFrame): LazyFrame = wrap nq_df_lazy(df.raw)
 
 proc collect*(lf: LazyFrame): DataFrame = wrap nq_lf_collect(lf.raw)
+proc collect*(df: DataFrame): DataFrame {.error: "this is already a DataFrame " &
+    "(eager groupBy(...).agg(...) returns one since 0.4): drop the .collect".} =
+  ## Catches a leftover `.collect` on a DataFrame at compile time, instead of
+  ## letting std/sugar's `collect` macro take it.
+  df
 
 proc select*(lf: LazyFrame, exprs: varargs[Expr]): LazyFrame =
   let r = raws(exprs)
@@ -1337,6 +1360,11 @@ proc filter*(lf: LazyFrame, predicate: Expr): LazyFrame =
 proc groupBy*(lf: LazyFrame, by: varargs[Expr]): LazyGroupBy =
   ## Group rows (keeping first-seen group order); follow with `agg`.
   LazyGroupBy(lf: lf, by: @by)
+proc groupBy*(lf: LazyFrame, by: varargs[string]): LazyGroupBy =
+  ## Group by column names: `groupBy("species", "island")`.
+  var e: seq[Expr]
+  for b in by: e.add col(b)
+  LazyGroupBy(lf: lf, by: e)
 
 proc agg*(g: LazyGroupBy, aggs: varargs[Expr]): LazyFrame =
   let b = raws(g.by)
@@ -1768,7 +1796,10 @@ proc sort*(df: DataFrame, by: openArray[string], descending: openArray[bool] = [
 proc sort*(df: DataFrame, by: openArray[Expr], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
   df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
-proc groupBy*(df: DataFrame, by: varargs[Expr]): LazyGroupBy = df.lazy.groupBy(by)
+proc groupBy*(df: DataFrame, by: varargs[Expr]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
+  ## Group rows; `agg` then returns a DataFrame, as in Python.
+proc groupBy*(df: DataFrame, by: varargs[string]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
+proc agg*(g: GroupBy, aggs: varargs[Expr]): DataFrame = g.lazy.agg(aggs).collect
 proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect
 proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true): DataFrame =
   df.lazy.cast(dtypes, strict).collect
@@ -3035,9 +3066,9 @@ proc groupByDynamic*(df: DataFrame, indexColumn: string | Expr,
                      every: string | TimeInterval, period: OptInterval = OptInterval(),
                      offset: OptInterval = OptInterval(), includeBoundaries = false,
                      closed = ClosedWindow.Left, label = Label.Left,
-                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): LazyGroupBy =
-  df.lazy.groupByDynamic(indexColumn, every, period, offset, includeBoundaries, closed, label,
-                         groupBy, startBy)
+                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): GroupBy =
+  GroupBy(lazy: df.lazy.groupByDynamic(indexColumn, every, period, offset, includeBoundaries,
+                                       closed, label, groupBy, startBy))
 
 proc rolling*(lf: LazyFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
@@ -3050,8 +3081,8 @@ proc rolling*(lf: LazyFrame, indexColumn: string | Expr, period: string | TimeIn
               offset: (if o.len == 0: negated(p) else: o), closed: NqClosedWindow(ord(closed)))
 proc rolling*(df: DataFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
-              groupBy: openArray[Expr] = []): LazyGroupBy =
-  df.lazy.rolling(indexColumn, period, offset, closed, groupBy)
+              groupBy: openArray[Expr] = []): GroupBy =
+  GroupBy(lazy: df.lazy.rolling(indexColumn, period, offset, closed, groupBy))
 
 proc joinAsofImpl(lf, other: LazyFrame, leftOn, rightOn: Expr, byLeft, byRight: seq[string],
                   strategy: AsofStrategy, suffix: string, tolKind: uint8, tolStr: string,
@@ -3094,8 +3125,14 @@ proc joinAsof*(df, other: DataFrame, on: JoinKey = JoinKey(), leftOn: JoinKey = 
                    tolerance, allowExactMatches, checkSortedness, coalesce).collect
 
 # ---------------------------------------------------------------------------
-# Frame top k (0.4)
+# Frame top k and gatherEvery (0.4)
 # ---------------------------------------------------------------------------
+
+proc gatherEvery*(lf: LazyFrame, n: int, offset = 0): LazyFrame =
+  ## Every `n`-th row, starting at row `offset` (Python's `gather_every`).
+  lf.select(all().gatherEvery(n, offset))
+proc gatherEvery*(df: DataFrame, n: int, offset = 0): DataFrame =
+  df.lazy.gatherEvery(n, offset).collect
 
 proc topKImpl(lf: LazyFrame, k: int, by: openArray[Expr], reverse, bottom: bool): LazyFrame =
   if k < 0: raise newException(ValueError, "k must not be negative")
@@ -3241,7 +3278,7 @@ macro forwardToSeries(names: varargs[untyped]): untyped =
 forwardToSeries(
   # aggregations (a Series of one value; read it with `item`)
   sum, mean, min, max, median, std, `var`, count, first, last, nUnique, quantile,
-  product, mode, argMin, argMax, skew, kurtosis, approxNUnique,
+  product, mode, argMin, argMax, skew, kurtosis, approxNUnique, any, all,
   # elementwise
   abs, round, sqrt, cbrt, exp, log, log10, log1p, sign, floor, ceil, clip,
   sin, cos, tan, arcsin, arccos, arctan, degrees, radians,

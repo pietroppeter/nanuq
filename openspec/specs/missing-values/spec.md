@@ -225,3 +225,30 @@ shape: (4, 4)
 #### Scenario: Integer column
 - **WHEN** `interpolate` runs on 1, null, 3
 - **THEN** the result is 1.0, 2.0, 3.0
+
+### Requirement: Null literal
+`lit(nil)` SHALL be a null literal (Python's `pl.lit(None)`), usable wherever an
+expression is, and `fillNan(nil)` SHALL turn NaN values into nulls.
+
+```nim
+let df = newDataFrame:
+  x: [1.0, NaN, 3.0]
+echo df.select(col.x.fillNan(nil).alias("x"), col.x.fillNan(nil).nullCount.alias("nulls"))
+```
+
+```text
+shape: (3, 2)
+┌──────┬───────┐
+│ x    ┆ nulls │
+│ ---  ┆ ---   │
+│ f64  ┆ u32   │
+╞══════╪═══════╡
+│ 1.0  ┆ 1     │
+│ null ┆ 1     │
+│ 3.0  ┆ 1     │
+└──────┴───────┘
+```
+
+#### Scenario: Null column
+- **WHEN** `select(lit(nil).alias("n"))` runs with another column of 3 rows
+- **THEN** `n` holds 3 nulls

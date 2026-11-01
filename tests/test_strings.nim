@@ -74,7 +74,7 @@ suite "str namespace":
       r: ["a", nil, "b"]
     check w.one(col.r.str.join("|")) == @[some("a|b")]
     check w.one(col.r.str.join("|", ignoreNulls = false)) == @[none(string)]
-    let per = w.groupBy(col.g).agg(col.r.str.join(", ")).sort("g").collect
+    let per = w.groupBy(col.g).agg(col.r.str.join(", ")).sort("g")
     check per.toList("r", string) == @["a, b", ""]
 
 suite "concatStr and format":

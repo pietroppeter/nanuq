@@ -43,7 +43,7 @@ suite "exclude":
 
 suite "selectors as expressions":
   test "mean per group of every numeric column but one":
-    let r = log().groupBy(col("station")).agg(col(SomeNumber).exclude("cubs").mean).sort("station").collect
+    let r = log().groupBy(col("station")).agg(col(SomeNumber).exclude("cubs").mean).sort("station")
     check r.columns == @["station", "bears", "weight"]
     check r.toList("bears", float) == @[1.5, 3.0]
     check r.toList("weight", float) == @[150.0, 300.0]

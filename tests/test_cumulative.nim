@@ -41,7 +41,7 @@ suite "runs and peaks":
     let df = newDataFrame(series("x", [true, true, false, true]))
     check col("x").rleId.one(df).toList("r", int) == @[0, 0, 1, 2]
     let lens = df.withColumns(col("x").rleId.alias("run")).groupBy(col("run"))
-      .agg(col("x").len.alias("n")).sort("run").collect
+      .agg(col("x").len.alias("n")).sort("run")
     check lens.toList("n", int) == @[2, 1, 1]
   test "peaks":
     let df = ints([1, 3, 2, 0, 4, 1])

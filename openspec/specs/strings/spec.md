@@ -154,7 +154,7 @@ result null.
 let wins = newDataFrame:
   rider: ["Pogačar", "Seixas", "Pogačar"]
   race: ["Strade Bianche", "Flèche Wallonne", "Il Lombardia"]
-echo wins.groupBy(col.rider).agg(col.race.str.join(", ").alias("races")).sort("rider").collect
+echo wins.groupBy(col.rider).agg(col.race.str.join(", ").alias("races")).sort("rider")
 ```
 
 ```text

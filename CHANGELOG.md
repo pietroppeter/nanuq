@@ -59,7 +59,17 @@ its OpenSpec change is archived. Format based on
 - `setFloatPrecision(n)` and `floatPrecision` in `setConfig`/`withConfig` (Python's
   `float_precision`). (#51)
 
+### Added (from the 0.4 book ports)
+- `any` and `all` aggregations on boolean columns (`ignoreNulls`), also on Series. (#51)
+- `lit(nil)` null literal and `fillNan(nil)` (Python's `pl.lit(None)`, `fill_nan(None)`). (#51)
+- `groupBy("a", "b")` with column names. (#51)
+- `gatherEvery(n, offset)` on frames. (#51)
+
 ### Changed
+- **Breaking:** on a DataFrame, `groupBy`, `groupByDynamic` and `rolling` followed by
+  `agg` return a DataFrame, as in Python (they returned a LazyFrame). A leftover
+  `.collect` on a DataFrame is now a compile error with a hint, instead of being taken
+  by std/sugar's `collect`. (#51)
 - **Breaking:** Python's `method` parameter is `how` in Nanuq (`method` is a Nim keyword):
   `rank(how = Dense)` (was `rankMethod`), `corr(a, b, how = Spearman)`,
   `interpolate(how = Nearest)`. The rule is in api-conventions. (#51)

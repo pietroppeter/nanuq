@@ -127,7 +127,7 @@ scene "s02_wins":
       .agg(@[col.race.count.alias("wins")] & perKind &
            @[col.race.filter(col.kind != $Stage).str.join(", ").alias("races")])
       .filter(col.wins >= 6)
-      .sort(["wins", "GC", "winner"], descending = [true, true, false]).collect
+      .sort(["wins", "GC", "winner"], descending = [true, true, false])
 
 nbText: """
 Pogačar won 22 times: four one-day races, three GCs (Romandie, Suisse,
@@ -193,7 +193,7 @@ scene "s03_roll":
     .agg(@[col.nat.first, col.year.min.alias("first"), col.year.max.alias("latest")] &
          perRace & @[col.race.count.alias("total")])
     .withColumns(col.total.rank(Min, descending = true).alias("rank"))
-    .sort(["total", "first"], descending = [true, false]).collect
+    .sort(["total", "first"], descending = [true, false])
   withConfig(tblCols = 12):
     echo roll.select(col.rank, all().exclude("rank")).head(12)
 
@@ -260,7 +260,7 @@ scene "s06_nulls":
   echo ages.filter(col.year.isBetween(1931, 1939))
     .groupBy(col.year).agg(col.name.count.alias("starters"),
                            col.born.nullCount.alias("no_birth_date"))
-    .sort("year").collect
+    .sort("year")
 
 nbText: """
 Before 1930 teenagers were common: 43 starters under 20, the youngest Camille Fily in
@@ -352,12 +352,12 @@ scene "s09_giro":
 
   echo giro.filter(col.rank <= 3).sort(["stage", "rank"])
     .groupBy(col.stage, col.date).agg(col.rider.str.join(" / ").alias("podium"))
-    .sort("stage").collect.tail(10)
+    .sort("stage").tail(10)
   echo giro.filter(col.rider.isIn(["Felix Gall", "Jai Hindley"]) and col.stage >= 12)
     .groupBy(col.rider)
     .agg(col.rank.min.alias("best"), col.rank.max.alias("worst"),
          gap("gap").last.alias("final_gap"))
-    .sort("rider").collect
+    .sort("rider")
 
 nbText: """
 ## Set your alarm
@@ -428,7 +428,7 @@ scene "s12_strip":
             (col.winner == "Paul Seixas").sum.alias("seixas_wins"),
             (col.winner == "Tadej Pogačar").sum.alias("pogacar_wins")),
           on = ["month"], how = Left)
-    .sort("month").collect
+    .sort("month")
   echo days.select(col.day.count.alias("world_tour_race_days"),
                    col.day.nUnique.alias("calendar_days"))
 

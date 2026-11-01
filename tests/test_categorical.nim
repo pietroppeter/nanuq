@@ -67,7 +67,7 @@ suite "run-time Enum and Categorical":
     check $df.dtype("team") == "cat"
     check df.toList("team", string) == @["UAE", "Visma", "UAE"]
     check df.select(col.team.nUnique).toList("team", int) == @[2]
-    check df.groupBy(col.team).agg(col.team.count.alias("n")).collect.height == 2
+    check df.groupBy(col.team).agg(col.team.count.alias("n")).height == 2
 
   test "cat functions":
     let df = newDataFrame:
