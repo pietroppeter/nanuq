@@ -155,3 +155,17 @@ suite "gatherEvery and groupBy by name":
       a: ["x", "y", "x"]
       v: [1, 2, 3]
     check df.groupBy("a").agg(col.v.sum).toList("v", int) == @[4, 2]
+
+suite "explainer needs (0.5)":
+  test "filter with several predicates":
+    let df = newDataFrame:
+      m: [4806, 4634, 4061]
+      it: [true, false, true]
+    check df.filter(col("m") > 4500, col("it")).toList("m", int) == @[4806]
+    check df.lazy.filter(col("m") > 4000, col("it"), col("m") < 4500).collect.toList("m", int) == @[4061]
+  test "groupBy with maintainOrder":
+    let df = newDataFrame:
+      c: ["CH", "IT", "CH"]
+      m: [4634, 4061, 4506]
+    check df.groupBy("c", maintainOrder = false).agg(col("m").max).toList("c", string) == @["CH", "IT"]
+    check df.groupBy(col("c"), maintainOrder = true).agg(col("m").max).toList("m", int) == @[4634, 4061]

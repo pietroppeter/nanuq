@@ -46,6 +46,9 @@ its OpenSpec change is archived. Format based on
   `undoAliases`); frame and Series `equals`; `vstack`, `extend`, `hstack`, `update`,
   `upsample`, `estimatedSize`, `partitionBy(asDict = true)`, `collectAll`.
   (add-frame-utilities, #53)
+- From the 0.5 explainer port: frame `fillNull(value)` and `fillNull(strategy)`,
+  `filter(a, b, ...)` with several predicates, and `groupBy(..., maintainOrder)`.
+  (add-explainer-needs-0-5, #53)
 - `Expr.repeatBy`, and `sample(..., seed = 42)` with a plain int on expressions and
   lists. (add-repeat-by-and-seeds, #53)
 - `benchmarks/map_elements.nim` and `.py`: `mapElements` against py-polars'

@@ -126,3 +126,17 @@ suite "null literal":
     let df = newDataFrame(series("x", [1.0, NaN, 3.0]))
     check df.select(col.x.fillNan(nil)).toList("x", Option[float]) == @[some(1.0), none(float), some(3.0)]
     check df.select(col.x, lit(nil).alias("n")).nullCount("n") == 3
+
+suite "frame fillNull (0.5)":
+  test "by value and strategy":
+    let df = newDataFrame:
+      i: [some(1), none(int)]
+      f: [some(1.5), none(float)]
+      s: [some("a"), none(string)]
+    check df.fillNull(0).toList("i", int) == @[1, 0]
+    check df.fillNull(0).toList("f", float) == @[1.5, 0.0]
+    check df.fillNull(0.5).dtype("i") == Float64
+    check df.fillNull("x").toList("s", string) == @["a", "x"]
+    check df.fillNull("x").nullCount("i") == 1
+    check df.fillNull(FillNullStrategy.Forward).toList("s", string) == @["a", "a"]
+    check df.lazy.fillNull(0).collect.nullCount("i") == 0

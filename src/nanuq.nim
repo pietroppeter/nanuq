@@ -4651,3 +4651,38 @@ proc explode*(lf: LazyFrame, a, b: string, more: varargs[string]): LazyFrame =
   lf.explode(@[a, b] & @more)
 proc explode*(df: DataFrame, a, b: string, more: varargs[string]): DataFrame =
   df.explode(@[a, b] & @more)
+
+# Explainer needs (0.5): frame fillNull, filter with several predicates, maintainOrder
+
+proc fillNull*[T: SomeNumber | string | bool](lf: LazyFrame, value: T): LazyFrame =
+  ## Fills the nulls of the columns `value` fits, as Python's `df.fill_null(value)`:
+  ## a number fills the numeric columns (a float turns integer columns into
+  ## Float64), a string the String columns, a bool the Boolean ones.
+  when T is SomeNumber: lf.withColumns(col(SomeNumber).toExpr.fillNull(value))
+  elif T is string: lf.withColumns(col(string).toExpr.fillNull(value))
+  else: lf.withColumns(col(bool).toExpr.fillNull(value))
+proc fillNull*[T: SomeNumber | string | bool](df: DataFrame, value: T): DataFrame =
+  df.lazy.fillNull(value).collect
+proc fillNull*(lf: LazyFrame, strategy: FillNullStrategy, limit = none(int)): LazyFrame =
+  ## Fills the nulls of every column with a strategy: `fillNull(Forward)`.
+  lf.withColumns(all().toExpr.fillNull(strategy, limit))
+proc fillNull*(df: DataFrame, strategy: FillNullStrategy, limit = none(int)): DataFrame =
+  df.lazy.fillNull(strategy, limit).collect
+
+proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
+  ## Rows where every predicate holds: `filter(col.m > 4000, col.country == "CH")`
+  ## (Python's `filter(a, b)`, joined with `and`).
+  var p = a and b
+  for m in more: p = p and m
+  lf.filter(p)
+proc filter*(df: DataFrame, a, b: Expr, more: varargs[Expr]): DataFrame =
+  df.lazy.filter(a, b, more).collect
+
+proc groupBy*(df: DataFrame, by: varargs[string], maintainOrder: bool): GroupBy =
+  ## `groupBy("a", maintainOrder = true)`, for Python parity: Nanuq always keeps
+  ## the groups in the order their keys first appear.
+  df.groupBy(by)
+proc groupBy*(lf: LazyFrame, by: varargs[string], maintainOrder: bool): LazyGroupBy =
+  lf.groupBy(by)
+proc groupBy*(df: DataFrame, by: varargs[Expr], maintainOrder: bool): GroupBy = df.groupBy(by)
+proc groupBy*(lf: LazyFrame, by: varargs[Expr], maintainOrder: bool): LazyGroupBy = lf.groupBy(by)
