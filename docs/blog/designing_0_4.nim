@@ -196,6 +196,38 @@ nbCode:
   echo s.filter(s > 2.0).toList(float)
 
 nbText: """
+### Putting a Series back into a frame: `lit`
+
+`lit` is short for *literal*: a fixed value written into the query, as opposed to `col`,
+which looks a column up by name when the query runs. You already know `lit(2.0)`, a
+single number that Polars repeats on every row. `lit(s)` is the same idea for a whole
+column of values: the Series goes into the query as it is, under its own name. It must
+have one value per row of the frame it meets (or a single value, which is repeated).
+
+Say we have a Series computed somewhere else, a reference anomaly for each of the eight
+seasons, and we want each season's distance from it. `col.anomaly - reference` does not
+compile, because `reference` is a Series and `-` with an expression wants another expression.
+Wrapping it does:
+"""
+
+nbCode:
+  let reference = series("reference", [1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 0.0, -0.5])
+  echo oni.select(
+    col.season,
+    col.anomaly,
+    lit(reference),                                    # the Series as a column
+    (col.anomaly - lit(reference)).alias("vs reference"),
+  )
+
+nbText: """
+To add a Series as a new column there is no need for an expression at all:
+`withColumns` takes Series directly, as Python's `with_columns` does.
+"""
+
+nbCode:
+  echo oni.withColumns(reference, s.rank.alias("rank")).head(3)
+
+nbText: """
 ## 7. Rows as Nim objects
 
 Python returns rows as tuples or dicts. Nim has types, so you say which one you want:
