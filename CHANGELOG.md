@@ -52,6 +52,10 @@ its OpenSpec change is archived. Format based on
   them), `asStruct("a", "b")`, frame `interpolate`, `cast({Float64: Float32})` and
   `cast({col(SomeNumber): Float32})`, `explode("a", "b")`. (add-book-port-needs-0-5, #53)
 
+### Changed
+- New tagline in the README and on the dev-log index: "Watch out where the queries go,
+  and process well that rusty data." (#53)
+
 ## [0.4.0] - 2026-11-01
 
 Nanuq 0.4 is "a real Series, and shaping": math, cumulative and rolling windows,

@@ -9,7 +9,7 @@ nb.title = "Nanuq dev log"
 nb.useNanuqTheme(
   titleHtml = "Nanuq <em>dev log</em>",
   eyebrow = "Polars DataFrames for Nim",
-  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.",
+  epigraph = "Watch out where the queries go, and process well that rusty data.",
   meta = "Rendered with nimib",
   summary = "Notes from building Nanuq, Polars DataFrames for Nim.",
 )
