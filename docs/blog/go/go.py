@@ -61,11 +61,11 @@ import figs  # Plotly charts and boards; the Nim post redoes them with nim-plotl
 # point from the right and the fourth from the top. Our database packs the moves of each
 # game into one **Binary** value, two bytes per move. Binary columns are new in 0.6.
 #
-# Why bytes and not a string? A move is not text, it is two small numbers. In a Binary
-# value move *n* always sits at bytes 2*n* and 2*n*+1, `bin.get` hands back a byte as a
-# number we can compute with (`a` is 97, so a column is the byte minus 97), and looking
-# for an opening is a prefix match on bytes. The bytes happen to be letters, so they
-# stay readable when printed, but Polars never treats them as text.
+# What is in it: the SGF letters themselves, one byte each, so `pd` is the two bytes 112
+# and 100. A String column would have worked just as well; we use Binary to try out the
+# new type. It does fit the job: move *n* always sits at bytes 2*n* and 2*n*+1, `bin.get`
+# hands back a byte as a number (`a` is 97, so a column is the byte minus 97), and
+# looking for an opening is a prefix match on bytes.
 
 # %%
 # id: s01_read
