@@ -4467,3 +4467,372 @@ pub unsafe extern "C" fn nq_sql_execute(c: *mut SQLContext, query: *const c_char
         ctx.execute(cstr(query)?).map_err(pe)
     }))
 }
+
+// ---------------------------------------------------------------------------
+// 0.5: Nim callbacks (add-nim-callbacks)
+// ---------------------------------------------------------------------------
+
+use std::ffi::c_void;
+use std::sync::Mutex;
+
+/// A Nim function on Series: gets `n` borrowed Series, returns a new Series
+/// (from `nq_series_clone`) or NULL after `nq_udf_set_error`.
+pub type NqUdfFn = unsafe extern "C" fn(env: *mut c_void, args: *const *const Series, n: usize) -> *mut Series;
+/// A Nim function on a name: returns false after `nq_udf_set_error`, else
+/// sets the result with `nq_udf_set_result`.
+pub type NqNameFn = unsafe extern "C" fn(env: *mut c_void, name: *const c_char) -> bool;
+/// Releases the Nim closure behind `env`.
+pub type NqDropFn = unsafe extern "C" fn(env: *mut c_void);
+
+/// Nim code is not thread-safe the way Rust closures are, and Polars may call
+/// a UDF from several worker threads: every call into Nim takes this lock.
+static NIM_LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static NIM_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static UDF_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
+    static UDF_RESULT: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Runs `f` holding `NIM_LOCK`, unless this thread already holds it (a Nim
+/// callback that itself runs or drops callbacks).
+fn with_nim<R>(f: impl FnOnce() -> R) -> R {
+    let depth = NIM_DEPTH.with(|d| d.get());
+    let _g = if depth == 0 { Some(NIM_LOCK.lock().unwrap_or_else(|p| p.into_inner())) } else { None };
+    NIM_DEPTH.with(|d| d.set(depth + 1));
+    let r = f();
+    NIM_DEPTH.with(|d| d.set(depth));
+    r
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_udf_set_error(msg: *const c_char) {
+    let m = cstr(msg).unwrap_or("error in a Nim callback").to_string();
+    UDF_ERROR.with(|e| *e.borrow_mut() = m);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_udf_set_result(s: *const c_char) {
+    let m = cstr(s).unwrap_or("").to_string();
+    UDF_RESULT.with(|e| *e.borrow_mut() = m);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_clone(s: *const Series) -> *mut Series {
+    boxed(guard(|| Ok(borrow(s, "series")?.clone())))
+}
+
+struct NimFn {
+    f: Option<NqUdfFn>,
+    name_f: Option<NqNameFn>,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+}
+unsafe impl Send for NimFn {}
+unsafe impl Sync for NimFn {}
+
+impl Drop for NimFn {
+    fn drop(&mut self) {
+        let (d, env) = (self.drop_f, self.env);
+        with_nim(|| unsafe { d(env) })
+    }
+}
+
+fn udf_error() -> PolarsError {
+    let m = UDF_ERROR.with(|e| std::mem::take(&mut *e.borrow_mut()));
+    PolarsError::ComputeError(format!("Nim callback failed: {m}").into())
+}
+
+impl NimFn {
+    fn call(&self, args: &[Series]) -> PolarsResult<Series> {
+        let ptrs: Vec<*const Series> = args.iter().map(|s| s as *const Series).collect();
+        let r = with_nim(|| unsafe { (self.f.unwrap())(self.env, ptrs.as_ptr(), ptrs.len()) });
+        if r.is_null() {
+            Err(udf_error())
+        } else {
+            Ok(unsafe { *Box::from_raw(r) })
+        }
+    }
+    fn call_name(&self, name: &str) -> PolarsResult<PlSmallStr> {
+        let c = CString::new(name).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        let ok = with_nim(|| unsafe { (self.name_f.unwrap())(self.env, c.as_ptr()) });
+        if ok {
+            Ok(UDF_RESULT.with(|e| std::mem::take(&mut *e.borrow_mut())).into())
+        } else {
+            Err(udf_error())
+        }
+    }
+}
+
+unsafe fn opt_dtype(has: bool, spec: *const NqDtypeSpec) -> Result<Option<DataType>, String> {
+    if has { Ok(Some(dtype_from_spec(borrow(spec, "dtype")?)?)) } else { Ok(None) }
+}
+
+/// `e` mapped through a Nim function on the whole column (`map_batches`).
+/// The output dtype is `spec` when `has_dtype`, else the input's.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_map_batches(
+    e: *const Expr,
+    f: NqUdfFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+    has_dtype: bool,
+    spec: *const NqDtypeSpec,
+    returns_scalar: bool,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: Some(f), name_f: None, drop_f, env });
+    boxed(guard(|| {
+        let dt = opt_dtype(has_dtype, spec)?;
+        let e = borrow(e, "expression")?.clone();
+        Ok(udf_flags(e.apply(
+            move |c: Column| nf.call(&[c.as_materialized_series().clone()]).map(Column::from),
+            move |_s: &Schema, fld: &Field| {
+                Ok(match &dt {
+                    Some(d) => Field::new(fld.name().clone(), d.clone()),
+                    None => fld.clone(),
+                })
+            },
+        ), returns_scalar))
+    }))
+}
+
+/// Nim callbacks run Polars themselves (the Series methods), so they are
+/// re-entrant; `returns_scalar` gives one value per group, not a list.
+fn udf_flags(e: Expr, returns_scalar: bool) -> Expr {
+    match e {
+        Expr::AnonymousFunction { input, function, mut options, fmt_str } => {
+            options.flags |= polars_plan::prelude::FunctionFlags::OPTIONAL_RE_ENTRANT;
+            if returns_scalar {
+                options.flags |= polars_plan::prelude::FunctionFlags::RETURNS_SCALAR;
+            }
+            Expr::AnonymousFunction { input, function, options, fmt_str }
+        }
+        other => other,
+    }
+}
+
+/// Horizontal folds with a Nim function of (accumulator, column): `kind` 0
+/// fold, 1 reduce, 2 cum_fold, 3 cum_reduce.
+#[no_mangle]
+pub unsafe extern "C" fn nq_fold(
+    kind: i32,
+    acc: *const Expr,
+    f: NqUdfFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+    es: *const *const Expr,
+    n: usize,
+    include_init: bool,
+    has_dtype: bool,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: Some(f), name_f: None, drop_f, env });
+    boxed(guard(|| {
+        let exprs = exprs_of(es, n)?;
+        let dt = opt_dtype(has_dtype, spec)?.map(DataTypeExpr::Literal);
+        let cb: PlanCallback<(Series, Series), Series> =
+            PlanCallback::Rust(SpecialEq::new(Arc::new(move |(a, b): (Series, Series)| nf.call(&[a, b]))));
+        Ok(match kind {
+            0 => fold_exprs(borrow(acc, "expression")?.clone(), cb, exprs, false, dt),
+            1 => reduce_exprs(cb, exprs, false, dt),
+            2 => cum_fold_exprs(borrow(acc, "expression")?.clone(), cb, exprs, false, dt, include_init),
+            _ => cum_reduce_exprs(cb, exprs, false, dt),
+        })
+    }))
+}
+
+/// Output names mapped through a Nim function (`name.map`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_name_map(
+    e: *const Expr,
+    f: NqNameFn,
+    drop_f: NqDropFn,
+    env: *mut c_void,
+) -> *mut Expr {
+    let nf = Arc::new(NimFn { f: None, name_f: Some(f), drop_f, env });
+    boxed(guard(|| {
+        let cb: PlanCallback<PlSmallStr, PlSmallStr> =
+            PlanCallback::Rust(SpecialEq::new(Arc::new(move |s: PlSmallStr| nf.call_name(s.as_str()))));
+        Ok(borrow(e, "expression")?.clone().name().map(cb))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.5: smaller functions (add-frame-utilities)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqUtilOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqUtilOp {
+    Shuffle = 0,
+    SampleN,
+    SampleFraction,
+    Hash,
+    Get,
+    ArgTrue,
+    UpperBound,
+    LowerBound,
+    ExtendConstant,
+    Rle,
+    NameToLowercase,
+    NameToUppercase,
+    UndoAliases,
+}
+
+/// `a`, `b`: expression arguments; `f1`, `f2`: with_replacement, shuffle;
+/// `seed` (-1: none); `dims` for reshape.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_util(
+    e: *const Expr,
+    op: NqUtilOp,
+    a: *const Expr,
+    b: *const Expr,
+    f1: bool,
+    f2: bool,
+    seed: i64,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        let sd = (seed >= 0).then_some(seed as u64);
+        Ok(match op {
+            NqUtilOp::Shuffle => e.shuffle(sd),
+            NqUtilOp::SampleN => e.sample_n(a, f1, Some(f2), sd),
+            NqUtilOp::SampleFraction => e.sample_frac(a, f1, Some(f2), sd),
+            NqUtilOp::Hash => {
+                let s = seed.max(0) as u64;
+                e.hash(s, s, s, s)
+            }
+            NqUtilOp::Get => e.get(a, f1),
+            NqUtilOp::ArgTrue => arg_where(e),
+            NqUtilOp::UpperBound => e.upper_bound(),
+            NqUtilOp::LowerBound => e.lower_bound(),
+            NqUtilOp::ExtendConstant => e.extend_constant(a, b),
+            NqUtilOp::Rle => e.rle(),
+            NqUtilOp::NameToLowercase => e.name().to_lowercase(),
+            NqUtilOp::NameToUppercase => e.name().to_uppercase(),
+            NqUtilOp::UndoAliases => e.meta().undo_aliases(),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_reshape(e: *const Expr, dims: *const i64, n: usize) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(e, "expression")?.clone().reshape(slice(dims, n)?))))
+}
+
+/// `over` with a mapping strategy: 0 group_to_rows, 1 join, 2 explode.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_over_mapping(
+    e: *const Expr,
+    parts: *const *const Expr,
+    n: usize,
+    mapping: i32,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let ps = exprs_of(parts, n)?;
+        let m = match mapping {
+            1 => WindowMapping::Join,
+            2 => WindowMapping::Explode,
+            _ => WindowMapping::GroupsToRows,
+        };
+        borrow(e, "expression")?.clone().over_with_options(Some(ps), None, m).map_err(pe)
+    }))
+}
+
+/// Meta information on an expression: 0 output name, 1 root names (joined by
+/// "\n"). Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_str(e: *const Expr, what: i32) -> *mut c_char {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let m = e.meta();
+        Ok(to_c_string(match what {
+            0 => m.output_name().map_err(pe)?.to_string(),
+            _ => m.root_names().iter().map(|s| s.to_string()).collect::<Vec<_>>().join("\n"),
+        }))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// 0 has_multiple_outputs, 1 is_column, 2 is_literal. -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_bool(e: *const Expr, what: i32) -> i32 {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let m = e.meta();
+        Ok(match what {
+            0 => m.has_multiple_outputs(),
+            1 => m.is_column(),
+            _ => m.is_literal(false),
+        } as i32)
+    })
+    .unwrap_or(-1)
+}
+
+/// Whether two frames have the same names, dtypes and values (nulls equal
+/// when `null_equal`). -1 on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_equals(a: *const DataFrame, b: *const DataFrame, null_equal: bool) -> i32 {
+    guard(|| {
+        let (a, b) = (borrow(a, "DataFrame")?, borrow(b, "DataFrame")?);
+        if a.shape() != b.shape() || a.get_column_names() != b.get_column_names() {
+            return Ok(0);
+        }
+        for (x, y) in a.columns().iter().zip(b.columns()) {
+            if x.dtype() != y.dtype() {
+                return Ok(0);
+            }
+            let same = if null_equal { x.equals_missing(y) } else { x.equals(y) };
+            if !same {
+                return Ok(0);
+            }
+        }
+        Ok(1)
+    })
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_estimated_size(df: *const DataFrame) -> i64 {
+    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size() as i64)).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_upsample(
+    df: *const DataFrame,
+    time_column: *const c_char,
+    every: *const c_char,
+    by: *const *const c_char,
+    n_by: usize,
+    maintain_order: bool,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let by: Vec<PlSmallStr> = names(by, n_by)?.into_iter().map(PlSmallStr::from).collect();
+        let every = polars::time::Duration::try_parse(cstr(every)?).map_err(pe)?;
+        let tc = cstr(time_column)?;
+        if maintain_order {
+            df.upsample_stable(by, tc, every).map_err(pe)
+        } else {
+            df.upsample(by, tc, every).map_err(pe)
+        }
+    }))
+}
+
+/// Collects several plans at once (common subplans run once).
+#[no_mangle]
+pub unsafe extern "C" fn nq_collect_all(lfs: *const *const LazyFrame, n: usize, out: *mut *mut DataFrame) -> bool {
+    guard(|| {
+        let plans: Vec<DslPlan> = slice(lfs, n)?.iter().map(|l| lf(*l).map(|x| x.logical_plan)).collect::<Result<_, _>>()?;
+        let dfs = LazyFrame::collect_all_with_engine(plans, Engine::Auto, OptFlags::default()).map_err(pe)?;
+        let out = std::slice::from_raw_parts_mut(out, n);
+        for (o, d) in out.iter_mut().zip(dfs) {
+            *o = Box::into_raw(Box::new(d));
+        }
+        Ok(())
+    })
+    .is_some()
+}

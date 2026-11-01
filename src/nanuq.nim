@@ -3442,7 +3442,14 @@ proc eval*(s: Series, e: Expr): Series =
   s.toFrame.select(e).toSeries(0)
 
 proc pairFrame(a, b: Series): DataFrame =
-  newDataFrame(a, b.alias("__nq_rhs"))
+  ## `a` and `b` (as `__nq_rhs`) side by side; a Series of length 1 is
+  ## broadcast to the other's length, as in Polars.
+  if a.len == b.len: newDataFrame(a, b.alias("__nq_rhs"))
+  elif b.len == 1:
+    a.toFrame.select(col(a.name), lit(b).first.alias("__nq_rhs"))
+  elif a.len == 1:
+    b.alias("__nq_rhs").toFrame.select(lit(a).first.alias(a.name), col("__nq_rhs"))
+  else: newDataFrame(a, b.alias("__nq_rhs"))
 
 proc filter*(s: Series, mask: Series): Series =
   ## The values where `mask` is true.
@@ -4132,3 +4139,317 @@ proc sql*(query: string, frames: openArray[(string, LazyFrame)]): LazyFrame =
   newSQLContext(frames).execute(query)
 proc sql*(query: string, frames: openArray[(string, DataFrame)]): DataFrame =
   newSQLContext(frames).execute(query).collect
+
+# ---------------------------------------------------------------------------
+# Nim callbacks (0.5): Nim procs and closures that Polars calls
+# ---------------------------------------------------------------------------
+
+type
+  UdfEnv = ref object
+    ## Keeps a Nim closure alive while Polars holds the expression using it.
+    batch: proc (args: seq[Series]): Series
+    rename: proc (name: string): string
+
+proc udfCall(env: pointer, args: ptr ptr NqSeries, n: csize_t): ptr NqSeries {.cdecl.} =
+  ## Polars calls this; a Nim exception becomes a ComputeError on the Rust side.
+  try:
+    let e = cast[UdfEnv](env)
+    let arr = cast[ptr UncheckedArray[ptr NqSeries]](args)
+    var xs = newSeq[Series](n.int)
+    for i in 0 ..< n.int: xs[i] = wrap nq_series_clone(arr[i])
+    let r = e.batch(xs)
+    if r.isNil: raise newException(ValueError, "the callback returned nil")
+    result = check nq_series_clone(r.raw)
+  except CatchableError as ex:
+    nq_udf_set_error(cstring($ex.name & ": " & ex.msg))
+    result = nil
+
+proc udfName(env: pointer, name: cstring): bool {.cdecl.} =
+  try:
+    let r = cast[UdfEnv](env).rename($name)
+    nq_udf_set_result(r.cstring)
+    result = true
+  except CatchableError as ex:
+    nq_udf_set_error(cstring($ex.name & ": " & ex.msg))
+    result = false
+
+proc udfDrop(env: pointer) {.cdecl.} =
+  GC_unref(cast[UdfEnv](env))
+
+proc newEnv(batch: proc (args: seq[Series]): Series = nil,
+            rename: proc (name: string): string = nil): pointer =
+  let e = UdfEnv(batch: batch, rename: rename)
+  GC_ref(e)   # released by udfDrop when Polars drops the function
+  cast[pointer](e)
+
+proc mapBatchesImpl(e: Expr, f: proc (args: seq[Series]): Series, dtype: Option[DataType],
+                    returnsScalar = false): Expr =
+  let sp = toSpecs([dtype.get(Null)])
+  wrap nq_expr_map_batches(e.raw, udfCall, udfDrop, newEnv(batch = f), dtype.isSome,
+                           sp.specs[0].unsafeAddr, returnsScalar)
+
+proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnsScalar = false): Expr =
+  ## The column of `e` passed to a Nim proc or closure as a whole Series (in a
+  ## group-by, each group's values); the result must have the same data type
+  ## (else give `returnDtype`). With `returnsScalar`, `f` gives one value per
+  ## group instead of a list. An exception in `f` raises a `ComputeError` when
+  ## the query runs.
+  mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), none(DataType), returnsScalar)
+proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnDtype: DataType,
+                 returnsScalar = false): Expr =
+  ## `mapBatches` with a result of type `returnDtype`.
+  mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), some(returnDtype), returnsScalar)
+
+proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
+  ## Each value passed to a typed Nim proc or closure: `proc (x: int): string`.
+  ## The values are read as `T` (an object or named tuple for a struct column,
+  ## a seq for a list), the result type is `dataType(U)`. Nulls stay null
+  ## without a call, unless `T` is an `Option`, which gets them as `none`.
+  let g = proc (args: seq[Series]): Series =
+    let s = args[0]
+    when T is Option:
+      let xs = s.toList(T)
+      var ys = newSeq[U](xs.len)
+      for i, x in xs: ys[i] = f(x)
+      series(s.name, ys)
+    elif U is Option:
+      let xs = s.toList(Option[T])
+      var ys = newSeq[U](xs.len)
+      for i, x in xs:
+        if x.isSome: ys[i] = f(x.get)
+      series(s.name, ys)
+    else:
+      let xs = s.toList(Option[T])
+      var ys = newSeq[Option[U]](xs.len)
+      for i, x in xs:
+        if x.isSome: ys[i] = some(f(x.get))
+      series(s.name, ys)
+  mapBatchesImpl(e, g, some(dataType(U)))
+
+proc foldImpl(kind: int, acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+              includeInit: bool, dtype: Option[DataType]): Expr =
+  let rs = rawExprs(exprs)
+  let sp = toSpecs([dtype.get(Null)])
+  let g = proc (args: seq[Series]): Series = f(args[0], args[1])
+  wrap nq_fold(kind.int32, raw(acc), udfCall, udfDrop, newEnv(batch = g), rs.firstOrNil,
+               rs.len.csize_t, includeInit, dtype.isSome, sp.specs[0].unsafeAddr)
+
+proc fold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  ## Folds columns left to right with a Nim function of Series:
+  ## `fold(lit(0), proc (acc, x: Series): Series = acc + x, col("*"))`.
+  foldImpl(0, acc, f, exprs, false, none(DataType))
+proc fold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+           returnDtype: DataType): Expr =
+  foldImpl(0, acc, f, exprs, false, some(returnDtype))
+proc reduce*(f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  ## Like `fold`, starting from the first column.
+  foldImpl(1, nil, f, exprs, false, none(DataType))
+proc cumFold*(acc: Expr, f: proc (acc, x: Series): Series, exprs: openArray[Expr],
+              includeInit = false): Expr =
+  ## Like `fold`, keeping each step as a field of a struct.
+  foldImpl(2, acc, f, exprs, includeInit, none(DataType))
+proc cumReduce*(f: proc (acc, x: Series): Series, exprs: varargs[Expr]): Expr =
+  foldImpl(3, nil, f, exprs, false, none(DataType))
+
+proc map*(n: ExprName, f: proc (name: string): string): Expr =
+  ## Renames the output with a Nim function: `col("*").name.map(capitalizeAscii)`.
+  wrap nq_expr_name_map(n.e.raw, udfName, udfDrop, newEnv(rename = f))
+
+proc mapGroups*(g: GroupBy, f: proc (df: DataFrame): DataFrame): DataFrame =
+  ## Each group as a DataFrame passed to a Nim function; the results are
+  ## concatenated (Python's `group_by(...).map_groups`). Groups come in the
+  ## order of first occurrence.
+  let lz = g.lazy
+  var keys: seq[Expr]
+  var names: seq[string]
+  for i, k in lz.by:
+    names.add "__nq_key_" & $i
+    keys.add k.alias(names[^1])
+  let keyed = lz.lf.withColumns(keys).collect
+  var parts: seq[DataFrame]
+  for part in keyed.partitionBy(names, maintainOrder = true):
+    parts.add f(part.drop(names))
+  if parts.len == 0: return lz.lf.collect.head(0)
+  concat(parts)
+
+# ---------------------------------------------------------------------------
+# Smaller expression and frame functions (0.5)
+# ---------------------------------------------------------------------------
+
+type
+  MappingStrategy* {.pure.} = enum
+    ## How `over` maps group results back to rows (Polars' `mapping_strategy`).
+    GroupToRows  ## each row gets its group's value (the default)
+    Join         ## each row gets all of its group's values, as a list
+    Explode      ## the groups' values one after the other (rows reordered by group)
+  SizeUnit* {.pure.} = enum
+    ## Units for `estimatedSize`.
+    Bytes, Kilobytes, Megabytes, Gigabytes, Terabytes
+  MetaNameSpace* = distinct Expr
+    ## `e.meta`: information about an expression itself.
+
+proc utilOp(e: Expr, op: NqUtilOp, a: Expr = nil, b: Expr = nil, f1 = false, f2 = false,
+            seed = -1): Expr =
+  wrap nq_expr_util(e.raw, op, raw(a), raw(b), f1, f2, seed.int64)
+
+proc over*(e: Expr, partitionBy: openArray[Expr], mappingStrategy: MappingStrategy): Expr =
+  ## `over` with a mapping strategy: `col("kg").over("den", MappingStrategy.Join)`.
+  let ps = raws(partitionBy)
+  wrap nq_expr_over_mapping(e.raw, ps.firstOrNil, ps.len.csize_t, ord(mappingStrategy).int32)
+proc over*(e: Expr, partitionBy: openArray[string], mappingStrategy: MappingStrategy): Expr =
+  var ks: seq[Expr]
+  for n in partitionBy: ks.add col(n)
+  e.over(ks, mappingStrategy)
+proc over*(e: Expr, partitionBy: string, mappingStrategy: MappingStrategy): Expr =
+  e.over([col(partitionBy)], mappingStrategy)
+
+proc shuffle*(e: Expr, seed = none(int)): Expr = utilOp(e, nquShuffle, seed = seed.get(-1))
+  ## The values in random order (the same order for the same `seed`).
+proc shuffle*(e: Expr, seed: int): Expr = e.shuffle(some(seed))
+proc sample*(e: Expr, n: int | Expr, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  ## `n` random values of the column.
+  utilOp(e, nquSampleN, lit(n), f1 = withReplacement, f2 = shuffle, seed = seed.get(-1))
+proc sample*(e: Expr, fraction: float, withReplacement = false, shuffle = false,
+             seed = none(int)): Expr =
+  utilOp(e, nquSampleFraction, lit(fraction), f1 = withReplacement, f2 = shuffle,
+         seed = seed.get(-1))
+proc hash*(e: Expr, seed = 0): Expr = utilOp(e, nquHash, seed = seed)
+  ## A u64 hash of each value (stable for a given `seed` and Polars version).
+proc get*(e: Expr, index: int | Expr, nullOnOob = false): Expr =
+  ## The value at `index` (negative from the end), as one value.
+  utilOp(e, nquGet, lit(index), f1 = nullOnOob)
+proc argTrue*(e: Expr): Expr = utilOp(e, nquArgTrue)
+  ## The positions where a boolean column is true.
+proc upperBound*(e: Expr): Expr = utilOp(e, nquUpperBound)
+  ## The largest value of the column's type (`i64::MAX`, `inf`, ...).
+proc lowerBound*(e: Expr): Expr = utilOp(e, nquLowerBound)
+proc extendConstant*[T: SomeNumber | string | bool | Expr | typeof(nil)](e: Expr, value: T, n: int | Expr): Expr =
+  ## The column with `n` copies of `value` appended.
+  utilOp(e, nquExtendConstant, lit(value), lit(n))
+proc rle*(e: Expr): Expr = utilOp(e, nquRle)
+  ## Run-length encoding: a struct of `len` and `value` per run.
+proc reshape*(e: Expr, dims: openArray[int]): Expr =
+  ## The values as nested arrays of shape `dims` (-1 infers one dimension).
+  var ds = newSeq[int64](dims.len)
+  for i, d in dims: ds[i] = d.int64
+  wrap nq_expr_reshape(e.raw, ds.firstOrNil, ds.len.csize_t)
+
+proc toLowercase*(n: ExprName): Expr = utilOp(n.e, nquNameToLowercase)
+  ## The output name in lowercase.
+proc toUppercase*(n: ExprName): Expr = utilOp(n.e, nquNameToUppercase)
+
+proc meta*(e: Expr): MetaNameSpace = MetaNameSpace(e)
+  ## Information about the expression: `e.meta.outputName`.
+proc outputName*(m: MetaNameSpace): string =
+  ## The name of the column the expression gives; raises `ComputeError` if it
+  ## has none yet (`col("*")`).
+  let s = nq_expr_meta_str(Expr(m).raw, 0)
+  if s == nil: raiseLast()
+  takeString s
+proc rootNames*(m: MetaNameSpace): seq[string] =
+  ## The columns the expression reads.
+  let s = nq_expr_meta_str(Expr(m).raw, 1)
+  if s == nil: raiseLast()
+  let t = takeString s
+  if t.len > 0: result = t.split('\n')
+proc metaBool(m: MetaNameSpace, what: int32): bool =
+  let r = nq_expr_meta_bool(Expr(m).raw, what)
+  if r < 0: raiseLast()
+  r == 1
+proc hasMultipleOutputs*(m: MetaNameSpace): bool = m.metaBool(0)
+proc isColumn*(m: MetaNameSpace): bool = m.metaBool(1)
+proc isLiteral*(m: MetaNameSpace): bool = m.metaBool(2)
+proc undoAliases*(m: MetaNameSpace): Expr = utilOp(Expr(m), nquUndoAliases)
+
+proc equals*(a, b: DataFrame, nullEqual = true): bool =
+  ## Whether the frames have the same column names, types and values (nulls
+  ## equal unless `nullEqual = false`).
+  let r = nq_df_equals(a.raw, b.raw, nullEqual)
+  if r < 0: raiseLast()
+  r == 1
+proc equals*(a, b: Series, nullEqual = true, checkNames = false): bool =
+  ## Whether the Series hold the same type and values (and names with `checkNames`).
+  if checkNames and a.name != b.name: return false
+  a.alias("s").toFrame.equals(b.alias("s").toFrame, nullEqual)
+
+proc vstack*(df, other: DataFrame): DataFrame =
+  ## The rows of `other` appended (same columns and types).
+  concat([df, other])
+proc extend*(df, other: DataFrame): DataFrame = df.vstack(other)
+  ## Like `vstack` (Nanuq frames are not changed in place).
+proc hstack*(df: DataFrame, columns: openArray[Series]): DataFrame =
+  ## The frame with `columns` added (of the frame's height).
+  df.withColumns(columns)
+proc hstack*(df, other: DataFrame): DataFrame =
+  ## The frame with the columns of `other` added.
+  concat([df, other], how = ConcatMethod.Horizontal)
+
+proc estimatedSize*(df: DataFrame): int =
+  ## An estimate of the memory the frame uses, in bytes.
+  let r = nq_df_estimated_size(df.raw)
+  if r < 0: raiseLast()
+  r.int
+proc estimatedSize*(df: DataFrame, unit: SizeUnit): float =
+  df.estimatedSize.float / pow(1024.0, ord(unit).float)
+
+proc update*(df, other: DataFrame, on: ColumnNames = ColumnNames(), how = JoinType.Left): DataFrame =
+  ## The values of `df` replaced by the non-null values of `other` in rows that
+  ## match on `on` (by row position when `on` is empty). `how` is `Left` (keep
+  ## the rows of `df`), `Inner` (only matching rows) or `Full` (also add
+  ## the other rows).
+  if how notin {JoinType.Left, JoinType.Inner, JoinType.Full}:
+    raise newException(ValueError, "update: how must be Left, Inner or Full")
+  var keys = on.names
+  var l = df
+  var r = other
+  if keys.len == 0:
+    l = df.withRowIndex("__nq_row")
+    r = other.withRowIndex("__nq_row")
+    keys = @["__nq_row"]
+  let cols0 = l.columns
+  var rcols: seq[string]
+  for c in r.columns:
+    if c in cols0: rcols.add c
+  r = r.select(rcols)
+  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true))
+  var sel: seq[Expr]
+  for c in cols0:
+    if c notin keys and c in rcols:
+      sel.add coalesce(col(c & "__nq_upd"), col(c)).alias(c)
+    else:
+      sel.add col(c)
+  result = j.select(sel)
+  if "__nq_row" in result.columns: result = result.drop("__nq_row")
+
+proc upsample*(df: DataFrame, timeColumn: string, every: string | TimeInterval,
+               groupBy: ColumnNames = ColumnNames(), maintainOrder = false): DataFrame =
+  ## Inserts rows (with nulls in the other columns) so that `timeColumn` has a
+  ## value every `every` ("1d" or `1.days`), per group of `groupBy`. The frame
+  ## must be sorted by `timeColumn` (within groups).
+  let ev = when every is string: every else: toPolarsInterval(every)
+  let b = cstrings(groupBy.names)
+  wrap nq_df_upsample(df.raw, timeColumn.cstring, ev.cstring, b.firstOrNil, b.len.csize_t,
+                      maintainOrder)
+
+proc partitionBy*(df: DataFrame, by: ColumnNames, maintainOrder = true, includeKey = true,
+                  asDict: static bool): auto =
+  ## With `asDict = true`, a table from the key values (as strings, in `by`
+  ## order) to the frames: `parts[@["Biscoe"]]`.
+  when asDict:
+    var t = initOrderedTable[seq[string], DataFrame]()
+    for part in df.partitionBy(by, maintainOrder, includeKey = true):
+      var key: seq[string]
+      for c in by.names: key.add part.getStr(c, 0)
+      t[key] = (if includeKey: part else: part.drop(by.names))
+    t
+  else:
+    df.partitionBy(by, maintainOrder, includeKey)
+
+proc collectAll*(lfs: openArray[LazyFrame]): seq[DataFrame] =
+  ## Collects several plans at once; work they share runs once.
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  var outs = newSeq[ptr NqDataFrame](lfs.len)
+  if not nq_collect_all(rs.firstOrNil, rs.len.csize_t, outs.firstOrNil): raiseLast()
+  for o in outs: result.add wrap(o)

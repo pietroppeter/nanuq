@@ -34,6 +34,18 @@ its OpenSpec change is archived. Format based on
   eager or lazy), the `sqlContext(bears, dens)` macro that names tables after variables,
   `df.sql`/`lf.sql` (table `self`) and `sql(query, frames)`; SQL table functions such as
   `read_csv` work. (add-sql, #53)
+- Nim callbacks: typed `mapElements(proc (x: T): U)` (struct rows as objects, nulls
+  skipped unless `T` is an `Option`), `mapBatches` (with `returnDtype`,
+  `returnsScalar`, per group in a group-by), `fold`, `reduce`, `cumFold`, `cumReduce`,
+  `name.map` and eager `mapGroups`; exceptions become `ComputeError`. Series arithmetic
+  broadcasts a Series of length 1. (add-nim-callbacks, #53)
+- Smaller functions (from the book ports): `over(..., MappingStrategy)`, Expr
+  `shuffle`, `sample`, `hash`, `get`, `argTrue`, `upperBound`, `lowerBound`,
+  `extendConstant`, `rle`, `reshape`; `name.toLowercase`/`toUppercase`; `e.meta`
+  (`outputName`, `rootNames`, `hasMultipleOutputs`, `isColumn`, `isLiteral`,
+  `undoAliases`); frame and Series `equals`; `vstack`, `extend`, `hstack`, `update`,
+  `upsample`, `estimatedSize`, `partitionBy(asDict = true)`, `collectAll`.
+  (add-frame-utilities, #53)
 
 ## [0.4.0] - 2026-11-01
 

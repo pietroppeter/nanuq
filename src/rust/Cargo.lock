@@ -1346,6 +1346,7 @@ dependencies = [
  "either",
  "polars",
  "polars-core",
+ "polars-plan",
  "tikv-jemallocator",
 ]
 

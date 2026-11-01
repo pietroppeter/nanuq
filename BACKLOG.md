@@ -71,9 +71,6 @@ two), L (more).
 - **More IO** (M): Excel, writing to streams, sink functions (streaming writes),
   cloud storage. (CSV, Parquet, IPC, JSON/NDJSON and reading streams are done.)
 - **More dtypes** (M): decimals, binary. (Lists, arrays and structs came in 0.5.)
-- **Smaller Polars functions found by the 0.4 book ports** (S each). `over(...,
-  mappingStrategy)`; Expr `shuffle` and `sample`; `hash`; `get(i)` (today `gather([i])`);
-  `argTrue`; `upperBound`/`lowerBound`; `extendConstant`; `partitionBy(asDict = true)`.
 - **Print dtypes as Python does** (S, discussion first). `$dtype` gives Rust's `i64`;
   Python prints `Int64`. Matching Python would help readers who compare outputs, but
   frame headers print `i64` in both.

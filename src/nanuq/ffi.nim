@@ -310,6 +310,10 @@ type
   NqStructOp* {.size: sizeof(cint).} = enum
     nqfFieldByName, nqfFieldByNames, nqfFieldByIndex, nqfRenameFields, nqfWithFields,
     nqfJsonEncode
+  NqUtilOp* {.size: sizeof(cint).} = enum
+    nquShuffle, nquSampleN, nquSampleFraction, nquHash, nquGet, nquArgTrue, nquUpperBound,
+    nquLowerBound, nquExtendConstant, nquRle, nquNameToLowercase, nquNameToUppercase,
+    nquUndoAliases
   NqArrOp* {.size: sizeof(cint).} = enum
     nqaLen, nqaSum, nqaMin, nqaMax, nqaMean, nqaMedian, nqaStd, nqaVar, nqaArgMin, nqaArgMax,
     nqaGet, nqaJoin, nqaContains, nqaCountMatches, nqaSort, nqaSlice, nqaHead, nqaTail,
@@ -628,6 +632,38 @@ proc nq_sql_register*(c: ptr NqSQLContext, name: cstring, lf: ptr NqLazyFrame): 
 proc nq_sql_unregister*(c: ptr NqSQLContext, name: cstring): bool
 proc nq_sql_tables*(c: ptr NqSQLContext): cstring
 proc nq_sql_execute*(c: ptr NqSQLContext, query: cstring): ptr NqLazyFrame
+{.pop.}
+
+# Nim callbacks (0.5)
+type
+  NqUdfFn* = proc (env: pointer, args: ptr ptr NqSeries, n: csize_t): ptr NqSeries {.cdecl.}
+  NqNameFn* = proc (env: pointer, name: cstring): bool {.cdecl.}
+  NqDropFn* = proc (env: pointer) {.cdecl.}
+
+{.push importc, cdecl.}
+proc nq_udf_set_error*(msg: cstring)
+proc nq_udf_set_result*(s: cstring)
+proc nq_series_clone*(s: ptr NqSeries): ptr NqSeries
+proc nq_expr_map_batches*(e: ptr NqExpr, f: NqUdfFn, drop: NqDropFn, env: pointer,
+                          hasDtype: bool, spec: ptr NqDtypeSpec, returnsScalar: bool): ptr NqExpr
+proc nq_fold*(kind: int32, acc: ptr NqExpr, f: NqUdfFn, drop: NqDropFn, env: pointer,
+              es: ptr ptr NqExpr, n: csize_t, includeInit, hasDtype: bool,
+              spec: ptr NqDtypeSpec): ptr NqExpr
+proc nq_expr_name_map*(e: ptr NqExpr, f: NqNameFn, drop: NqDropFn, env: pointer): ptr NqExpr
+
+# smaller functions (0.5)
+proc nq_expr_util*(e: ptr NqExpr, op: NqUtilOp, a, b: ptr NqExpr, f1, f2: bool,
+                   seed: int64): ptr NqExpr
+proc nq_expr_reshape*(e: ptr NqExpr, dims: ptr int64, n: csize_t): ptr NqExpr
+proc nq_expr_over_mapping*(e: ptr NqExpr, parts: ptr ptr NqExpr, n: csize_t,
+                           mapping: int32): ptr NqExpr
+proc nq_expr_meta_str*(e: ptr NqExpr, what: int32): cstring
+proc nq_expr_meta_bool*(e: ptr NqExpr, what: int32): int32
+proc nq_df_equals*(a, b: ptr NqDataFrame, nullEqual: bool): int32
+proc nq_df_estimated_size*(df: ptr NqDataFrame): int64
+proc nq_df_upsample*(df: ptr NqDataFrame, timeColumn, every: cstring, by: ptr cstring,
+                     nBy: csize_t, maintainOrder: bool): ptr NqDataFrame
+proc nq_collect_all*(lfs: ptr ptr NqLazyFrame, n: csize_t, outp: ptr ptr NqDataFrame): bool
 {.pop.}
 
 let compiledFor = nanuqLibVersion

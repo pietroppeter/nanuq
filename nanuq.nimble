@@ -23,7 +23,7 @@ task test, "Run the tests (test_datamancer and test_arraymancer need Datamancer,
   for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datatypes.nim",
             "tests/test_combining.nim", "tests/test_verbs.nim", "tests/test_expressions.nim",
             "tests/test_selectors.nim", "tests/test_csv.nim",
-            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_inspection.nim", "tests/test_strings.nim", "tests/test_temporal.nim", "tests/test_io.nim", "tests/test_categorical.nim", "tests/test_math.nim", "tests/test_cumulative.nim", "tests/test_rolling.nim", "tests/test_values.nim", "tests/test_horizontal.nim", "tests/test_reshaping.nim", "tests/test_timegroups.nim", "tests/test_series.nim", "tests/test_rows.nim", "tests/test_nested.nim", "tests/test_lists.nim", "tests/test_structs.nim", "tests/test_json.nim", "tests/test_sql.nim",
+            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_inspection.nim", "tests/test_strings.nim", "tests/test_temporal.nim", "tests/test_io.nim", "tests/test_categorical.nim", "tests/test_math.nim", "tests/test_cumulative.nim", "tests/test_rolling.nim", "tests/test_values.nim", "tests/test_horizontal.nim", "tests/test_reshaping.nim", "tests/test_timegroups.nim", "tests/test_series.nim", "tests/test_rows.nim", "tests/test_nested.nim", "tests/test_lists.nim", "tests/test_structs.nim", "tests/test_json.nim", "tests/test_sql.nim", "tests/test_callbacks.nim", "tests/test_utilities.nim",
             "tests/test_datamancer.nim", "tests/test_arraymancer.nim"]:
     exec "nim r --hints:off " & t
 
