@@ -2501,6 +2501,24 @@ pub unsafe extern "C" fn nq_expr_duration(parts: *const *const Expr, tu: NqTimeU
     }))
 }
 
+/// A Date from year, month and day expressions (Polars' `date`): a Datetime
+/// built from the parts, cast to Date.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_date(
+    year: *const Expr,
+    month: *const Expr,
+    day: *const Expr,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let args = DatetimeArgs::new(
+            borrow(year, "year")?.clone(),
+            borrow(month, "month")?.clone(),
+            borrow(day, "day")?.clone(),
+        );
+        Ok(polars::lazy::dsl::datetime(args).cast(DataType::Date))
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Parsing strings into temporal values, and the dt namespace
 // ---------------------------------------------------------------------------
@@ -3534,4 +3552,46 @@ pub unsafe extern "C" fn nq_series_rename(s: *const Series, name: *const c_char)
 #[no_mangle]
 pub unsafe extern "C" fn nq_series_to_string(s: *const Series) -> *mut c_char {
     guard(|| Ok(to_c_string(format!("{}", borrow(s, "Series")?)))).unwrap_or(ptr::null_mut())
+}
+
+// ---------------------------------------------------------------------------
+// Frame top k, and float display precision (0.4)
+// ---------------------------------------------------------------------------
+
+/// The `k` rows with the largest (`bottom`: smallest) values of the `by`
+/// expressions; `reverse` swaps the direction, as in Python's `top_k`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_top_k(
+    lf_: *const LazyFrame,
+    k: usize,
+    by: *const *const Expr,
+    nby: usize,
+    reverse: bool,
+    bottom: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let by = exprs(by, nby)?;
+        if by.is_empty() {
+            return Err("topK needs at least one `by` column".into());
+        }
+        let opts = SortMultipleOptions::default().with_maintain_order(true);
+        let lf = lf(lf_)?;
+        Ok(if bottom != reverse {
+            lf.bottom_k(k as IdxSize, by, opts)
+        } else {
+            lf.top_k(k as IdxSize, by, opts)
+        })
+    }))
+}
+
+/// Decimal places when floats print; negative restores Polars' default.
+#[no_mangle]
+pub extern "C" fn nq_set_float_precision(n: i32) {
+    polars_core::fmt::set_float_precision((n >= 0).then_some(n as usize));
+}
+
+/// The current float precision, or -1 for Polars' default.
+#[no_mangle]
+pub extern "C" fn nq_get_float_precision() -> i32 {
+    polars_core::fmt::get_float_precision().map_or(-1, |n| n as i32)
 }

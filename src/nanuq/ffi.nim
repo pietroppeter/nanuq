@@ -534,6 +534,11 @@ proc nq_expr_dt*(e: ptr NqExpr, op: NqDtOp, a: ptr NqExpr, s: cstring, flag: boo
 proc nq_expr_rank*(e: ptr NqExpr, meth: NqRankMethod, descending, hasSeed: bool,
                    seed: uint64): ptr NqExpr
 
+proc nq_expr_date*(year, month, day: ptr NqExpr): ptr NqExpr
+proc nq_lf_top_k*(lf: ptr NqLazyFrame, k: csize_t, by: ptr ptr NqExpr, nby: csize_t,
+                  reverse, bottom: bool): ptr NqLazyFrame
+proc nq_set_float_precision*(n: int32)
+proc nq_get_float_precision*(): int32
 {.pop.}
 
 let compiledFor = nanuqLibVersion

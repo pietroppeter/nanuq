@@ -26,7 +26,7 @@
 {.experimental: "callOperator".}   # `col("a")` on the `col` constant
 {.experimental: "dotOperators".}   # `col.a`
 
-import std/[macros, options, tables, sets, os, strutils, math, times, streams]
+import std/[macros, options, tables, sets, os, strutils, math, times, streams, sequtils]
 from std/unicode import runeLen, runeSubStr
 import nanuq/ffi
 
@@ -2003,29 +2003,43 @@ proc setFmtStrLengths*(n: int | Option[int]) =
   ## Characters shown of each string value (`-1`: all; `none(int)`: Polars' default, 30).
   setVar(configVars[3], toOpt(n))
 
+proc setFloatPrecision*(n: int | Option[int]) =
+  ## Decimal places shown for floats when a frame prints (`none(int)`: Polars'
+  ## default, which shows what the value needs). Python's `float_precision`.
+  let o = toOpt(n)
+  if o.isSome and o.get < 0: raise newException(ValueError, "float precision must not be negative")
+  nq_set_float_precision(if o.isSome: o.get.int32 else: -1'i32)
+
 proc setConfig*(tblRows: int | Option[int] = none(int); tblCols: int | Option[int] = none(int);
                 tblWidthChars: int | Option[int] = none(int);
-                fmtStrLengths: int | Option[int] = none(int)) =
+                fmtStrLengths: int | Option[int] = none(int);
+                floatPrecision: int | Option[int] = none(int)) =
   ## Sets several display options at once, like Python's `pl.Config(...)`:
-  ## `setConfig(tblRows = 12, tblCols = 10)`. Options left out are unchanged.
+  ## `setConfig(tblRows = 12, floatPrecision = 2)`. Options left out are unchanged.
   if toOpt(tblRows).isSome: setTblRows(tblRows)
   if toOpt(tblCols).isSome: setTblCols(tblCols)
   if toOpt(tblWidthChars).isSome: setTblWidthChars(tblWidthChars)
   if toOpt(fmtStrLengths).isSome: setFmtStrLengths(fmtStrLengths)
+  if toOpt(floatPrecision).isSome: setFloatPrecision(floatPrecision)
 
 proc resetConfig*() =
   ## Restores Polars' default for every display option.
   for v in configVars: delEnv(v)
+  nq_set_float_precision(-1)
 
-type ConfigSnapshot = array[4, Option[string]]
+type ConfigSnapshot = object
+  vars: array[4, Option[string]]
+  floatPrecision: int32
 
 proc saveConfig(): ConfigSnapshot =
   for i, v in configVars:
-    if existsEnv(v): result[i] = some(getEnv(v))
+    if existsEnv(v): result.vars[i] = some(getEnv(v))
+  result.floatPrecision = nq_get_float_precision()
 
 proc restoreConfig(s: ConfigSnapshot) =
   for i, v in configVars:
-    if s[i].isSome: putEnv(v, s[i].get) else: delEnv(v)
+    if s.vars[i].isSome: putEnv(v, s.vars[i].get) else: delEnv(v)
+  nq_set_float_precision(s.floatPrecision)
 
 macro withConfig*(args: varargs[untyped]): untyped =
   ## Applies display options for one block, then restores the previous ones,
@@ -2283,6 +2297,15 @@ proc duration*(weeks: int | Expr = 0; days: int | Expr = 0; hours: int | Expr = 
                lit(milliseconds), lit(microseconds), lit(nanoseconds)]
   let r = raws(parts)
   wrap nq_expr_duration(r.firstOrNil, NqTimeUnit(ord(timeUnit)))
+
+proc date*[Y, M, D: int | Expr](year: Y, month: M, day: D): Expr =
+  ## A Date column built from year, month and day, each a number or an
+  ## expression, as Polars' `date`: `date(col.year, col.month, 15)`. With three
+  ## numbers, `date` gives a `Date` value instead.
+  let y = lit(year)
+  let m = lit(month)
+  let d = lit(day)
+  wrap nq_expr_date(y.raw, m.raw, d.raw)
 
 # ---------------------------------------------------------------------------
 # Parsing strings into temporal values
@@ -3069,6 +3092,45 @@ proc joinAsof*(df, other: DataFrame, on: JoinKey = JoinKey(), leftOn: JoinKey = 
   ## As-of join (see the LazyFrame version).
   df.lazy.joinAsof(other.lazy, on, leftOn, rightOn, by, byLeft, byRight, strategy, suffix,
                    tolerance, allowExactMatches, checkSortedness, coalesce).collect
+
+# ---------------------------------------------------------------------------
+# Frame top k (0.4)
+# ---------------------------------------------------------------------------
+
+proc topKImpl(lf: LazyFrame, k: int, by: openArray[Expr], reverse, bottom: bool): LazyFrame =
+  if k < 0: raise newException(ValueError, "k must not be negative")
+  let b = raws(by)
+  wrap nq_lf_top_k(lf.raw, k.csize_t, b.firstOrNil, b.len.csize_t, reverse, bottom)
+
+proc topK*(lf: LazyFrame, k: int, by: openArray[Expr], reverse = false): LazyFrame =
+  ## The `k` rows with the largest values of `by`, largest first (Python's
+  ## `top_k`). Ties keep their order; nulls come last. `reverse` gives the smallest.
+  topKImpl(lf, k, by, reverse, false)
+proc topK*(lf: LazyFrame, k: int, by: Expr, reverse = false): LazyFrame =
+  topKImpl(lf, k, [by], reverse, false)
+proc topK*(lf: LazyFrame, k: int, by: ColumnNames, reverse = false): LazyFrame =
+  ## `topK(5, by = "peak")` or `topK(5, by = ["peak", "year"])`.
+  topKImpl(lf, k, by.names.mapIt(col(it)), reverse, false)
+proc bottomK*(lf: LazyFrame, k: int, by: openArray[Expr], reverse = false): LazyFrame =
+  ## The `k` rows with the smallest values of `by`, smallest first.
+  topKImpl(lf, k, by, reverse, true)
+proc bottomK*(lf: LazyFrame, k: int, by: Expr, reverse = false): LazyFrame =
+  topKImpl(lf, k, [by], reverse, true)
+proc bottomK*(lf: LazyFrame, k: int, by: ColumnNames, reverse = false): LazyFrame =
+  topKImpl(lf, k, by.names.mapIt(col(it)), reverse, true)
+
+proc topK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
+  df.lazy.topK(k, by, reverse).collect
+proc topK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
+  df.lazy.topK(k, by, reverse).collect
+proc topK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
+  df.lazy.topK(k, by, reverse).collect
+proc bottomK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
+  df.lazy.bottomK(k, by, reverse).collect
+proc bottomK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
+  df.lazy.bottomK(k, by, reverse).collect
+proc bottomK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
+  df.lazy.bottomK(k, by, reverse).collect
 
 # ---------------------------------------------------------------------------
 # Series (0.4)

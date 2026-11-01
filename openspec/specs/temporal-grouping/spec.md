@@ -73,7 +73,9 @@ shape: (3, 2)
 `joinAsof(other, on, ...)` (or `leftOn` and `rightOn`) SHALL join each left row to one
 right row by a sorted key: the last one at or before it (`Backward`), the first one at or
 after it (`Forward`) or the closest (`Nearest`), only within `tolerance` when given and
-only among rows with equal `by` columns; rows without a match SHALL get nulls.
+only among rows with equal `by` columns; rows without a match SHALL get nulls. With
+`coalesce = false` the right key column SHALL be kept (with `suffix` if its name is
+taken), showing which right row matched.
 
 ```nim
 let events = newDataFrame:
@@ -100,6 +102,10 @@ shape: (2, 4)
 #### Scenario: Tolerance
 - **WHEN** the nearest earlier right row is 2 days before and `tolerance = 1.days`
 - **THEN** the left row gets nulls
+
+#### Scenario: Keep the right key
+- **WHEN** `joinAsof(other, on = "t", coalesce = false)` runs
+- **THEN** the result has both `t` and `t_right`
 
 #### Scenario: Missing keys
 - **WHEN** `joinAsof` is called without `on` and without `leftOn` and `rightOn`

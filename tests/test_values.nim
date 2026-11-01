@@ -108,3 +108,23 @@ suite "value counts":
       .valueCounts(col("x"), normalize = true).collect.sort("x")
     check r.columns == @["x", "proportion"]
     check r.toList("proportion", float) == @[0.5, 0.5]
+
+suite "top k rows":
+  let ev = newDataFrame:
+    start: ["a", "b", "c", "d", "e"]
+    peak: [2.1, 2.2, 2.4, 2.6, 2.0]
+  test "topK and bottomK":
+    check ev.topK(3, by = "peak").toList("start", string) == @["d", "c", "b"]
+    check ev.bottomK(2, by = col.peak).toList("start", string) == @["e", "a"]
+    check ev.topK(2, by = "peak", reverse = true).toList("start", string) ==
+      ev.bottomK(2, by = "peak").toList("start", string)
+    check ev.topK(10, by = "peak").height == 5
+    check ev.lazy.topK(1, by = [col.peak]).collect.toList("start", string) == @["d"]
+  test "ties and nulls":
+    let df = newDataFrame:
+      k: ["x", "y", "z", "w"]
+      v: [1, nil, 1, 2]
+    check df.topK(4, by = "v").toList("k", string) == @["w", "x", "z", "y"]
+    check df.bottomK(4, by = "v").toList("k", string) == @["x", "z", "w", "y"]
+    expect ValueError:
+      discard df.topK(-1, by = "v")

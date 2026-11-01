@@ -52,6 +52,13 @@ its OpenSpec change is archived. Format based on
   of cycling's age and speed records, using every 0.3 feature on Wikipedia data. Each
   output is checked against the same steps in Python Polars when the page is built.
 
+### Added (from the 0.4 explainer draft)
+- Frame `topK(k, by, reverse)` and `bottomK`, eager and lazy, returning whole rows
+  (Python's `df.top_k`). (#51)
+- `date(year, month, day)` with expression parts builds a Date column (Polars' `date`). (#51)
+- `setFloatPrecision(n)` and `floatPrecision` in `setConfig`/`withConfig` (Python's
+  `float_precision`). (#51)
+
 ### Changed
 - **Breaking:** Python's `method` parameter is `how` in Nanuq (`method` is a Nim keyword):
   `rank(how = Dense)` (was `rankMethod`), `corr(a, b, how = Spearman)`,

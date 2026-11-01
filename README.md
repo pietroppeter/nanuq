@@ -180,8 +180,8 @@ the `nightly` feature).
 - Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
   `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
   column), `describe` (summary statistics)
-- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`),
-  `setConfig(tblRows = 20, tblCols = 10)`, `resetConfig()`, and for one block
+- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`,
+  `setFloatPrecision`), `setConfig(tblRows = 20, floatPrecision = 2)`, `resetConfig()`, and for one block
   `withConfig(tblRows = 40): echo df`
 - Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
   `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
@@ -204,7 +204,7 @@ the `nightly` feature).
   std/times' `DateTime` and `Duration` as column values and literals; `cast(Date)`,
   `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`; parsing with
   `str.toDate("%d %B %Y")`, `str.toDatetime`, `str.strptime(T, fmt)` and
-  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `datetimeRange`,
+  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `date(col.year, col.month, 15)`, `datetimeRange`,
   `duration(hours = col.h)`; the `dt` namespace (`dt.year`, `dt.weekday`, `dt.date`,
   `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
   `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
@@ -241,7 +241,8 @@ the `nightly` feature).
   `ewmMean(span = 12)`, `interpolate`
 - Values of a column: `sort`, `sortBy`, `topK`, `topKBy("score", k = 3)`, `gather`,
   `unique`, `isDuplicated`, `replace({"N": "north"})`, `replaceStrict(..., default = ...)`,
-  `cut([-0.5, 0.5], labels = [...])`, `qcut(4)`, and `df.valueCounts("col", sort = true)`
+  `cut([-0.5, 0.5], labels = [...])`, `qcut(4)`, `df.valueCounts("col", sort = true)`, and
+  whole rows with `df.topK(5, by = "peak")` / `bottomK`
 - Across a row: `sumHorizontal(col(float))`, `maxHorizontal("a", "b")`,
   `anyHorizontal`, `coalesce`; generated columns `intRange`, `linearSpace`, `repeat`;
   `corr("a", "b", Spearman)`, `cov`

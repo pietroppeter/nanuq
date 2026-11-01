@@ -183,3 +183,14 @@ suite "inspection":
     check d.dtype("day") == String
     check d.toList("day", Option[string])[2] == some("2026-07-05 00:00:00.000000")
     check "$ at  <datetime[μs]> 2026-07-04 13:10:00, 2026-07-04 14:10:00" in df.glimpse
+
+suite "dates from parts":
+  test "date with expressions":
+    let df = newDataFrame:
+      year: [1950, 1951]
+      month: [1, 12]
+    check df.select(date(col.year, col.month, 15).alias("d")).toList("d", Date) ==
+      @[date(1950, 1, 15), date(1951, 12, 15)]
+    check df.select(date(col.year, 1, 1).alias("d")).dtype("d") == Date
+    expect PolarsError:
+      discard df.select(date(col.year, 2, 30).alias("d"))
