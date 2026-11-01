@@ -7,6 +7,9 @@ its OpenSpec change is archived. Format based on
 ## [Unreleased]
 
 ### Added
+- Dev log post "Designing Nanuq 0.4": the API choices of 0.4 where Nim and Polars
+  disagree (optional parameters of several types, the Series as a layer over
+  expressions, rows as objects), with code that runs. (#51)
 - Math functions: `sqrt`, `cbrt`, `exp`, `log(base)`, `log10`, `log1p`, `sign`,
   `floor`, `ceil`, `clip` (both bounds, or one named), trigonometry (`sin` ... `arctanh`,
   `degrees`, `radians`, `arctan2`), `dot`, and NaN and infinity (`isNan`, `isFinite`,
