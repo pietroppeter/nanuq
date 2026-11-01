@@ -1,0 +1,9 @@
+Rows: 98199
+Columns: 7
+$ file     <str> 'AJ1st/01/1.sgf', 'AJ1st/01/10.sgf'
+$ DT       <str> '1968-11-28', '1969-08-14'
+$ PB       <str> 'Sakata Eio', 'Fujisawa Shuko'
+$ PW       <str> 'Kubouchi Shuchi', 'Hashimoto Shoji'
+$ KM       <str> '4.5', '4.5'
+$ RE       <str> 'B+R', 'B+3.5'
+$ moves <binary> b'qdqpcdedeqodmccqdpcodnqcpcpdocncndnbqbrcobqembnemdcededdcfbeccbfdfdcbdbgbbebdbdacbfdffciadbncnbocldoeoenfoegfeemdleifkgmcjdjelflejbjcrblbmfjglfmekamfihlehdhdick', b'cpcdpqpoqoqnqppmnppcpfqhedecfcdcqjqfpgqgpeqepdqdocphoknmmklmqlrmmnnlminhoiohkollkjeqgpfodncqgodpfncncmdoemiljmkkjjimjnnknjhkjljklkklijikgifkbncodkgnhngmfrfmfdfi'

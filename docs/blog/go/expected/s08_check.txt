@@ -1,0 +1,1 @@
+streaming and in-memory results agree

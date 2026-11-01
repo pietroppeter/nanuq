@@ -1,0 +1,15 @@
+shape: (5, 8)
+┌───────────────────────────┬──────────────┬────────────────┬───────┬─────────┬──────────────┬──────────────┬──────────┐
+│ file                      ┆ PB           ┆ PW             ┆ RE    ┆ n_moves ┆ black_stones ┆ white_stones ┆ captured │
+│ ---                       ┆ ---          ┆ ---            ┆ ---   ┆ ---     ┆ ---          ┆ ---          ┆ ---      │
+│ str                       ┆ str          ┆ str            ┆ str   ┆ u32     ┆ i64          ┆ i64          ┆ i64      │
+╞═══════════════════════════╪══════════════╪════════════════╪═══════╪═════════╪══════════════╪══════════════╪══════════╡
+│ AlphaGo/Nature2017/AlphaG ┆ AlphaGo Zero ┆ AlphaGo Zero   ┆ B+R   ┆ 535     ┆ 156          ┆ 120          ┆ 114      │
+│ o_Zero_40_block…          ┆              ┆                ┆       ┆         ┆              ┆              ┆          │
+│ AlphaGo/Nature2017/AlphaG ┆ AlphaGo Zero ┆ AlphaGo Master ┆ W+R   ┆ 364     ┆ 136          ┆ 136          ┆ 92       │
+│ o_Zero_40_block…          ┆              ┆                ┆       ┆         ┆              ┆              ┆          │
+│ FMeijin/37/P03.sgf        ┆ Nyu Eiko     ┆ Iwata Saeka    ┆ W+2.5 ┆ 328     ┆ 121          ┆ 115          ┆ 92       │
+│ AlphaGo/Nature2017/AlphaG ┆ AlphaGo Zero ┆ AlphaGo Zero   ┆ B+R   ┆ 467     ┆ 198          ┆ 121          ┆ 86       │
+│ o_Zero_20_block…          ┆              ┆                ┆       ┆         ┆              ┆              ┆          │
+│ Samsung/30/P48.sgf        ┆ 辛炫錫       ┆ Ngau Shihte    ┆ W+R   ┆ 358     ┆ 135          ┆ 138          ┆ 85       │
+└───────────────────────────┴──────────────┴────────────────┴───────┴─────────┴──────────────┴──────────────┴──────────┘
