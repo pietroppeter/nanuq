@@ -114,9 +114,13 @@ jobs:
           ln -s "$RUNNER_TEMP/moto/bin/moto_server" "$RUNNER_TEMP/bin/moto_server"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
-      - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
+      # lld links the Polars library in under a second instead of ~9 s (config.nims)
+      - run: which ld.lld || sudo apt-get install -y --no-install-recommends lld
+      # every test file in one program: one compile, one link (tests/all.nim)
+      - run: nim r -d:nanuqNoCargo --hints:off tests/all.nim
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
       # the examples in openspec/specs must still compile, run and print what they show
+      # (one program for all specs, see tools/specexamples.nim)
       - run: nim r --hints:off tools/specexamples.nim -d:nanuqNoCargo
 
   docs:
@@ -135,19 +139,15 @@ jobs:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2 liblapack3 libblas3
+      - run: which ld.lld || sudo apt-get install -y --no-install-recommends lld
       # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror;
       # plotly (nim-plotly) is for the explainers' figures (El Niño, Above 4000, Move 37);
       # db_connector is for the SQLite sections of the 0.6 dev log and Move 37
       - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim plotly@0.3.3 db_connector
-      - name: Render dev log posts
-        run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done
-      # the index lists the rendered posts, so it comes after them
-      - name: Render the index
-        run: nim r --hints:off docs/index.nim
-      - name: Render the Polars coverage map
-        run: nim r --hints:off docs/polars_coverage.nim
-      - name: Render the OpenSpec page
-        run: nim r --hints:off docs/openspec.nim
+      # the posts, then the index (it checks them), the coverage map and the OpenSpec
+      # page, in one program (docs/all.nim)
+      - name: Render the site
+        run: nim r -d:nanuqNoCargo --hints:off docs/all.nim
       - name: Assemble site
         run: |
           mkdir -p _site/blog

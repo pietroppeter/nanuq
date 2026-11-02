@@ -9,6 +9,7 @@
 import std/[json, os, strformat, strutils]
 import nimib
 import devlog
+from nanuq import resetConfig
 export devlog
 
 const nanuqHead = """
@@ -267,6 +268,9 @@ func devlogNav(i: int): string =
 proc useDevlogPost*(nb: var Nb, slug, epigraph: string) =
   ## Theme, title, dated file name, eyebrow, meta, summary and footer links of the
   ## dev-log post `slug`, all from its entry in devlog.nim.
+  # display options start from the defaults: docs/all.nim renders every post in one
+  # program, and a post's setConfig must not reach the next one
+  resetConfig()
   let i = findPost(slug)
   doAssert i >= 0, "devlog: add " & slug & " to docs/devlog.nim"
   let p = devlogPosts[i]
