@@ -154,10 +154,10 @@ details.source summary::before { content: "Show source"; }
 details.source[open] summary::before { content: "Hide source"; }
 details.source pre { margin-top: 1rem; }
 /* "Contents" of a post: its h2 headings, collected when the page is rendered */
-nav.toc { margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
-nav.toc summary { cursor: pointer; width: max-content; font: 600 .7rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
-nav.toc ul { margin: .5rem 0 0; padding: 0; list-style: none; }
-nav.toc li { margin: .15rem 0; }
+nav.contents { margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
+nav.contents summary { cursor: pointer; width: max-content; font: 600 .7rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+nav.contents ul { margin: .5rem 0 0; padding: 0; list-style: none; }
+nav.contents li { margin: .15rem 0; }
 h2 a.to-toc { margin-left: .6rem; font: 500 .65rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
   color: var(--mute); text-decoration: none; vertical-align: middle; white-space: nowrap; }
 h2 a.to-toc:hover { color: var(--fjord); }
@@ -246,7 +246,7 @@ func withContents(main: string): tuple[main, toc: string] =
   # the "back to contents" links only when there is a contents box to go back to
   result.main = result.main.replace(backMark, if items.len >= 2: backLink else: "")
   if items.len >= 2:
-    result.toc = """<nav class="toc" id="contents" aria-label="Contents"><details open><summary>Contents</summary><ul>""" &
+    result.toc = """<nav class="contents" id="contents" aria-label="Contents"><details open><summary>Contents</summary><ul>""" &
       items.join("") & "</ul></details></nav>"
 
 func nanuqDocToHtml(blk: NbBlock, nb: Nb): string =
