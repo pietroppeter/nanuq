@@ -85,8 +85,9 @@ Rough size: S (hours), M (a day or two), L (more).
 
 ## Docs
 
-- **Cache rendered dev-log posts in CI** (S). Today the docs job reinstalls nimib and
-  ggplotnim and re-renders every post on each run, which grows with each post. Cache
+- **Cache rendered dev-log posts in CI** (S). Since one-program-builds (#67) the docs
+  job caches its packages and renders the site as one program (`docs/all.nim`), but it
+  still re-renders every post on each run, which grows with each post. Cache
   each post's HTML (and images) keyed by a hash of the post, `docs/nanuqtheme.nim`,
   `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
   as a compile check when the API changes. (Freezing old posts as committed HTML is
