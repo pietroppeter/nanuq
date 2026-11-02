@@ -314,3 +314,29 @@ shape: (2, 2)
 #### Scenario: Invalid JSON
 - **WHEN** a string that is not JSON is decoded
 - **THEN** `ComputeError` is raised
+
+### Requirement: Escaping and normalizing
+`str.escapeRegex` SHALL escape regex metacharacters, and `str.normalize(form =
+UnicodeForm.NFC)` SHALL give the Unicode normal form (`NFC`, `NFKC`, `NFD`, `NFKD`).
+
+```nim
+let df = newDataFrame(series("s", @["a.b*c", "é"]))
+echo df.select(col("s").str.escapeRegex.alias("escaped"),
+               col("s").str.normalize.str.lenChars.alias("chars"))
+```
+
+```text
+shape: (2, 2)
+┌─────────┬───────┐
+│ escaped ┆ chars │
+│ ---     ┆ ---   │
+│ str     ┆ u32   │
+╞═════════╪═══════╡
+│ a\.b\*c ┆ 5     │
+│ é       ┆ 1     │
+└─────────┴───────┘
+```
+
+#### Scenario: Composed form
+- **WHEN** "e" followed by a combining acute accent is normalized to NFC
+- **THEN** the result is the one character "é"

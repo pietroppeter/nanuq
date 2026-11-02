@@ -169,3 +169,61 @@ shape: (6, 1)
 #### Scenario: Restored after an exception
 - **WHEN** the body of `withConfig(tblRows = 2)` raises
 - **THEN** the exception propagates and the row limit is back to its previous value
+
+### Requirement: Describe prints temporal values as Python
+`describe` SHALL print Datetime statistics and the mean of a Date column as `YYYY-MM-DD HH:MM:SS`, with a fraction only when it is not zero.
+
+```nim
+let df = newDataFrame(series("d", @[date(1986, 9, 1), date(1986, 9, 7)]))
+echo df.describe
+```
+
+```text
+shape: (9, 2)
+┌────────────┬─────────────────────┐
+│ statistic  ┆ d                   │
+│ ---        ┆ ---                 │
+│ str        ┆ str                 │
+╞════════════╪═════════════════════╡
+│ count      ┆ 2                   │
+│ null_count ┆ 0                   │
+│ mean       ┆ 1986-09-04 00:00:00 │
+│ std        ┆ null                │
+│ min        ┆ 1986-09-01          │
+│ 25%        ┆ 1986-09-01          │
+│ 50%        ┆ 1986-09-07          │
+│ 75%        ┆ 1986-09-07          │
+│ max        ┆ 1986-09-07          │
+└────────────┴─────────────────────┘
+```
+
+#### Scenario: Date mean
+- **WHEN** the mean of 1986-09-01 and 1986-09-07 is described
+- **THEN** it reads `1986-09-04 00:00:00`
+
+### Requirement: Table formatting options
+`setTblFormatting(TableFormat, roundedCorners)`, `setAsciiTables`,
+`setTblHideColumnDataTypes`, `setTblHideColumnNames`, `setTblHideDataframeShape`,
+`setTblHideColumnSeparator`, `setTblDataframeShapeBelow`, `setTblColumnDataTypeInline`,
+`setTblCellAlignment`, `setTblCellNumericAlignment` and `setFmtTableCellListLen` SHALL
+change how frames print; `setConfig` and `withConfig` SHALL take `tblFormatting`,
+`asciiTables`, `tblHideColumnDataTypes`, `tblHideColumnNames`, `tblHideDataframeShape`
+and `tblCellAlignment`, and `resetConfig` SHALL undo them all.
+
+```nim
+let df = newDataFrame(series("bear", @["Ada"]), series("kg", @[410]))
+withConfig(tblFormatting = TableFormat.Markdown, tblHideDataframeShape = true):
+  echo df
+```
+
+```text
+| bear | kg  |
+| ---  | --- |
+| str  | i64 |
+|------|-----|
+| Ada  | 410 |
+```
+
+#### Scenario: ASCII
+- **WHEN** a frame prints inside `withConfig(asciiTables = true)`
+- **THEN** its borders use `+`, `-` and `|`

@@ -63,7 +63,7 @@ suite "readCsv options":
     let p = put("noheader.csv", "1,x\n2,y\n")
     let df = readCsv(p, hasHeader = false)
     check df.shape == (2, 2)
-    check df.columns == @["column_1", "column_2"]
+    check df.columns == @["column_0", "column_1"]
 
   test "inferSchemaLength and ignoreErrors":
     var content = "v\n"

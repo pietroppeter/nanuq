@@ -344,6 +344,10 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
     ignore_errors: bool,
     decimal_comma: bool,
     try_parse_dates: bool,
+    quote_char: i32,
+    utf8_lossy: bool,
+    comment_prefix: *const c_char,
+    cloud_options: *const CloudOptions,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let sources = scan_sources(path, data, data_len)?;
@@ -376,6 +380,10 @@ pub unsafe extern "C" fn nq_lf_scan_csv(
             .with_ignore_errors(ignore_errors)
             .with_decimal_comma(decimal_comma)
             .with_try_parse_dates(try_parse_dates)
+            .with_quote_char((quote_char >= 0).then_some(quote_char as u8))
+            .with_encoding(if utf8_lossy { CsvEncoding::LossyUtf8 } else { CsvEncoding::Utf8 })
+            .with_comment_prefix(if comment_prefix.is_null() { None } else { Some(cstr(comment_prefix)?.into()) })
+            .with_cloud_options(cloud(cloud_options))
             .finish()
             .map_err(pe)
     }))
@@ -428,12 +436,18 @@ pub unsafe extern "C" fn nq_lf_scan_parquet(
     row_index_name: *const c_char,
     row_index_offset: u32,
     low_memory: bool,
+    hive: i32,
+    cloud_options: *const CloudOptions,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let sources = scan_sources(path, data, data_len)?;
-        let hive_options = no_hive_for_buffers(&sources);
+        let mut hive_options = no_hive_for_buffers(&sources);
+        if hive >= 0 {
+            hive_options.enabled = Some(hive == 1);
+        }
         let args = ScanArgsParquet {
             hive_options,
+            cloud_options: cloud(cloud_options),
             n_rows: (n_rows >= 0).then_some(n_rows as usize),
             row_index: row_index(row_index_name, row_index_offset)?,
             low_memory,
@@ -453,12 +467,14 @@ pub unsafe extern "C" fn nq_lf_scan_ipc(
     n_rows: i64,
     row_index_name: *const c_char,
     row_index_offset: u32,
+    cloud_options: *const CloudOptions,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let sources = scan_sources(path, data, data_len)?;
         let hive_options = no_hive_for_buffers(&sources);
         let args = UnifiedScanArgs {
             hive_options,
+            cloud_options: cloud(cloud_options),
             pre_slice: (n_rows >= 0).then(|| Slice::Positive { offset: 0, len: n_rows as usize }),
             row_index: row_index(row_index_name, row_index_offset)?,
             ..Default::default()
@@ -480,6 +496,25 @@ pub enum NqParquetCompression {
     Zstd,
 }
 
+/// Parquet codec and level (`level < 0`: the codec's default).
+fn parquet_compression(compression: NqParquetCompression, level: i32) -> Result<ParquetCompression, String> {
+    let lvl = (level >= 0).then_some(level);
+    Ok(match compression {
+        NqParquetCompression::Lz4 => ParquetCompression::Lz4Raw,
+        NqParquetCompression::Uncompressed => ParquetCompression::Uncompressed,
+        NqParquetCompression::Snappy => ParquetCompression::Snappy,
+        NqParquetCompression::Gzip => ParquetCompression::Gzip(
+            lvl.map(|l| GzipLevel::try_new(l as u8)).transpose().map_err(|e| pe(e.into()))?,
+        ),
+        NqParquetCompression::Brotli => ParquetCompression::Brotli(
+            lvl.map(|l| BrotliLevel::try_new(l as u32)).transpose().map_err(|e| pe(e.into()))?,
+        ),
+        NqParquetCompression::Zstd => ParquetCompression::Zstd(
+            lvl.map(ZstdLevel::try_new).transpose().map_err(|e| pe(e.into()))?,
+        ),
+    })
+}
+
 /// Writes a Parquet file. `level < 0` uses the codec's default level;
 /// `row_group_size <= 0` uses Polars' default.
 #[no_mangle]
@@ -493,21 +528,7 @@ pub unsafe extern "C" fn nq_df_write_parquet(
 ) -> bool {
     guard(|| {
         let mut df = borrow(df, "DataFrame")?.clone();
-        let lvl = (level >= 0).then_some(level);
-        let compression = match compression {
-            NqParquetCompression::Lz4 => ParquetCompression::Lz4Raw,
-            NqParquetCompression::Uncompressed => ParquetCompression::Uncompressed,
-            NqParquetCompression::Snappy => ParquetCompression::Snappy,
-            NqParquetCompression::Gzip => ParquetCompression::Gzip(
-                lvl.map(|l| GzipLevel::try_new(l as u8)).transpose().map_err(|e| pe(e.into()))?,
-            ),
-            NqParquetCompression::Brotli => ParquetCompression::Brotli(
-                lvl.map(|l| BrotliLevel::try_new(l as u32)).transpose().map_err(|e| pe(e.into()))?,
-            ),
-            NqParquetCompression::Zstd => ParquetCompression::Zstd(
-                lvl.map(ZstdLevel::try_new).transpose().map_err(|e| pe(e.into()))?,
-            ),
-        };
+        let compression = parquet_compression(compression, level)?;
         let stats = if statistics {
             StatisticsOptions::default()
         } else {
@@ -672,6 +693,8 @@ pub enum NqDtype {
     List,
     Array,
     Struct,
+    Binary,
+    Decimal,
     Other,
 }
 
@@ -737,7 +760,9 @@ unsafe fn dtype_from_spec(spec: &NqDtypeSpec) -> Result<DataType, String> {
             let cats = names(spec.categories, spec.n_categories)?;
             DataType::from_frozen_categories(FrozenCategories::new(cats).map_err(pe)?)
         }
-        NqDtype::List | NqDtype::Array | NqDtype::Struct => borrow(spec.nested, "nested dtype")?.clone(),
+        NqDtype::List | NqDtype::Array | NqDtype::Struct | NqDtype::Decimal => {
+            borrow(spec.nested, "nested dtype")?.clone()
+        }
         c => dtype_from_code(c)?,
     })
 }
@@ -770,6 +795,8 @@ fn dtype_code(d: &DataType) -> NqDtype {
         DataType::List(_) => NqDtype::List,
         DataType::Array(_, _) => NqDtype::Array,
         DataType::Struct(_) => NqDtype::Struct,
+        DataType::Binary => NqDtype::Binary,
+        DataType::Decimal(_, _) => NqDtype::Decimal,
         _ => NqDtype::Other,
     }
 }
@@ -789,6 +816,7 @@ fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
         NqDtype::Float64 => DataType::Float64,
         NqDtype::String => DataType::String,
         NqDtype::Null => DataType::Null,
+        NqDtype::Binary => DataType::Binary,
         NqDtype::Date
         | NqDtype::Datetime
         | NqDtype::Duration
@@ -797,7 +825,8 @@ fn dtype_from_code(c: NqDtype) -> Result<DataType, String> {
         | NqDtype::Enum
         | NqDtype::List
         | NqDtype::Array
-        | NqDtype::Struct => return Err("this dtype needs its parameters".into()),
+        | NqDtype::Struct
+        | NqDtype::Decimal => return Err("this dtype needs its parameters".into()),
         NqDtype::Other => return Err("cannot cast to a dtype Nanuq does not model".into()),
     })
 }
@@ -866,7 +895,7 @@ pub unsafe extern "C" fn nq_expr_cat(
     boxed(guard(|| {
         let e = borrow(e, "expr")?.clone().cat();
         Ok(match op {
-            NqCatOp::GetCategories => e.get_categories(),
+            NqCatOp::GetCategories => return Err("cat.get_categories was removed in Polars 2.0: use unique()".into()),
             NqCatOp::LenBytes => e.len_bytes(),
             NqCatOp::LenChars => e.len_chars(),
             NqCatOp::StartsWith => e.starts_with(cstr(s)?.to_string()),
@@ -1048,6 +1077,10 @@ unsafe fn column_as(
     if col.len() != len {
         return Err(format!("column '{name}' has {} rows, buffer has {len}", col.len()));
     }
+    if matches!(col.dtype(), DataType::Binary) && to == DataType::String {
+        // raw bytes, read as they are (a Nim string holds any bytes)
+        return Ok(col.as_materialized_series().clone());
+    }
     if matches!(col.dtype(), DataType::Duration(_)) && to == DataType::String {
         // Polars can't cast durations to strings: format them as it prints them
         let one = DataFrame::new(len, vec![col.clone()]).map_err(pe)?;
@@ -1105,7 +1138,7 @@ pub unsafe extern "C" fn nq_df_column_f64(
     len: usize,
 ) -> bool {
     guard(|| {
-        let s = column_as(df, name, len, DataType::Float64, |d| d.is_primitive_numeric())?;
+        let s = column_as(df, name, len, DataType::Float64, |d| d.is_primitive_numeric() || d.is_decimal())?;
         fill(s.f64().map_err(pe)?.iter(), values, valid, len)
     })
     .is_some()
@@ -1126,13 +1159,21 @@ pub unsafe extern "C" fn nq_df_column_bool(
     .is_some()
 }
 
+/// The values of a String or Binary series as bytes.
+fn byte_values(s: &Series) -> Result<Vec<Option<&[u8]>>, String> {
+    Ok(match s.dtype() {
+        DataType::Binary => s.binary().map_err(pe)?.iter().collect(),
+        _ => s.str().map_err(pe)?.iter().map(|v| v.map(str::as_bytes)).collect(),
+    })
+}
+
 /// Total UTF-8 bytes of column `name` read as strings (any dtype), or -1.
 #[no_mangle]
 pub unsafe extern "C" fn nq_df_column_str_size(df: *const DataFrame, name: *const c_char) -> i64 {
     guard(|| {
         let len = borrow(df, "DataFrame")?.height();
         let s = column_as(df, name, len, DataType::String, |_| true)?;
-        Ok(s.str().map_err(pe)?.iter().map(|v| v.map_or(0, str::len)).sum::<usize>() as i64)
+        Ok(byte_values(&s)?.iter().map(|v| v.map_or(0, <[u8]>::len)).sum::<usize>() as i64)
     })
     .unwrap_or(-1)
 }
@@ -1157,8 +1198,8 @@ pub unsafe extern "C" fn nq_df_column_str(
         }
         let mut pos = 0usize;
         *offsets = 0;
-        for (i, v) in s.str().map_err(pe)?.iter().take(len).enumerate() {
-            let bytes = v.unwrap_or("").as_bytes();
+        for (i, v) in byte_values(&s)?.into_iter().take(len).enumerate() {
+            let bytes = v.unwrap_or(b"");
             if pos + bytes.len() > data_len {
                 return Err("string buffer too small".into());
             }
@@ -1453,6 +1494,17 @@ pub unsafe extern "C" fn nq_lf_collect(lf_: *const LazyFrame) -> *mut DataFrame 
     boxed(guard(|| lf(lf_)?.collect().map_err(pe)))
 }
 
+/// Collects like Python Polars' eager DataFrame methods (`QueryOptFlags._eager()`):
+/// no plan optimizations, only type coercion, type checks and expression
+/// simplification, so errors and row order match the eager API.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_collect_eager(lf_: *const LazyFrame) -> *mut DataFrame {
+    boxed(guard(|| {
+        let flags = OptFlags::TYPE_COERCION | OptFlags::TYPE_CHECK | OptFlags::SIMPLIFY_EXPR | OptFlags::EAGER;
+        lf(lf_)?.with_optimizations(flags).collect().map_err(pe)
+    }))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nq_lf_select(
     lf_: *const LazyFrame,
@@ -1706,7 +1758,7 @@ pub unsafe extern "C" fn nq_lf_join(
             NqMaintainOrderJoin::LeftRight => MaintainOrderJoin::LeftRight,
             NqMaintainOrderJoin::RightLeft => MaintainOrderJoin::RightLeft,
         };
-        Ok(lf(left_)?.join(lf(right_)?, left_on, right_on, args))
+        lf(left_)?.join(lf(right_)?, left_on, right_on, args).map_err(pe)
     }))
 }
 
@@ -1834,18 +1886,20 @@ pub unsafe extern "C" fn nq_df_sample(
     fraction: f64,
     by_fraction: bool,
     with_replacement: bool,
-    shuffle: bool,
+    shuffle: i32,
     has_seed: bool,
     seed: u64,
 ) -> *mut DataFrame {
     boxed(guard(|| {
         let df = borrow(df, "DataFrame")?;
         let seed = has_seed.then_some(seed);
+        // -1: no order guarantee (Polars' default), 0: keep the order, 1: shuffle
+        let shuffle = (shuffle >= 0).then_some(shuffle == 1);
         if by_fraction {
             let frac = Series::new("frac".into(), [fraction]);
-            df.sample_frac(&frac, with_replacement, Some(shuffle), seed).map_err(pe)
+            df.sample_frac(&frac, with_replacement, shuffle, seed).map_err(pe)
         } else {
-            df.sample_n_literal(n, with_replacement, Some(shuffle), seed).map_err(pe)
+            df.sample_n_literal(n, with_replacement, shuffle, seed).map_err(pe)
         }
     }))
 }
@@ -3502,7 +3556,7 @@ pub unsafe extern "C" fn nq_lf_join_asof(
         args.coalesce = if coalesce { JoinCoalesce::CoalesceColumns } else { JoinCoalesce::KeepColumns };
         let l = borrow(left_on, "expression")?.clone();
         let r = borrow(right_on, "expression")?.clone();
-        Ok(lf(left_)?.join(lf(right_)?, [l], [r], args))
+        lf(left_)?.join(lf(right_)?, [l], [r], args).map_err(pe)
     }))
 }
 
@@ -4395,6 +4449,7 @@ pub unsafe extern "C" fn nq_lf_scan_ndjson(
     full_schema: bool,
     infer_schema_length: i64,
     ignore_errors: bool,
+    cloud_options: *const CloudOptions,
 ) -> *mut LazyFrame {
     boxed(guard(|| {
         let sources = scan_sources(path, data, data_len)?;
@@ -4408,7 +4463,8 @@ pub unsafe extern "C" fn nq_lf_scan_ndjson(
             .with_n_rows((n_rows >= 0).then_some(n_rows as usize))
             .with_row_index(row_index(row_index_name, row_index_offset)?)
             .with_infer_schema_length(infer)
-            .with_ignore_errors(ignore_errors);
+            .with_ignore_errors(ignore_errors)
+            .with_cloud_options(cloud(cloud_options));
         r = if full_schema { r.with_schema(schema) } else { r.with_schema_overwrite(schema) };
         r.finish().map_err(pe)
     }))
@@ -4725,7 +4781,7 @@ pub unsafe extern "C" fn nq_expr_util(
             NqUtilOp::SampleFraction => e.sample_frac(a, f1, Some(f2), sd),
             NqUtilOp::Hash => {
                 let s = seed.max(0) as u64;
-                e.hash(s, s, s, s)
+                e.hash(s)
             }
             NqUtilOp::Get => e.get(a, f1),
             NqUtilOp::ArgTrue => arg_where(e),
@@ -4819,7 +4875,7 @@ pub unsafe extern "C" fn nq_df_equals(a: *const DataFrame, b: *const DataFrame, 
 
 #[no_mangle]
 pub unsafe extern "C" fn nq_df_estimated_size(df: *const DataFrame) -> i64 {
-    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size() as i64)).unwrap_or(-1)
+    guard(|| Ok(borrow(df, "DataFrame")?.estimated_size(false) as i64)).unwrap_or(-1)
 }
 
 #[no_mangle]
@@ -4834,7 +4890,7 @@ pub unsafe extern "C" fn nq_df_upsample(
     boxed(guard(|| {
         let df = borrow(df, "DataFrame")?;
         let by: Vec<PlSmallStr> = names(by, n_by)?.into_iter().map(PlSmallStr::from).collect();
-        let every = polars::time::Duration::try_parse(cstr(every)?).map_err(pe)?;
+        let every = polars::prelude::Duration::try_parse(cstr(every)?).map_err(pe)?;
         let tc = cstr(time_column)?;
         if maintain_order {
             df.upsample_stable(by, tc, every).map_err(pe)
@@ -4857,4 +4913,1205 @@ pub unsafe extern "C" fn nq_collect_all(lfs: *const *const LazyFrame, n: usize, 
         Ok(())
     })
     .is_some()
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: streaming engine, sinks, profiling (add-streaming-and-sinks)
+// ---------------------------------------------------------------------------
+
+use polars::prelude::{SinkDestination, SinkTarget, UnifiedSinkArgs, FileWriteFormat, PartitionStrategy};
+
+fn engine_of(e: u8) -> Engine {
+    match e {
+        1 => Engine::Streaming,
+        2 => Engine::InMemory,
+        _ => Engine::Auto,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_collect_engine(lf_: *const LazyFrame, engine: u8) -> *mut DataFrame {
+    boxed(guard(|| Ok(lf(lf_)?.collect_with_engine(engine_of(engine)).map_err(pe)?.unwrap_single())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_collect_all_engine(
+    lfs: *const *const LazyFrame,
+    n: usize,
+    engine: u8,
+    out: *mut *mut DataFrame,
+) -> bool {
+    guard(|| {
+        let plans: Vec<DslPlan> = slice(lfs, n)?.iter().map(|l| lf(*l).map(|x| x.logical_plan)).collect::<Result<_, _>>()?;
+        let dfs = LazyFrame::collect_all_with_engine(plans, engine_of(engine), OptFlags::default()).map_err(pe)?;
+        let out = std::slice::from_raw_parts_mut(out, n);
+        for (o, d) in out.iter_mut().zip(dfs) {
+            *o = Box::into_raw(Box::new(d));
+        }
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Options of every sink format, flattened. `format`: 0 Parquet, 1 IPC, 2 CSV, 3 NDJSON.
+#[repr(C)]
+pub struct NqSinkOptions {
+    pub format: u8,
+    pub parquet_compression: NqParquetCompression,
+    pub compression_level: i32,
+    pub statistics: bool,
+    pub row_group_size: i64,
+    pub ipc_compression: NqIpcCompression,
+    pub separator: u8,
+    pub include_header: bool,
+    pub null_value: *const c_char,
+    pub quote_style: NqQuoteStyle,
+    pub float_precision: i32,
+    pub decimal_comma: bool,
+    pub maintain_order: bool,
+    pub mkdir: bool,
+    pub cloud_options: *const CloudOptions,
+}
+
+/// Adds a sink to `lf`: a file at `path`, or, when `base_path` is not NULL, a
+/// partitioned sink by the `keys` expressions (none: by `max_rows_per_file`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_sink(
+    lf_: *const LazyFrame,
+    path: *const c_char,
+    base_path: *const c_char,
+    keys: *const *const Expr,
+    n_keys: usize,
+    include_keys: bool,
+    max_rows_per_file: i64,
+    o: *const NqSinkOptions,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let o = borrow(o, "NqSinkOptions")?;
+        let format = match o.format {
+            0 => {
+                let mut w = ParquetWriteOptions::default();
+                w.compression = parquet_compression(o.parquet_compression, o.compression_level)?;
+                w.statistics = if o.statistics { StatisticsOptions::default() } else { StatisticsOptions::empty() };
+                w.row_group_size = (o.row_group_size > 0).then_some(o.row_group_size as usize);
+                FileWriteFormat::Parquet(std::sync::Arc::new(w))
+            }
+            1 => {
+                let mut w = IpcWriterOptions::default();
+                w.compression = match o.ipc_compression {
+                    NqIpcCompression::Uncompressed => None,
+                    NqIpcCompression::Lz4 => Some(IpcCompression::LZ4),
+                    NqIpcCompression::Zstd => Some(IpcCompression::ZSTD(Default::default())),
+                };
+                FileWriteFormat::Ipc(w)
+            }
+            2 => {
+                let mut w = CsvWriterOptions::default();
+                w.include_header = o.include_header;
+                let mut so = SerializeOptions::default();
+                so.separator = o.separator;
+                so.null = cstr(o.null_value)?.into();
+                so.quote_style = match o.quote_style {
+                    NqQuoteStyle::Necessary => QuoteStyle::Necessary,
+                    NqQuoteStyle::Always => QuoteStyle::Always,
+                    NqQuoteStyle::NonNumeric => QuoteStyle::NonNumeric,
+                    NqQuoteStyle::Never => QuoteStyle::Never,
+                };
+                so.float_precision = (o.float_precision >= 0).then_some(o.float_precision as usize);
+                so.decimal_comma = o.decimal_comma;
+                w.serialize_options = so.into();
+                FileWriteFormat::Csv(w)
+            }
+            _ => FileWriteFormat::NDJson(NDJsonWriterOptions::default()),
+        };
+        let mut args = UnifiedSinkArgs::default();
+        args.maintain_order = o.maintain_order;
+        args.mkdir = o.mkdir;
+        args.cloud_options = cloud(o.cloud_options).map(Arc::new);
+        let dest = if base_path.is_null() {
+            SinkDestination::File { target: SinkTarget::Path(cstr(path)?.into()) }
+        } else {
+            let keys = exprs(keys, n_keys)?;
+            let strategy = if keys.is_empty() {
+                PartitionStrategy::FileSize
+            } else {
+                PartitionStrategy::Keyed { keys, include_keys, keys_pre_grouped: false }
+            };
+            SinkDestination::Partitioned {
+                base_path: cstr(base_path)?.into(),
+                file_path_provider: None,
+                partition_strategy: strategy,
+                max_rows_per_file: if max_rows_per_file > 0 { max_rows_per_file as IdxSize } else { IdxSize::MAX },
+                approximate_bytes_per_file: u64::MAX,
+            }
+        };
+        lf(lf_)?.sink(dest, format, args).map_err(pe)
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: plan and expression serialization, meta (add-plan-serialization)
+// ---------------------------------------------------------------------------
+
+/// Bytes handed back to Nim; free with `nq_bytes_free`.
+#[repr(C)]
+pub struct NqBytes {
+    pub ptr: *mut u8,
+    pub len: usize,
+}
+
+fn to_nq_bytes(v: Vec<u8>) -> NqBytes {
+    let mut b = v.into_boxed_slice();
+    let out = NqBytes { ptr: b.as_mut_ptr(), len: b.len() };
+    std::mem::forget(b);
+    out
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_bytes_free(b: NqBytes) {
+    if !b.ptr.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(b.ptr, b.len)));
+    }
+}
+
+/// Serializes a plan (`json`: JSON text, else Polars' versioned binary format).
+/// `ok` is set to false on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_serialize(lf_: *const LazyFrame, json: bool, ok: *mut bool) -> NqBytes {
+    let r = guard(|| {
+        let plan = lf(lf_)?.logical_plan;
+        if json {
+            serde_json::to_vec(&plan).map_err(|e| { LAST_KIND.with(|k| k.set(NqErrorKind::Compute)); format!("serialization failed: {e}") })
+        } else {
+            let mut buf = Vec::new();
+            plan.serialize_versioned(&mut buf, Default::default()).map_err(pe)?;
+            Ok(buf)
+        }
+    });
+    *ok = r.is_some();
+    to_nq_bytes(r.unwrap_or_default())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_deserialize(data: *const u8, len: usize, json: bool) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let bytes = slice(data, len)?;
+        let plan: DslPlan = if json {
+            serde_json::from_slice(bytes).map_err(|e| { LAST_KIND.with(|k| k.set(NqErrorKind::Compute)); format!("deserialization failed: {e}") })?
+        } else {
+            DslPlan::deserialize_versioned(bytes).map_err(pe)?
+        };
+        Ok(LazyFrame::from(plan))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_serialize(e: *const Expr, json: bool, ok: *mut bool) -> NqBytes {
+    let r = guard(|| {
+        let e = borrow(e, "expression")?;
+        if json {
+            serde_json::to_vec(e).map_err(|err| { LAST_KIND.with(|k| k.set(NqErrorKind::Compute)); format!("serialization failed: {err}") })
+        } else {
+            polars_utils::pl_serialize::serialize_to_bytes::<_, true>(e).map_err(pe)
+        }
+    });
+    *ok = r.is_some();
+    to_nq_bytes(r.unwrap_or_default())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_deserialize(data: *const u8, len: usize, json: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let bytes = slice(data, len)?;
+        if json {
+            serde_json::from_slice(bytes).map_err(|e| { LAST_KIND.with(|k| k.set(NqErrorKind::Compute)); format!("deserialization failed: {e}") })
+        } else {
+            polars_utils::pl_serialize::deserialize_from_reader::<Expr, _, true>(bytes).map_err(pe)
+        }
+    }))
+}
+
+/// More meta: 0 eq, 2 is_regex_projection,
+/// 3 is_column_selection(flag), 4 is_literal(flag).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_bool2(e: *const Expr, other: *const Expr, what: i32, flag: bool) -> i32 {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(match what {
+            0 => e == *borrow(other, "expression")?,
+            2 => e.meta().is_regex_projection(),
+            3 => e.meta().is_column_selection(flag),
+            _ => e.meta().is_literal(flag),
+        } as i32)
+    })
+    .unwrap_or(-1)
+}
+
+/// Inputs of the outermost node; `out` receives `*n` expressions (caller frees
+/// the array with `nq_expr_array_free`).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_pop(e: *const Expr, n: *mut usize) -> *mut *mut Expr {
+    guard(|| {
+        let v = borrow(e, "expression")?.clone().meta().pop(None).map_err(pe)?;
+        let ptrs: Vec<*mut Expr> = v.into_iter().map(|x| Box::into_raw(Box::new(x))).collect();
+        *n = ptrs.len();
+        Ok(Box::into_raw(ptrs.into_boxed_slice()) as *mut *mut Expr)
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_array_free(a: *mut *mut Expr, n: usize) {
+    if !a.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(a, n)));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_meta_tree_format(e: *const Expr) -> *mut c_char {
+    guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let f = e.meta().into_tree_formatter(false, None).map_err(pe)?;
+        Ok(to_c_string(format!("{f}")))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: Binary and Decimal dtypes, bin namespace, bitwise (add-binary-decimal-bitwise)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub extern "C" fn nq_dtype_decimal(precision: usize, scale: usize) -> *mut DataType {
+    boxed(guard(|| {
+        if precision < 1 || precision > 38 || scale > precision {
+            LAST_KIND.with(|k| k.set(NqErrorKind::InvalidOperation));
+            return Err(format!("invalid Decimal({precision}, {scale}): precision must be 1 to 38 and scale at most precision"));
+        }
+        Ok(DataType::Decimal(precision, scale))
+    }))
+}
+
+/// Precision and scale of a Decimal dtype; false on error.
+#[no_mangle]
+pub unsafe extern "C" fn nq_dtype_decimal_params(d: *const DataType, p: *mut usize, s: *mut usize) -> bool {
+    guard(|| match borrow(d, "dtype")? {
+        DataType::Decimal(pr, sc) => {
+            *p = *pr;
+            *s = *sc;
+            Ok(())
+        }
+        dt => Err(format!("{dt} is not a decimal")),
+    })
+    .is_some()
+}
+
+/// A Binary series from `n` byte strings (`data` concatenated, `n + 1` offsets).
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_binary(
+    name: *const c_char,
+    data: *const u8,
+    offsets: *const u64,
+    valid: *const bool,
+    n: usize,
+) -> *mut Series {
+    boxed(guard(|| {
+        let offs = slice(offsets, n + 1)?;
+        let total = offs[n] as usize;
+        let bytes = slice(data, total)?;
+        let valid = slice(valid, n)?;
+        let vals: Vec<Option<&[u8]>> = (0..n)
+            .map(|i| valid[i].then(|| &bytes[offs[i] as usize..offs[i + 1] as usize]))
+            .collect();
+        Ok(BinaryChunked::from_iter_options(cstr(name)?.into(), vals.into_iter()).into_series())
+    }))
+}
+
+/// Binary namespace. 0 contains(a), 1 starts_with(a), 2 ends_with(a),
+/// 3 encode hex, 4 encode base64, 5 decode hex (strict), 6 decode base64 (strict), 7 size (bytes).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_bin(e: *const Expr, op: i32, a: *const Expr) -> *mut Expr {
+    boxed(guard(|| {
+        let b = borrow(e, "expression")?.clone().binary();
+        let arg = || -> Result<Expr, String> { Ok(borrow(a, "expression")?.clone()) };
+        Ok(match op {
+            0 => b.contains_literal(arg()?),
+            1 => b.starts_with(arg()?),
+            2 => b.ends_with(arg()?),
+            3 => b.hex_encode(),
+            4 => b.base64_encode(),
+            5 => b.hex_decode(true),
+            6 => b.base64_decode(true),
+            _ => b.size_bytes(),
+        })
+    }))
+}
+
+/// String encode/decode (string_encoding): 0 encode hex, 1 encode base64,
+/// 2 decode hex to binary, 3 decode base64 to binary; 4 to_decimal(scale, a = Int scale).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_str_codec(e: *const Expr, op: i32, scale: i64) -> *mut Expr {
+    boxed(guard(|| {
+        let s = borrow(e, "expression")?.clone().str();
+        Ok(match op {
+            0 => s.hex_encode(),
+            1 => s.base64_encode(),
+            2 => s.hex_decode(true),
+            3 => s.base64_decode(true),
+            _ => s.to_decimal(scale as usize),
+        })
+    }))
+}
+
+/// Bitwise: 0 count_ones, 1 count_zeros, 2 leading_ones, 3 leading_zeros,
+/// 4 trailing_ones, 5 trailing_zeros, 6 and (agg), 7 or (agg), 8 xor (agg).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_bitwise(e: *const Expr, op: i32) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        Ok(match op {
+            0 => e.bitwise_count_ones(),
+            1 => e.bitwise_count_zeros(),
+            2 => e.bitwise_leading_ones(),
+            3 => e.bitwise_leading_zeros(),
+            4 => e.bitwise_trailing_ones(),
+            5 => e.bitwise_trailing_zeros(),
+            6 => e.bitwise_and(),
+            7 => e.bitwise_or(),
+            _ => e.bitwise_xor(),
+        })
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: Arrow C Data Interface (add-arrow-c-data)
+// ---------------------------------------------------------------------------
+
+use polars_arrow::ffi as aff;
+
+/// Exports `s` (rechunked into one array) through the Arrow C Data Interface,
+/// filling the caller's `schema` and `array` structs. The consumer releases them.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_to_arrow(
+    s: *const Series,
+    schema: *mut aff::ArrowSchema,
+    array: *mut aff::ArrowArray,
+) -> bool {
+    guard(|| {
+        let s = borrow(s, "series")?.rechunk();
+        let field = s.field().to_arrow(CompatLevel::newest());
+        let arr = s.to_arrow(0, CompatLevel::newest());
+        ptr::write(schema, aff::export_field_to_c(&field));
+        ptr::write(array, aff::export_array_to_c(arr));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Imports a Series from Arrow C structs. The array is moved (its release
+/// callback now belongs to Nanuq); the schema is only read.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_from_arrow(
+    name: *const c_char,
+    schema: *const aff::ArrowSchema,
+    array: *mut aff::ArrowArray,
+) -> *mut Series {
+    boxed(guard(|| {
+        let field = aff::import_field_from_c(borrow(schema, "ArrowSchema")?).map_err(pe)?;
+        // the struct is moved out: leave a released (empty) one behind
+        let arr = ptr::replace(array, aff::ArrowArray::empty());
+        let a = aff::import_array_from_c(arr, field.dtype().clone()).map_err(pe)?;
+        let name: PlSmallStr = if name.is_null() { field.name.clone() } else { cstr(name)?.into() };
+        Series::from_arrow(name, a).map_err(pe)
+    }))
+}
+
+/// Exports a frame as an Arrow C stream of struct arrays (record batches).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_to_arrow_stream(df: *const DataFrame, stream: *mut aff::ArrowArrayStream) -> bool {
+    guard(|| {
+        let df = borrow(df, "DataFrame")?.clone();
+        let s = df.into_struct("".into()).into_series().rechunk();
+        let field = s.field().to_arrow(CompatLevel::newest());
+        let arr = s.to_arrow(0, CompatLevel::newest());
+        let it: Box<dyn Iterator<Item = PolarsResult<Box<dyn polars_arrow::array::Array>>>> =
+            Box::new(std::iter::once(Ok(arr)));
+        ptr::write(stream, aff::export_iterator(it, field));
+        Ok(())
+    })
+    .is_some()
+}
+
+/// Reads a whole Arrow C stream of struct arrays into a frame. The stream is
+/// released afterwards.
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_from_arrow_stream(stream: *mut aff::ArrowArrayStream) -> *mut DataFrame {
+    boxed(guard(|| {
+        let st = Box::new(ptr::replace(stream, aff::ArrowArrayStream::empty()));
+        let mut reader = aff::ArrowArrayStreamReader::try_new(st).map_err(pe)?;
+        let mut arrays = Vec::new();
+        while let Some(a) = reader.next() {
+            arrays.push(a.map_err(pe)?);
+        }
+        let dtype = reader.field().dtype().clone();
+        if arrays.is_empty() {
+            let s = Series::from_arrow("".into(), polars_arrow::array::new_empty_array(dtype)).map_err(pe)?;
+            return Ok(s.struct_().map_err(pe)?.clone().unnest());
+        }
+        let s = Series::from_arrow_chunks("".into(), arrays).map_err(pe)?;
+        Ok(s.struct_().map_err(pe)?.clone().unnest())
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: Excel (add-excel-io), with the pure-Rust crates calamine and rust_xlsxwriter
+// ---------------------------------------------------------------------------
+
+fn excel_err(e: impl std::fmt::Display) -> String {
+    LAST_KIND.with(|k| k.set(NqErrorKind::Io));
+    e.to_string()
+}
+
+/// Sheet names of a workbook, joined with "\n". Free with `nq_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_excel_sheet_names(path: *const c_char) -> *mut c_char {
+    use calamine::Reader;
+    guard(|| {
+        let wb = calamine::open_workbook_auto(cstr(path)?).map_err(excel_err)?;
+        Ok(to_c_string(wb.sheet_names().join("\n")))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+fn excel_column(name: &str, cells: &[&calamine::Data]) -> Series {
+    use calamine::Data as D;
+    use calamine::DataType as _;
+    let non_empty: Vec<&&D> = cells.iter().filter(|c| !matches!(c, D::Empty)).collect();
+    let all = |f: &dyn Fn(&D) -> bool| non_empty.iter().all(|c| f(c));
+    let name: PlSmallStr = name.into();
+    if non_empty.is_empty() {
+        return Series::full_null(name, cells.len(), &DataType::String);
+    }
+    if all(&|c| matches!(c, D::Bool(_))) {
+        let v: Vec<Option<bool>> = cells.iter().map(|c| if let D::Bool(b) = c { Some(*b) } else { None }).collect();
+        return Series::new(name, v);
+    }
+    let whole = |f: f64| f.fract() == 0.0 && f.abs() < 9.0e15;
+    if all(&|c| matches!(c, D::Int(_)) || matches!(c, D::Float(f) if whole(*f))) {
+        let v: Vec<Option<i64>> = cells
+            .iter()
+            .map(|c| match c {
+                D::Int(i) => Some(*i),
+                D::Float(f) => Some(*f as i64),
+                _ => None,
+            })
+            .collect();
+        return Series::new(name, v);
+    }
+    if all(&|c| matches!(c, D::Int(_) | D::Float(_))) {
+        let v: Vec<Option<f64>> = cells
+            .iter()
+            .map(|c| match c {
+                D::Int(i) => Some(*i as f64),
+                D::Float(f) => Some(*f),
+                _ => None,
+            })
+            .collect();
+        return Series::new(name, v);
+    }
+    if all(&|c| matches!(c, D::DateTime(_) | D::DateTimeIso(_))) {
+        let dts: Vec<Option<chrono::NaiveDateTime>> = cells.iter().map(|c| c.as_datetime()).collect();
+        let midnight = dts.iter().flatten().all(|d| d.time() == chrono::NaiveTime::MIN);
+        if midnight {
+            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+            let v: Vec<Option<i32>> = dts.iter().map(|d| d.map(|d| (d.date() - epoch).num_days() as i32)).collect();
+            return Series::new(name, v).cast(&DataType::Date).unwrap();
+        }
+        let v: Vec<Option<i64>> = dts.iter().map(|d| d.map(|d| d.and_utc().timestamp_millis())).collect();
+        return Series::new(name, v).cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).unwrap();
+    }
+    let v: Vec<Option<String>> = cells
+        .iter()
+        .map(|c| match c {
+            D::Empty => None,
+            D::String(s) => Some(s.clone()),
+            D::Float(f) if whole(*f) => Some(format!("{}", *f as i64)),
+            other => Some(other.to_string()),
+        })
+        .collect();
+    Series::new(name, v)
+}
+
+/// Reads one sheet (`sheet_name` if not NULL, else the `sheet_index`-th, from 0).
+#[no_mangle]
+pub unsafe extern "C" fn nq_read_excel(
+    path: *const c_char,
+    sheet_name: *const c_char,
+    sheet_index: usize,
+    has_header: bool,
+    header_row: usize,
+    skip_rows: usize,
+) -> *mut DataFrame {
+    use calamine::Reader;
+    boxed(guard(|| {
+        let mut wb = calamine::open_workbook_auto(cstr(path)?).map_err(excel_err)?;
+        let range = if sheet_name.is_null() {
+            wb.worksheet_range_at(sheet_index)
+                .ok_or_else(|| excel_err(format!("the workbook has no sheet {}", sheet_index + 1)))?
+                .map_err(excel_err)?
+        } else {
+            wb.worksheet_range(cstr(sheet_name)?).map_err(excel_err)?
+        };
+        // as fastexcel (py-polars' default engine): the header is row `header_row`,
+        // `skip_rows` are skipped after it (or from the top without a header)
+        let all: Vec<&[calamine::Data]> = range.rows().collect();
+        let rows: Vec<&[calamine::Data]> = if has_header {
+            all.iter().skip(header_row).take(1)
+                .chain(all.iter().skip(header_row + 1 + skip_rows)).copied().collect()
+        } else {
+            all.iter().skip(skip_rows).copied().collect()
+        };
+        let width = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+        let (names, body): (Vec<String>, &[&[calamine::Data]]) = if has_header && !rows.is_empty() {
+            let h = rows[0];
+            let names = (0..width)
+                .map(|i| match h.get(i) {
+                    Some(calamine::Data::Empty) | None => format!("__UNNAMED__{i}"),
+                    Some(d) => d.to_string(),
+                })
+                .collect();
+            (names, &rows[1..])
+        } else {
+            ((1..=width).map(|i| format!("column_{i}")).collect(), &rows[..])
+        };
+        let empty = calamine::Data::Empty;
+        let mut cols = Vec::with_capacity(width);
+        for (i, n) in names.iter().enumerate() {
+            let cells: Vec<&calamine::Data> = body.iter().map(|r| r.get(i).unwrap_or(&empty)).collect();
+            cols.push(excel_column(n, &cells).into_column());
+        }
+        DataFrame::new(body.len(), cols).map_err(pe)
+    }))
+}
+
+/// Writes `df` to one worksheet of a new .xlsx file.
+#[no_mangle]
+pub unsafe extern "C" fn nq_write_excel(
+    df: *const DataFrame,
+    path: *const c_char,
+    worksheet: *const c_char,
+    include_header: bool,
+    autofit: bool,
+    float_precision: i32,
+) -> bool {
+    use rust_xlsxwriter::{Format, Workbook};
+    guard(|| {
+        let df = borrow(df, "DataFrame")?;
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        ws.set_name(cstr(worksheet)?).map_err(excel_err)?;
+        let bold = Format::new().set_bold();
+        let date_fmt = Format::new().set_num_format("yyyy-mm-dd");
+        let dt_fmt = Format::new().set_num_format("yyyy-mm-dd hh:mm:ss");
+        let float_fmt = (float_precision >= 0).then(|| {
+            let p = float_precision as usize;
+            Format::new().set_num_format(if p == 0 { "0".to_string() } else { format!("0.{}", "0".repeat(p)) })
+        });
+        let top: u32 = if include_header { 1 } else { 0 };
+        for (j, c) in df.columns().iter().enumerate() {
+            let j = j as u16;
+            if include_header {
+                ws.write_string_with_format(0, j, c.name().as_str(), &bold).map_err(excel_err)?;
+            }
+            let s = c.as_materialized_series();
+            let row = |i: usize| top + i as u32;
+            match s.dtype() {
+                DataType::Boolean => {
+                    for (i, v) in s.bool().map_err(pe)?.iter().enumerate() {
+                        if let Some(v) = v {
+                            ws.write_boolean(row(i), j, v).map_err(excel_err)?;
+                        }
+                    }
+                }
+                DataType::Date => {
+                    let p = s.cast(&DataType::Int32).map_err(pe)?;
+                    for (i, v) in p.i32().map_err(pe)?.iter().enumerate() {
+                        if let Some(v) = v {
+                            ws.write_number_with_format(row(i), j, v as f64 + 25569.0, &date_fmt).map_err(excel_err)?;
+                        }
+                    }
+                }
+                DataType::Datetime(tu, _) => {
+                    let div = match tu {
+                        TimeUnit::Milliseconds => 86_400_000.0,
+                        TimeUnit::Microseconds => 86_400_000_000.0,
+                        TimeUnit::Nanoseconds => 86_400_000_000_000.0,
+                    };
+                    let p = s.to_physical_repr().into_owned();
+                    for (i, v) in p.i64().map_err(pe)?.iter().enumerate() {
+                        if let Some(v) = v {
+                            ws.write_number_with_format(row(i), j, v as f64 / div + 25569.0, &dt_fmt).map_err(excel_err)?;
+                        }
+                    }
+                }
+                d if d.is_primitive_numeric() || d.is_decimal() => {
+                    let p = s.cast(&DataType::Float64).map_err(pe)?;
+                    for (i, v) in p.f64().map_err(pe)?.iter().enumerate() {
+                        if let Some(v) = v {
+                            match (&float_fmt, d.is_float()) {
+                                (Some(f), true) => ws.write_number_with_format(row(i), j, v, f),
+                                _ => ws.write_number(row(i), j, v),
+                            }
+                            .map_err(excel_err)?;
+                        }
+                    }
+                }
+                _ => {
+                    let p = s.cast(&DataType::String).map_err(pe)?;
+                    for (i, v) in p.str().map_err(pe)?.iter().enumerate() {
+                        if let Some(v) = v {
+                            ws.write_string(row(i), j, v).map_err(excel_err)?;
+                        }
+                    }
+                }
+            }
+        }
+        if autofit {
+            ws.autofit();
+        }
+        wb.save(cstr(path)?).map_err(excel_err)?;
+        Ok(())
+    })
+    .is_some()
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: smaller functions from the book tally and book gaps
+// (add-frame-utilities-0-6, add-book-port-needs-0-6)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_xor(a: *const Expr, b: *const Expr) -> *mut Expr {
+    boxed(guard(|| Ok(borrow(a, "expression")?.clone().xor(borrow(b, "expression")?.clone()))))
+}
+
+/// Marks an expression as sorted (`descending`), so Polars can take fast paths.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_set_sorted(e: *const Expr, descending: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let s = polars_plan::plans::AExprSorted { descending: Some(descending), nulls_last: None };
+        Ok(borrow(e, "expression")?.clone().set_sorted_flag(s))
+    }))
+}
+
+/// `hist(bins, bin_count)`: `bins` may be NULL, `bin_count < 0` for none.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_hist(
+    e: *const Expr,
+    bins: *const Expr,
+    bin_count: i64,
+    include_category: bool,
+    include_breakpoint: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let b = if bins.is_null() { None } else { Some(borrow(bins, "expression")?.clone()) };
+        Ok(borrow(e, "expression")?.clone().hist(
+            b,
+            (bin_count >= 0).then_some(bin_count as usize),
+            include_category,
+            include_breakpoint,
+        ))
+    }))
+}
+
+/// `int_ranges(start, end, step)` of type `spec`: one list per row.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_int_ranges(
+    start: *const Expr,
+    end: *const Expr,
+    step: *const Expr,
+    spec: *const NqDtypeSpec,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let dt = dtype_from_spec(borrow(spec, "dtype")?)?;
+        Ok(int_ranges(
+            borrow(start, "expression")?.clone(),
+            borrow(end, "expression")?.clone(),
+            borrow(step, "expression")?.clone(),
+            dt,
+        ))
+    }))
+}
+
+/// `date_ranges` / `datetime_ranges`: one list per row.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_date_ranges(
+    start: *const Expr,
+    end: *const Expr,
+    interval: *const c_char,
+    closed: NqClosedWindow,
+    datetime: bool,
+    has_time_unit: bool,
+    tu: NqTimeUnit,
+    tz: *const c_char,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let every = polars::prelude::Duration::try_parse(cstr(interval)?).map_err(pe)?;
+        if datetime {
+            polars::lazy::dsl::datetime_ranges(
+                Some(start),
+                Some(end),
+                Some(every),
+                None,
+                closed_window(closed),
+                has_time_unit.then(|| time_unit(tu)),
+                time_zone(tz)?,
+            )
+            .map_err(pe)
+        } else {
+            polars::lazy::dsl::date_ranges(Some(start), Some(end), Some(every), None, closed_window(closed)).map_err(pe)
+        }
+    }))
+}
+
+/// Inequality join: rows of `a` and `b` where all `predicates` hold.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_join_where(
+    a: *const LazyFrame,
+    b: *const LazyFrame,
+    predicates: *const *const Expr,
+    n: usize,
+    suffix: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let preds = exprs(predicates, n)?;
+        Ok(lf(a)?
+            .join_builder()
+            .with(lf(b)?)
+            .suffix(cstr(suffix)?)
+            .join_where(preds))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_explain_all(lfs: *const *const LazyFrame, n: usize) -> *mut c_char {
+    guard(|| {
+        let plans: Vec<DslPlan> = slice(lfs, n)?.iter().map(|l| lf(*l).map(|x| x.logical_plan)).collect::<Result<_, _>>()?;
+        Ok(to_c_string(LazyFrame::explain_all(plans, OptFlags::default()).map_err(pe)?))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn nq_thread_pool_size() -> i64 {
+    polars_core::runtime::RAYON.current_num_threads() as i64
+}
+
+/// `e.cast(dtype_of(of))`: cast to the type of another expression.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_cast_dtype_of(e: *const Expr, of: *const Expr, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let d = DataTypeExpr::OfExpr(Box::new(borrow(of, "expression")?.clone()));
+        let e = borrow(e, "expression")?.clone();
+        Ok(if strict { e.strict_cast(d) } else { e.cast(d) })
+    }))
+}
+
+/// The type of `of` as a string expression (`dtype_of(of).display()`); with
+/// `inner`, of its inner type.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_dtype_display(of: *const Expr, inner: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let mut d = DataTypeExpr::OfExpr(Box::new(borrow(of, "expression")?.clone()));
+        if inner {
+            d = d.inner_dtype();
+        }
+        Ok(d.display())
+    }))
+}
+
+/// Groups of a frame by `by` (maintaining order), head/tail `n` rows each:
+/// `tail` false for head.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_group_head(
+    lf_: *const LazyFrame,
+    by: *const *const Expr,
+    n_by: usize,
+    n: i64,
+    tail: bool,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let g = lf(lf_)?.group_by_stable(exprs(by, n_by)?);
+        let k = (n >= 0).then_some(n as usize);
+        Ok(if tail { g.tail(k) } else { g.head(k) })
+    }))
+}
+
+/// Binary slicing (binary_encoding): 0 slice(a, b), 1 head(a), 2 tail(a), 3 get(a, null_on_oob).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_bin_slice(e: *const Expr, op: i32, a: *const Expr, b: *const Expr,
+                                           null_on_oob: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let x = borrow(e, "expression")?.clone().binary();
+        let a = borrow(a, "expression")?.clone();
+        Ok(match op {
+            0 => x.slice(a, borrow(b, "expression")?.clone()),
+            1 => x.head(a),
+            2 => x.tail(a),
+            _ => x.get(a, null_on_oob),
+        })
+    }))
+}
+
+/// `str.to_integer(base, dtype, strict)`; `dtype` may be null (Int64).
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_str_to_integer(e: *const Expr, base: *const Expr,
+                                                spec: *const NqDtypeSpec, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let dt = if spec.is_null() { None } else { Some(dtype_from_spec(&*spec)?) };
+        Ok(borrow(e, "expression")?.clone().str().to_integer(borrow(base, "expression")?.clone(), dt, strict))
+    }))
+}
+
+/// UInt64 columns from Nim, values above i64::MAX included; `valid` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn nq_series_new_u64(name: *const c_char, data: *const u64, valid: *const bool,
+                                           len: usize) -> *mut Series {
+    boxed(guard(|| {
+        let vals = slice(data, len)?;
+        if valid.is_null() {
+            Ok(Series::new(cstr(name)?.into(), vals))
+        } else {
+            let ok = slice(valid, len)?;
+            let v: Vec<Option<u64>> = vals.iter().zip(ok).map(|(x, k)| if *k { Some(*x) } else { None }).collect();
+            Ok(Series::new(cstr(name)?.into(), v))
+        }
+    }))
+}
+
+/// Integer columns read as u64 (negative values raise).
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_column_u64(
+    df: *const DataFrame,
+    name: *const c_char,
+    values: *mut u64,
+    valid: *mut bool,
+    len: usize,
+) -> bool {
+    guard(|| {
+        let s = column_as(df, name, len, DataType::UInt64, |d| d.is_integer())?;
+        fill(s.u64().map_err(pe)?.iter(), values, valid, len)
+    })
+    .is_some()
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: easy wins from the coverage map (add-coverage-easy-wins-0-6)
+// ---------------------------------------------------------------------------
+
+/// Keep in sync with `NqWinOp` in nanuq/ffi.nim.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum NqWinOp {
+    EqMissing = 0,
+    NeMissing,
+    CumulativeEval,
+    RoundSigFigs,
+    Century,
+    Millennium,
+    DstOffset,
+    BaseUtcOffset,
+    EscapeRegex,
+    IsClose,
+    AddBusinessDays,
+    IsBusinessDay,
+    Normalize,
+    Reinterpret,
+}
+
+fn week_mask(bits: i64) -> [bool; 7] {
+    let mut m = [false; 7];
+    for (i, d) in m.iter_mut().enumerate() {
+        *d = bits & (1 << i) != 0;
+    }
+    m
+}
+
+/// `a`, `b`: expression arguments; `i`: an integer option (min samples,
+/// digits, week mask bits, roll 0 raise/1 forward/2 backward in `j`, unicode
+/// form); `x`, `y`: float options; `flag`: a boolean option.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_win(
+    e: *const Expr,
+    op: NqWinOp,
+    a: *const Expr,
+    b: *const Expr,
+    i: i64,
+    j: i64,
+    x: f64,
+    y: f64,
+    flag: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let e = borrow(e, "expression")?.clone();
+        let a = opt_expr(a)?;
+        let b = opt_expr(b)?;
+        Ok(match op {
+            NqWinOp::EqMissing => e.eq_missing(a),
+            NqWinOp::NeMissing => e.neq_missing(a),
+            NqWinOp::CumulativeEval => e.cumulative_eval(a, i.max(0) as usize),
+            NqWinOp::RoundSigFigs => e.round_sig_figs(i as i32),
+            NqWinOp::Century => e.dt().century(),
+            NqWinOp::Millennium => e.dt().millennium(),
+            NqWinOp::DstOffset => e.dt().dst_offset(),
+            NqWinOp::BaseUtcOffset => e.dt().base_utc_offset(),
+            NqWinOp::EscapeRegex => e.str().escape_regex(),
+            NqWinOp::IsClose => e.is_close(a, x, y, flag),
+            NqWinOp::AddBusinessDays => {
+                let roll = match j {
+                    1 => Roll::Forward,
+                    2 => Roll::Backward,
+                    _ => Roll::Raise,
+                };
+                e.dt().add_business_days(a, week_mask(i), b, roll)
+            }
+            NqWinOp::IsBusinessDay => e.dt().is_business_day(week_mask(i), b),
+            NqWinOp::Normalize => e.str().normalize(match i {
+                1 => UnicodeForm::NFKC,
+                2 => UnicodeForm::NFD,
+                3 => UnicodeForm::NFKD,
+                _ => UnicodeForm::NFC,
+            }),
+            NqWinOp::Reinterpret => e.reinterpret(Some(flag), None),
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_business_day_count(
+    start: *const Expr,
+    end: *const Expr,
+    mask: i64,
+    holidays: *const Expr,
+) -> *mut Expr {
+    boxed(guard(|| {
+        Ok(polars::lazy::dsl::business_day_count(
+            borrow(start, "expression")?.clone(),
+            borrow(end, "expression")?.clone(),
+            week_mask(mask),
+            opt_expr(holidays)?,
+        ))
+    }))
+}
+
+/// `time_range` (`many = false`) or `time_ranges`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_time_range(
+    start: *const Expr,
+    end: *const Expr,
+    interval: *const c_char,
+    closed: NqClosedWindow,
+    many: bool,
+) -> *mut Expr {
+    boxed(guard(|| {
+        let start = borrow(start, "expression")?.clone();
+        let end = borrow(end, "expression")?.clone();
+        let every = duration_arg(interval)?;
+        Ok(if many {
+            polars::lazy::dsl::time_ranges(start, end, every, closed_window(closed))
+        } else {
+            polars::lazy::dsl::time_range(start, end, every, closed_window(closed))
+        })
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_concat_arr(es: *const *const Expr, n: usize) -> *mut Expr {
+    boxed(guard(|| polars::lazy::dsl::concat_arr(exprs(es, n)?).map_err(pe)))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_nth(idx: *const i64, n: usize, strict: bool) -> *mut Expr {
+    boxed(guard(|| {
+        let ix = slice(idx, n)?;
+        Ok(Selector::ByIndex { indices: ix.into(), strict }.as_expr())
+    }))
+}
+
+/// Optimization switches for a LazyFrame, as bits: 0 predicate pushdown,
+/// 1 projection pushdown, 2 simplify expressions, 3 slice pushdown, 4 common
+/// subplan elimination, 5 common subexpression elimination, 6 cluster
+/// with_columns, 7 type coercion, 8 type check.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_with_optimizations(lf_: *const LazyFrame, bits: u32) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let on = |k: u32| bits & (1 << k) != 0;
+        Ok(lf(lf_)?
+            .with_predicate_pushdown(on(0))
+            .with_projection_pushdown(on(1))
+            .with_simplify_expr(on(2))
+            .with_slice_pushdown(on(3))
+            .with_comm_subplan_elim(on(4))
+            .with_comm_subexpr_elim(on(5))
+            .with_cluster_with_columns(on(6))
+            .with_type_coercion(on(7))
+            .with_type_check(on(8)))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_drop_nans(
+    lf_: *const LazyFrame,
+    names_: *const *const c_char,
+    n: usize,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let ns = names(names_, n)?;
+        let subset = (!ns.is_empty()).then(|| cols(ns));
+        Ok(lf(lf_)?.drop_nans(subset))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_cache(lf_: *const LazyFrame) -> *mut LazyFrame {
+    boxed(guard(|| Ok(lf(lf_)?.cache())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_merge_sorted(
+    a: *const LazyFrame,
+    b: *const LazyFrame,
+    key: *const c_char,
+) -> *mut LazyFrame {
+    boxed(guard(|| lf(a)?.merge_sorted(lf(b)?, [cstr(key)?], true).map_err(pe)))
+}
+
+/// `match_to_schema`: missing columns 0 raise / 1 insert nulls; extra columns 0
+/// raise / 1 ignore; integer and float casts 0 forbid / 1 upcast.
+#[no_mangle]
+pub unsafe extern "C" fn nq_lf_match_to_schema(
+    lf_: *const LazyFrame,
+    names_: *const *const c_char,
+    specs: *const NqDtypeSpec,
+    n: usize,
+    missing: i32,
+    extra: i32,
+    integer_cast: i32,
+    float_cast: i32,
+) -> *mut LazyFrame {
+    boxed(guard(|| {
+        let schema = schema_of(names_, specs, n)?.unwrap_or_default();
+        let upcast = |c: i32| if c == 1 { UpcastOrForbid::Upcast } else { UpcastOrForbid::Forbid };
+        let per = MatchToSchemaPerColumn {
+            missing_columns: if missing == 1 {
+                MissingColumnsPolicyOrExpr::Insert
+            } else {
+                MissingColumnsPolicyOrExpr::Raise
+            },
+            missing_struct_fields: MissingColumnsPolicy::Raise,
+            extra_struct_fields: ExtraColumnsPolicy::Raise,
+            integer_cast: upcast(integer_cast),
+            float_cast: upcast(float_cast),
+        };
+        let per: Arc<[MatchToSchemaPerColumn]> = vec![per; schema.len()].into();
+        let extra = if extra == 1 { ExtraColumnsPolicy::Ignore } else { ExtraColumnsPolicy::Raise };
+        Ok(lf(lf_)?.match_to_schema(schema, per, extra))
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_rechunk(df: *const DataFrame) -> *mut DataFrame {
+    boxed(guard(|| {
+        let mut d = borrow(df, "DataFrame")?.clone();
+        d.rechunk_mut();
+        Ok(d)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_shrink_to_fit(df: *const DataFrame) -> *mut DataFrame {
+    boxed(guard(|| {
+        let mut d = borrow(df, "DataFrame")?.clone();
+        d.shrink_to_fit();
+        Ok(d)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_n_chunks(df: *const DataFrame) -> i64 {
+    guard(|| Ok(borrow(df, "DataFrame")?.max_n_chunks() as i64)).unwrap_or(-1)
+}
+
+/// Reads an Arrow IPC stream from `path`, or from `data_len` bytes at `data`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_read_ipc_stream(
+    path: *const c_char,
+    data: *const u8,
+    data_len: usize,
+) -> *mut DataFrame {
+    boxed(guard(|| {
+        if data.is_null() {
+            let f = File::open(cstr(path)?).map_err(ioe)?;
+            IpcStreamReader::new(f).finish().map_err(pe)
+        } else {
+            let bytes = std::slice::from_raw_parts(data, data_len);
+            IpcStreamReader::new(std::io::Cursor::new(bytes)).finish().map_err(pe)
+        }
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_df_write_ipc_stream(
+    df: *const DataFrame,
+    path: *const c_char,
+    compression: NqIpcCompression,
+) -> bool {
+    guard(|| {
+        let mut df = borrow(df, "DataFrame")?.clone();
+        let compression = match compression {
+            NqIpcCompression::Uncompressed => None,
+            NqIpcCompression::Lz4 => Some(IpcCompression::LZ4),
+            NqIpcCompression::Zstd => Some(IpcCompression::ZSTD(Default::default())),
+        };
+        let file = File::create(cstr(path)?).map_err(ioe)?;
+        IpcStreamWriter::new(file).with_compression(compression).finish(&mut df).map_err(pe)
+    })
+    .is_some()
+}
+
+// ---------------------------------------------------------------------------
+// 0.6: cloud storage (add-cloud-storage)
+// ---------------------------------------------------------------------------
+
+use polars::io::cloud::CloudOptions;
+
+/// Cloud options for `uri`'s scheme from `n` key/value pairs, as Python's
+/// `storage_options`. Free with `nq_cloud_options_free`.
+#[no_mangle]
+pub unsafe extern "C" fn nq_cloud_options_new(
+    uri: *const c_char,
+    keys: *const *const c_char,
+    values: *const *const c_char,
+    n: usize,
+) -> *mut CloudOptions {
+    boxed(guard(|| {
+        let uri = cstr(uri)?;
+        let ks = names(keys, n)?;
+        let vs = names(values, n)?;
+        let pairs: Vec<(&str, String)> = ks.into_iter().zip(vs.into_iter().map(String::from)).collect();
+        CloudOptions::from_untyped_config(CloudScheme::from_path(uri), pairs).map_err(pe)
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nq_cloud_options_free(p: *mut CloudOptions) {
+    if !p.is_null() {
+        drop(Box::from_raw(p));
+    }
+}
+
+unsafe fn cloud(p: *const CloudOptions) -> Option<CloudOptions> {
+    p.as_ref().cloned()
 }

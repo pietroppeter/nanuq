@@ -50,7 +50,7 @@ let dens = newDataFrame:
   den: [1, 2]
   site: ["Kong Karls Land", "Hopen"]
 let ctx = sqlContext(bears, dens)
-echo ctx.execute("SELECT bear, site FROM bears JOIN dens USING (den)").collect
+echo ctx.execute("SELECT bear, site FROM bears JOIN dens USING (den) ORDER BY bear").collect
 ```
 
 ```text

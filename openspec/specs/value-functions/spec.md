@@ -39,7 +39,8 @@ shape: (2, 2)
 ### Requirement: Picking values
 `e.head(n = 10)`, `e.tail(n = 10)`, `e.slice(offset, length)`, `e.gather(indices)`,
 `e.gatherEvery(n, offset = 0)`, `e.topK(k = 5)`, `e.bottomK(k = 5)`,
-`e.topKBy(by, k = 5, reverse)` and `e.bottomKBy(...)` SHALL return those values of `e`;
+`e.topKBy(by, k = 5, reverse)` and `e.bottomKBy(...)` SHALL return those values of `e`
+(the `k` ones in no particular order, as in Polars);
 `e.indexOf(value)` SHALL return the index of the first occurrence of `value` (or null),
 and `e.searchSorted(element, side)` the index at which `element` would be inserted to
 keep `e` sorted.
@@ -48,8 +49,8 @@ keep `e` sorted.
 let df = newDataFrame:
   year: [1982, 1997, 2015, 2023]
   oni: [2.2, 2.4, 2.6, 2.0]
-echo df.select(col.year.topKBy(col.oni, k = 2).alias("top2"),
-               col.oni.topK(2).alias("peak"))
+echo df.select(col.year.topKBy(col.oni, k = 2).sort.alias("top2"),
+               col.oni.topK(2).sort.alias("peak"))
 ```
 
 ```text
@@ -59,8 +60,8 @@ shape: (2, 2)
 │ ---  ┆ ---  │
 │ i64  ┆ f64  │
 ╞══════╪══════╡
-│ 2015 ┆ 2.6  │
 │ 1997 ┆ 2.4  │
+│ 2015 ┆ 2.6  │
 └──────┴──────┘
 ```
 

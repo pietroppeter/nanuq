@@ -196,3 +196,28 @@ List(String) Array(Float64, 3) @[(name: "x", dtype: Int64), (name: "tags", dtype
 #### Scenario: Nested Nim types
 - **WHEN** `dataType(seq[seq[int]])` is evaluated
 - **THEN** it equals `List(List(Int64))`
+
+### Requirement: Full-range UInt64
+UInt64 columns SHALL keep all 64 bits between Nim and Polars: `series(name, seq[uint64])` (with or without `Option`) and `toList(uint64)` SHALL handle values above `high(int64)`.
+
+```nim
+let df = newDataFrame(series("key", @[1'u64, 9223372036854775809'u64]))
+echo df.toList("key", uint64)
+echo df.select(col("key").bitwiseXor)
+```
+
+```text
+@[1, 9223372036854775809]
+shape: (1, 1)
+┌─────────────────────┐
+│ key                 │
+│ ---                 │
+│ u64                 │
+╞═════════════════════╡
+│ 9223372036854775808 │
+└─────────────────────┘
+```
+
+#### Scenario: Nulls
+- **WHEN** `series("u", [some(x), none(uint64)])` is built
+- **THEN** the second value is null
