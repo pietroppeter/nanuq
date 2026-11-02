@@ -180,10 +180,13 @@ once, in import order: all of `above_4000` (`nbInit`, its blocks, `nbSave`), the
 of `aged_19`, and so on. What is concatenated is the execution, not the source. Pasting
 the pages into one file, or `include`-ing them, would break: the second `var nb` is a redefinition, and every page would think it is `all.nim`.
 
-The rest of nimib follows the same pattern. Code blocks quote their code by reading the
-file named in the block's line info, so they quote the right page. The renderer is a
-global (`nbToHtml`), but `nbInit` copies it into `nb.backend`, so what one theme
-changes stays in its own page.
+Code blocks follow the same pattern: they quote their code by reading the file named in
+the block's line info, so they quote the right page. One thing is shared, though: the
+renderer. `nbInit` sets `nb.backend = nbToHtml`, and `NbRender` is a `ref`, so every page
+holds the same renderer, and a theme that changes a partial changes it for the pages
+after it too. Here every page applies the same theme, which sets the same partials, so
+nothing leaks. A site that mixes themes in one program would need each theme to set all
+the partials it relies on.
 
 The known trouble with many nimib pages comes from moving `nbInit` away from the page. Called
 from a helper in another file, `instantiationInfo` names the helper's file, and the page

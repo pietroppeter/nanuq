@@ -8,6 +8,7 @@
 
 import std/[json, os, strformat, strutils]
 import nimib
+from nimib/themes import mainToHtml
 import devlog
 from nanuq import resetConfig
 export devlog
@@ -152,6 +153,14 @@ details.source summary::marker { content: ""; }
 details.source summary::before { content: "Show source"; }
 details.source[open] summary::before { content: "Hide source"; }
 details.source pre { margin-top: 1rem; }
+/* "Contents" of a post: its h2 headings, collected when the page is rendered */
+nav.toc { margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
+nav.toc summary { cursor: pointer; width: max-content; font: 600 .7rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+nav.toc ul { margin: .5rem 0 0; padding: 0; list-style: none; }
+nav.toc li { margin: .15rem 0; }
+h2 a.to-toc { margin-left: .6rem; font: 500 .65rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--mute); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+h2 a.to-toc:hover { color: var(--fjord); }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }
 </style>
 """
@@ -195,6 +204,62 @@ Source: """ & sourceLink & ".</div></footer>" & nanuqScripts
 
 func emptyPartial(blk: JsonNode, nb: Nb): string = ""
 
+func headingId(html: string): string =
+  ## "Why nimib <code>doesn't</code> mind" -> "why-nimib-doesn-t-mind"
+  var inTag = false
+  for c in html:
+    if c == '<': inTag = true
+    elif c == '>': inTag = false
+    elif not inTag:
+      if c in {'a'..'z', '0'..'9'}: result.add c
+      elif c in {'A'..'Z'}: result.add c.toLowerAscii
+      elif result.len > 0 and result[^1] != '-': result.add '-'
+  result = result.strip(chars = {'-'})
+  if result.len == 0: result = "section"
+
+const
+  backMark = "\0back\0"
+  backLink = """<a class="to-toc" href="#contents" title="Back to contents">↑ contents</a>"""
+
+func withContents(main: string): tuple[main, toc: string] =
+  ## Gives every `<h2>` of the rendered page an id, and lists them as links.
+  var items: seq[string]
+  var used: seq[string]
+  var i = 0
+  while true:
+    let start = main.find("<h2>", i)
+    if start < 0: break
+    let stop = main.find("</h2>", start)
+    if stop < 0: break
+    let inner = main[start + 4 ..< stop]
+    var id = headingId(inner)
+    if id in used:
+      var n = 2
+      while id & "-" & $n in used: inc n
+      id = id & "-" & $n
+    used.add id
+    result.main.add main[i ..< start] &
+      &"""<h2 id="{id}">{inner}{backMark}</h2>"""
+    items.add &"""<li><a href="#{id}">{inner}</a></li>"""
+    i = stop + 5
+  result.main.add main[i .. ^1]
+  # the "back to contents" links only when there is a contents box to go back to
+  result.main = result.main.replace(backMark, if items.len >= 2: backLink else: "")
+  if items.len >= 2:
+    result.toc = """<nav class="toc" id="contents" aria-label="Contents"><details open><summary>Contents</summary><ul>""" &
+      items.join("") & "</ul></details></nav>"
+
+func nanuqDocToHtml(blk: NbBlock, nb: Nb): string =
+  ## nimib's page layout, but the main part is rendered first, so that a post's
+  ## header can list the post's sections (`nb.doc.context["toc"]`, set for posts).
+  let docJson = %[]
+  var (main, toc) = (mainToHtml(blk, nb), "")
+  if nb.doc.context{"toc"}.getBool: (main, toc) = withContents(main)
+  var header = nb.renderPartial("header", docJson)
+  if toc.len > 0: header = header.replace("</header>", "  " & toc & "\n</header>")
+  "<!DOCTYPE html>\n<html lang=\"en-us\">\n" & nb.renderPartial("head", docJson) & "\n<body>\n" &
+    header & "\n" & main & "\n" & nb.renderPartial("footer", docJson) & "\n</body>\n</html>"
+
 proc escapeAttr(s: string): string =
   for c in s:
     case c
@@ -205,9 +270,11 @@ proc escapeAttr(s: string): string =
     else: result.add c
 
 proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "",
-                    sourcePath = "") =
+                    sourcePath = "", contents = false) =
   ## `titleHtml` may contain `<em>` for the accented word. `summary` becomes the
   ## description meta tag. `sourcePath` (from the repo root) is linked in the footer.
+  ## `contents` puts a "Contents" box, built from the page's `##` headings, under the
+  ## title, and a "back to contents" link on each heading.
   let description =
     if summary.len > 0: "<meta name=\"description\" content=\"" & escapeAttr(summary) & "\">\n"
     else: ""
@@ -220,10 +287,12 @@ proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summ
   nb.doc.context["epigraph"] = %epigraph
   nb.doc.context["meta"] = %meta
   nb.doc.context["source_path"] = %sourcePath
+  nb.doc.context["toc"] = %contents
   nb.backend.partials["header"] = nanuqHeader
   nb.backend.partials["footer"] = nanuqFooter
   nb.backend.partials["left"] = emptyPartial
   nb.backend.partials["right"] = emptyPartial
+  nb.backend.funcs["NbDoc"] = nanuqDocToHtml
 
 const
   repoRoot = currentSourcePath.parentDir.parentDir
@@ -284,5 +353,6 @@ proc useDevlogPost*(nb: var Nb, slug, epigraph: string) =
     meta = &"{p.kind} · Nanuq {p.release} · built with {builtWith} and Nim {NimVersion} · rendered with nimib",
     summary = p.summary,
     sourcePath = p.source,
+    contents = true,
   )
   nb.doc.context["devlog_nav"] = %devlogNav(i)
