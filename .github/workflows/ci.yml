@@ -4,7 +4,9 @@ name: CI
 # planning files (openspec/, .claude/) don't run CI. Two exceptions: docs/ (it
 # rebuilds the dev log) and openspec/specs/ (its examples are run, see
 # tools/specexamples.nim). paths-ignore cannot re-include a path, so this uses
-# paths with negations: the last pattern that matches a file wins.
+# paths with negations: the last pattern that matches a file wins. On main, OpenSpec
+# planning files, BACKLOG.md and tools/specview.nim run CI too: the site's OpenSpec page
+# (docs/openspec.nim) is rendered from them.
 on:
   push:
     branches: [main]
@@ -13,11 +15,10 @@ on:
       - "!**.md"
       - "!LICENSE"
       - "!.gitignore"
-      - "!openspec/**"
       - "!.claude/**"
-      - "!tools/specview.nim"
       - "!.github/workflows/openspec.yml"
-      - "openspec/specs/**"
+      - "openspec/**"
+      - "BACKLOG.md"
   pull_request:
     paths:
       - "**"
@@ -123,6 +124,8 @@ jobs:
     runs-on: ubuntu-24.04  # still ships libpcre3, which nimib's markdown renderer needs
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the OpenSpec page shows each change's revisions from git
       - uses: actions/download-artifact@v4
         with:
           name: libnanuq_ffi-linux-x64
@@ -143,12 +146,15 @@ jobs:
         run: nim r --hints:off docs/index.nim
       - name: Render the Polars coverage map
         run: nim r --hints:off docs/polars_coverage.nim
+      - name: Render the OpenSpec page
+        run: nim r --hints:off docs/openspec.nim
       - name: Assemble site
         run: |
           mkdir -p _site/blog
           cp docs/blog/*.html docs/blog/*.png _site/blog/
           cp docs/index.html _site/index.html
           cp docs/polars_coverage.html _site/polars_coverage.html
+          cp docs/openspec.html _site/openspec.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

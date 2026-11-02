@@ -31,7 +31,7 @@ block:
   nb.doc.context["devlog_nav"] = %("""<nav class="devlog" aria-label="More from the dev log">""" &
     (if design.len > 0: """<p class="rel"><span>How these APIs were chosen:</span> """ &
       design.join(", ") & "</p>" else: "") &
-    """<span class="links"><a href="index.html">All posts</a> · """ &
+    """<span class="links"><a href="index.html">All posts</a> · <a href="openspec.html">Specs and changes</a> · """ &
     """<a href="https://github.com/pietroppeter/nanuq/blob/main/docs/coverage/polars.json">The data on GitHub</a></span></nav>""" & "\n")
 
 proc esc(s: string): string =

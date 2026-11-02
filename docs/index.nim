@@ -43,7 +43,8 @@ made and an *explainer*, a playful story told with its new features. Every post 
 to its source at the bottom. The code is on
 [GitHub](https://github.com/pietroppeter/nanuq); official documentation will come later.
 The [Polars coverage map](polars_coverage.html) shows which Polars features the latest release
-covers.
+covers, and the [OpenSpec page](openspec.html) shows how Nanuq behaves today (its specs) and
+every change that got it there.
 """
 
 var items = "<ol class=\"posts\">\n"

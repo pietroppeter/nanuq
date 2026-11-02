@@ -120,7 +120,9 @@ post links to the previous and next ones, to related posts and to its source:
 - [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
 
 Next to the posts, the [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html)
-lists every Polars feature group and its status in the latest release.
+lists every Polars feature group and its status in the latest release, and the
+[OpenSpec page](https://pietroppeter.github.io/nanuq/openspec.html) shows the specs and
+changes.
 
 [The Nanuq Book](https://pietroppeter.github.io/nanuq-book/)
 ([source](https://github.com/pietroppeter/nanuq-book)) ports public Polars tutorials to
@@ -154,7 +156,9 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - **Ideas** for future development are collected in [BACKLOG.md](BACKLOG.md). It is a
   loose list, not a roadmap.
 - **Changes** are planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
-  `openspec/specs/` describes how Nanuq behaves today. Each change gets a proposal (with
+  `openspec/specs/` describes how Nanuq behaves today; the
+  [OpenSpec page](https://pietroppeter.github.io/nanuq/openspec.html) on the site shows
+  every spec and every change, rebuilt on each merge. Each change gets a proposal (with
   a "Differences from Polars" section), spec deltas, a design and tasks under
   `openspec/changes/`, and is archived into the specs once implemented. With Claude Code,
   use `/opsx:propose`, `/opsx:apply` and `/opsx:archive`; with another tool, the
@@ -165,15 +169,17 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
   requirements as word diffs against the current spec) and the changed files. On PRs
   that touch `openspec/` or `BACKLOG.md`, CI posts a summary on the run page and
-  attaches the full page as the `specview` artifact.
+  attaches the full page as the `specview` artifact. The same report, without the
+  diffs, is the site's OpenSpec page.
 - **History**: each implemented change adds a line to [CHANGELOG.md](CHANGELOG.md), and
   each minor release gets a design post and a playful explainer in the dev log.
 - **Releases**: the release PR bumps the version, writes the release notes and
   refreshes the coverage map. Once it is merged, the "Release lib" workflow builds and
   publishes the prebuilt libraries (`lib-v*`), their checksums land in
   `src/nanuq/lib-sums.txt`, and the release is tagged.
-- **CI** skips changes that only touch Markdown, `openspec/` or `.claude/`, and rebuilds
-  the Rust library only when `src/rust/` changes.
+- **CI** skips changes that only touch Markdown, `openspec/` or `.claude/` (on `main`,
+  `openspec/` changes still run it, to rebuild the OpenSpec page), and rebuilds the Rust
+  library only when `src/rust/` changes.
 
 ## Install
 
