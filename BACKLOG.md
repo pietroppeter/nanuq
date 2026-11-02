@@ -35,6 +35,14 @@ Rough size: S (hours), M (a day or two), L (more).
   that every `importc` name in `ffi.nim` is exported by `libnanuq_ffi.a` (`nm`), plus a
   Rust test of the enum values.
 
+- **Nim kernels from NIF** (L, *research*, see [experiments/nif](experiments/nif/README.md)).
+  Following Araq's suggestion on the forum (t/14258): turn Polars expressions into NIF
+  and generate fused Nim kernels on demand, with Polars as fallback and as the oracle of
+  a differential test. The spike covers numeric expressions and aggregations (up to 5.7x
+  faster than Polars on arithmetic chains). Next steps, smallest first: inline Nim procs
+  into kernels (`mapElements` without callbacks), take over `select`/`filter` plan nodes
+  with threads, run the typed NIF through Nimony, a GPU backend via Nimony's `{.build.}`.
+
 ## API
 
 - **More IO** (M): databases other than SQLite (PostgreSQL, MySQL), Avro, writing to
