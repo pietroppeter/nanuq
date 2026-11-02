@@ -154,10 +154,10 @@ details.source summary::before { content: "Show source"; }
 details.source[open] summary::before { content: "Hide source"; }
 details.source pre { margin-top: 1rem; }
 /* "Contents" of a post: its h2 headings, collected when the page is rendered */
-nav.contents { margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
-nav.contents summary { cursor: pointer; width: max-content; font: 600 .7rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
-nav.contents ul { margin: .5rem 0 0; padding: 0; list-style: none; }
-nav.contents li { margin: .15rem 0; }
+nav.table_of_contents { margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--floe); }
+nav.table_of_contents summary { cursor: pointer; width: max-content; font: 600 .7rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+nav.table_of_contents ul { margin: .5rem 0 0; padding: 0; list-style: none; }
+nav.table_of_contents li { margin: .15rem 0; }
 h2 a.to-toc { margin-left: .6rem; font: 500 .65rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
   color: var(--mute); text-decoration: none; vertical-align: middle; white-space: nowrap; }
 h2 a.to-toc:hover { color: var(--fjord); }
@@ -219,7 +219,7 @@ func headingId(html: string): string =
 
 const
   backMark = "\0back\0"
-  backLink = """<a class="to-toc" href="#contents" title="Back to contents">↑ contents</a>"""
+  backLink = """<a class="to-toc" href="#table-of-contents" title="Back to the table of contents">↑ contents</a>"""
 
 func withContents(main: string): tuple[main, toc: string] =
   ## Gives every `<h2>` of the rendered page an id, and lists them as links.
@@ -246,7 +246,7 @@ func withContents(main: string): tuple[main, toc: string] =
   # the "back to contents" links only when there is a contents box to go back to
   result.main = result.main.replace(backMark, if items.len >= 2: backLink else: "")
   if items.len >= 2:
-    result.toc = """<nav class="contents" id="contents" aria-label="Contents"><details open><summary>Contents</summary><ul>""" &
+    result.toc = """<nav class="table_of_contents" id="table-of-contents" aria-label="Table of contents"><details><summary>Table of contents</summary><ul>""" &
       items.join("") & "</ul></details></nav>"
 
 func nanuqDocToHtml(blk: NbBlock, nb: Nb): string =
@@ -270,10 +270,10 @@ proc escapeAttr(s: string): string =
     else: result.add c
 
 proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "",
-                    sourcePath = "", contents = false) =
+                    sourcePath = "", tableOfContents = false) =
   ## `titleHtml` may contain `<em>` for the accented word. `summary` becomes the
   ## description meta tag. `sourcePath` (from the repo root) is linked in the footer.
-  ## `contents` puts a "Contents" box, built from the page's `##` headings, under the
+  ## `tableOfContents` puts a folded "Table of contents" box, built from the page's `##` headings, under the
   ## title, and a "back to contents" link on each heading.
   let description =
     if summary.len > 0: "<meta name=\"description\" content=\"" & escapeAttr(summary) & "\">\n"
@@ -287,7 +287,7 @@ proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summ
   nb.doc.context["epigraph"] = %epigraph
   nb.doc.context["meta"] = %meta
   nb.doc.context["source_path"] = %sourcePath
-  nb.doc.context["toc"] = %contents
+  nb.doc.context["toc"] = %tableOfContents
   nb.backend.partials["header"] = nanuqHeader
   nb.backend.partials["footer"] = nanuqFooter
   nb.backend.partials["left"] = emptyPartial
@@ -353,6 +353,6 @@ proc useDevlogPost*(nb: var Nb, slug, epigraph: string) =
     meta = &"{p.kind} · Nanuq {p.release} · built with {builtWith} and Nim {NimVersion} · rendered with nimib",
     summary = p.summary,
     sourcePath = p.source,
-    contents = true,
+    tableOfContents = true,
   )
   nb.doc.context["devlog_nav"] = %devlogNav(i)

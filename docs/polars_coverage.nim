@@ -21,7 +21,7 @@ nb.useNanuqTheme(
     data["polars"].getStr & " · rendered with nimib",
   summary = "Every Polars feature group and its status in the latest Nanuq release.",
   sourcePath = "docs/polars_coverage.nim",
-  contents = true,
+  tableOfContents = true,
 )
 # Footer like the posts': the API design post of the release, the index, the data.
 block:
