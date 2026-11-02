@@ -4,40 +4,99 @@
 
 Nanuq (Inuit for "polar bear") brings [Polars](https://pola.rs) DataFrames to Nim.
 
-> **Status: proof of concept.** The API is small and will change.
+> **Status: mostly feature complete, needs use and polish.** Nanuq 0.6.0 (2 November
+> 2026) covers 115 of the 128 feature groups of Python Polars 2.1. What it needs now is
+> real use and polishing, which is the likely focus of 0.7. The API can still change
+> before 1.0.
 
 ```nim
-import nanuq, nanuq/datasets
+import nanuq
 
-echo penguins().lazy
-  .dropNulls("body_mass_g")
-  .groupBy(col("species"))
-  .agg(col("body_mass_g").mean.alias("mean_body_mass_g"),
-       col("species").count.alias("n"))
-  .sort("mean_body_mass_g", descending = true)
+type Size = enum cub, adult              # a Nim enum is a Polars Enum
+
+let bears = newDataFrame:
+  name: ["Nanuq", "Siku", "Ursa", "Kallik"]
+  island: ["Svalbard", "Svalbard", "Wrangel", "Wrangel"]
+  kg: [420, 95, 380, nil]                # nil is a missing value
+
+let sized = bears.withColumns:
+  choose(if col.kg < 150: cub else: adult).cast(Size).alias("size")
+echo sized.lazy
+  .dropNulls("kg")
+  .groupBy("island")
+  .agg(col.kg.mean, col.size.min)        # enum order: cub < adult
+  .sort("island")
   .collect
+
+for b in sized.rows(tuple[name: string, kg: Option[int]]):  # typed Nim values
+  if b.kg.isNone: echo b.name, " skipped the weigh-in"
 ```
 
 ```
-shape: (3, 3)
-┌───────────┬──────────────────┬─────┐
-│ species   ┆ mean_body_mass_g ┆ n   │
-│ ---       ┆ ---              ┆ --- │
-│ str       ┆ f64              ┆ u32 │
-╞═══════════╪══════════════════╪═════╡
-│ Gentoo    ┆ 5076.01626       ┆ 123 │
-│ Chinstrap ┆ 3733.088235      ┆ 68  │
-│ Adelie    ┆ 3700.662252      ┆ 151 │
-└───────────┴──────────────────┴─────┘
+shape: (2, 3)
+┌──────────┬───────┬───────┐
+│ island   ┆ kg    ┆ size  │
+│ ---      ┆ ---   ┆ ---   │
+│ str      ┆ f64   ┆ enum  │
+╞══════════╪═══════╪═══════╡
+│ Svalbard ┆ 257.5 ┆ cub   │
+│ Wrangel  ┆ 380.0 ┆ adult │
+└──────────┴───────┴───────┘
+Kallik skipped the weigh-in
 ```
+
+Queries read like Python Polars, with the same names in camelCase and `col.kg` for a
+column. Where Nim helps:
+
+- a frame is a block of `name: [values]` lines, with `nil` for a missing value;
+- `choose` writes `when/then/otherwise` as a plain `if`/`else`;
+- a Nim enum is a Polars Enum, so `cub` sorts before `adult` (as strings, `"adult"`
+  would come first);
+- results come back as typed Nim values (`rows`, `toList`, `df["kg", 0, int]`), with
+  `Option` where a value can be missing.
 
 `nanuq/datasets` bundles the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
 data (CC0) for examples and tests.
 
-For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter (in
-nimib: `nbRawHtml: df.toHtml`). The optional module `nanuq/datamancer` converts to and
-from [Datamancer](https://github.com/SciNim/Datamancer) DataFrames (`toDatamancer`,
-`fromDatamancer`), for example to plot with ggplotnim; it needs `nimble install datamancer`.
+For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter. In
+[nimib](https://github.com/pietroppeter/nimib), `nbShow df` renders it.
+
+Optional modules, each imported on its own so the core has no extra dependencies:
+
+- `nanuq/datamancer` converts to and from [Datamancer](https://github.com/SciNim/Datamancer)
+  DataFrames (`toDatamancer`, `fromDatamancer`), for example to plot with ggplotnim
+  (needs `nimble install datamancer`).
+- `nanuq/arraymancer` converts to and from Arraymancer tensors (`df.toTensor(float)`).
+- `nanuq/database` reads and writes SQLite with `readDatabase` and `writeDatabase`
+  (needs `nimble install db_connector`).
+- `nanuq/testing` has Polars' test assertions (`assertFrameEqual`, `assertSeriesEqual`).
+
+## What Nanuq covers
+
+The [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html)
+lists every Polars feature group and its status in the latest release (data in
+[`docs/coverage/polars.json`](docs/coverage/polars.json)). In 0.6.0, 115 of 128 groups
+are done: building and inspecting frames, expressions, every column type (strings,
+dates and times, categoricals and enums, lists, structs, binary, decimal), lazy queries
+with the streaming engine and sinks, joins, reshaping, rolling and time windows, SQL,
+Nim callbacks, CSV, Parquet, IPC, JSON, Excel and cloud storage, and the Arrow C Data
+Interface.
+
+What is not there yet:
+
+| Feature | Status | Note |
+|---|---|---|
+| Plotting | partial | No `df.plot` namespace. Plot with nim-plotly or ggplotnim through `toSeq` or `toDatamancer`. |
+| Databases | partial | SQLite only (`nanuq/database`); PostgreSQL and MySQL to follow. |
+| Library size and distribution | partial | One static library of about 286 MB (53 MB download); no shared library or per-area builds. |
+| Combining | partial | `concat` has no `align`. |
+| Apply and iterate, UDFs | partial | No `mapRows` and no `LazyFrame.mapBatches`. |
+| Avro | missing | Not started. |
+
+Some Polars features have no place in Nim and are not planned: `Object` columns
+(Python objects), Delta Lake, Iceberg and catalogs (Python-only), expression plugins
+(a Rust mechanism), the GPU engine (cuDF), and formula-style sugar (Polars expressions
+already read well).
 
 ## Documentation
 
@@ -90,28 +149,40 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
 - Errors and Rust panics are caught on the Rust side and re-raised in Nim as
   `PolarsError` (typed as in Python: `ColumnNotFoundError`, `InvalidOperationError`, ...), or Nim's `IOError` for IO.
 
-## How we work
+## How development works
 
-- **Ideas** go in [BACKLOG.md](BACKLOG.md). When an idea has been implemented, it moves
-  from the backlog to [CHANGELOG.md](CHANGELOG.md).
+- **Ideas** for future development are collected in [BACKLOG.md](BACKLOG.md). It is a
+  loose list, not a roadmap.
 - **Changes** are planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec).
-  `openspec/specs/` describes how Nanuq behaves today, and each change gets a proposal,
-  spec deltas, a design and tasks under `openspec/changes/`. With Claude Code, use
-  `/opsx:propose`, `/opsx:apply` and `/opsx:archive`. With another tool, use the
+  `openspec/specs/` describes how Nanuq behaves today. Each change gets a proposal (with
+  a "Differences from Polars" section), spec deltas, a design and tasks under
+  `openspec/changes/`, and is archived into the specs once implemented. With Claude Code,
+  use `/opsx:propose`, `/opsx:apply` and `/opsx:archive`; with another tool, the
   `openspec` CLI (`npm i -g @fission-ai/openspec`).
+- **Specs are tested**: every API requirement has a Nim example with the full Polars
+  output, and `nimble specexamples` (run in CI) checks that it still prints that.
 - **Reviewing changes**: `nimble specview` writes `specview.html`, a page showing where
   each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
   requirements as word diffs against the current spec) and the changed files. On PRs
   that touch `openspec/` or `BACKLOG.md`, CI posts a summary on the run page and
   attaches the full page as the `specview` artifact.
-- Changes that only touch Markdown, `openspec/` or `.claude/` don't trigger the main CI.
+- **History**: each implemented change adds a line to [CHANGELOG.md](CHANGELOG.md), and
+  each minor release gets a design post and a playful explainer in the dev log.
+- **Releases**: the release PR bumps the version, writes the release notes and
+  refreshes the coverage map. Once it is merged, the "Release lib" workflow builds and
+  publishes the prebuilt libraries (`lib-v*`), their checksums land in
+  `src/nanuq/lib-sums.txt`, and the release is tagged.
+- **CI** skips changes that only touch Markdown, `openspec/` or `.claude/`, and rebuilds
+  the Rust library only when `src/rust/` changes.
 
 ## Install
 
 ```sh
-nimble install nanuq                                # or: atlas use nanuq
-nimble install https://github.com/pietroppeter/nanuq  # before it is in the package list
+nimble install https://github.com/pietroppeter/nanuq
 ```
+
+Nanuq is not in the Nimble package list yet; once it is, `nimble install nanuq` (or
+`atlas use nanuq`) will do.
 
 Requirements: Nim >= 2.0, plus `curl` and `tar` (included in Windows 10+, macOS and
 most Linux distributions).
@@ -171,105 +242,6 @@ speed locally, build with `cargo +nightly-2026-04-01 build --release --features
 "nightly jemalloc" --manifest-path src/rust/Cargo.toml` (`str.toTitlecase` also needs
 the `nightly` feature).
 
-## What is there
-
-- Build: `newDataFrame(series("a", [1, 2, 3]), series("b", ["x", "y", "z"]))`, or a
-  block with one `name: [values]` line per column (`nil` is a missing value, names that
-  aren't identifiers are strings), `readCsv`, `writeCsv`
-- CSV: `scanCsv("logs/*.csv")` reads lazily, globs included (same columns in every
-  file). `readCsv` (which is `scanCsv(...).collect`) takes the same named options with
-  Polars' defaults: `separator = ';'`, `hasHeader`, `nullValues = ["NA"]`,
-  `schemaOverrides = {"bears": Int64}`, `skipRows`, `nRows`, `columns`,
-  `inferSchemaLength` (`none(int)` for all rows), `ignoreErrors`, `decimalComma`.
-  `writeCsv` takes `separator`, `includeHeader`, `nullValue`,
-  `quoteStyle` (`QuoteStyle.Always`, ...), `floatPrecision` and `decimalComma`
-- Parquet and Arrow IPC: `scanParquet`, `readParquet(path, columns = [...], nRows = 10)`,
-  `writeParquet(path, compression = ParquetCompression.Zstd, compressionLevel = 19)`,
-  and the same for IPC (`scanIpc`, `readIpc`, `writeIpc`). `readCsv`, `readParquet` and
-  `readIpc` also read a Nim `Stream` (`readCsv(newStringStream(text))`)
-- Inspect: `$df`, `shape`, `columns`, `dtype`, `head`, `df["col", row, float]`,
-  `toList(df, "col", float)` (one FFI call per column), `echo df.glimpse` (one line per
-  column), `describe` (summary statistics)
-- Display: `setTblRows(20); setTblCols(10)` (also `setTblWidthChars`, `setFmtStrLengths`,
-  `setFloatPrecision`), `setConfig(tblRows = 20, floatPrecision = 2)`, `resetConfig()`, and for one block
-  `withConfig(tblRows = 40): echo df`
-- Missing values: read as `Option[T]` (`toList(df, "col", Option[int])`,
-  `df["col", row, Option[string]]`), `nullCount`, `hasNulls`,
-  `series("a", [some(1), none(int)])`, `readCsv(path, nullValues = ["NA"])`,
-  and in queries `isNull`, `isNotNull`, `fillNull`, `dropNulls`. Plain `toList(df, "col", int)`
-  raises on a column with nulls.
-- Data types: `dtype(df, "col") == Int64` (constants named as in Polars, `$` gives
-  `"i64"`), `dtypes`, `schema`, `lf.collectSchema`, and `cast` with a Nim type
-  (`col("a").cast(int32)`, `df.cast(float64)`) or per column (`df.cast({"a": Int32})`),
-  strict by default (`strict = false` turns failures into nulls)
-- Expressions: `col("a")` or `col.a`, `lit`, `+ - * / mod div ^`, unary `-`, `abs`,
-  `round`, comparisons, `and or not`, `isIn`, `isBetween`, `sum mean median min max count
-  len first last nUnique std var quantile nullCount`, `rank(Min, descending = true)`, `alias`,
-  `filter` inside an aggregation (`col.pts.filter(col.kind == "TT").sum`)
-- Strings: `col.race.str.replaceAll("–", "-", literal = true)`, `str.contains`,
-  `str.extract(r"(\d+)'")`, `str.toUppercase`, `str.stripChars`, `str.slice`,
-  `str.zfill`, `str.join(", ")` in `agg`, `format("{} ({})", col.rider, col.nat)`,
-  `concatStr`
-- Dates and times: `Date` (`date(2026, 7, 4)`), `TimeOfDay` (`timeOfDay(13, 10)`) and
-  std/times' `DateTime` and `Duration` as column values and literals; `cast(Date)`,
-  `cast(DateTime, timeUnit = Milliseconds, timeZone = "Europe/Rome")`; parsing with
-  `str.toDate("%d %B %Y")`, `str.toDatetime`, `str.strptime(T, fmt)` and
-  `readCsv(path, tryParseDates = true)`; `dateRange(a, b, 1.months)`, `date(col.year, col.month, 15)`, `datetimeRange`,
-  `duration(hours = col.h)`; the `dt` namespace (`dt.year`, `dt.weekday`, `dt.date`,
-  `dt.toString(fmt)`, `dt.truncate`, `dt.offsetBy(19.years)`, `dt.convertTimeZone`,
-  `dt.replaceTimeZone`, `dt.combine`, `dt.totalDays`, ...). DateTime values are stored
-  and read back as UTC instants
-- Categoricals: a Nim enum is a Polars Enum (`col.race.cast(Monument)` sorts races in
-  enum order, `toList(df, "race", Monument)`, `col.race == Roubaix`), `Enum(["low",
-  "high"])` at run time, `cast(Categorical)`, and `cat.getCategories`
-- Conditionals: `` `when`(cond).then(a).otherwise(b) ``, or the `choose` macro over
-  `if`/`elif`/`else` (strings in branches are values, not column names)
-- Column selectors: `col(SomeNumber)` (and `SomeInteger`, `SomeFloat`, ...), `col(int)`,
-  `col(float, string)`, `col("a", "b")`, `col(someSeq)`, `all()`, regex `col("^w.*$")`, `.exclude("id")`,
-  used like any expression (`agg(col(SomeNumber).mean.name.suffix("_mean"))`)
-- Fill and windows: `fillNull(Forward)`, `forwardFill`, `backwardFill`, `fillNull(Mean)`,
-  and `over("group")` for per-group values on every row
-- Lazy queries: `lazy`, `select`, `withColumns`, `filter`, `groupBy(...).agg(...)`, `sort`, `limit`, `collect`, `explain`
-  (on a DataFrame, `df.groupBy("species").agg(...)` returns a DataFrame directly)
-  (eager shortcuts exist on `DataFrame` for `select`, `withColumns`, `filter`, `sort`)
-- Frame verbs (lazy and eager): `drop("a")` or `drop(["a", "b"])`, `rename({"old": "new"})`,
-  `head`, `tail`, `slice(offset, length)`, `reverse`, `withRowIndex`,
-  `unique("k", keep = First)`, and sorting by several keys
-  (`sort(["g", "v"], descending = [false, true], nullsLast = [true])`). On DataFrame:
-  `sample(3, seed = 42)` or `sample(fraction = 0.1)`, and `setRandomSeed(42)`
-- Joins: `a.join(b, on = ["id"], how = Left)`, `leftOn`/`rightOn` (names or expressions),
-  `a.join(b, how = Cross)`, with `suffix`, `validate`, `nullsEqual`, `coalesce` and
-  `maintainOrder`. As in Polars, the row order of a join is not guaranteed unless you
-  pass `maintainOrder`
-- Concatenation: `concat([a, b])`, with `how = VerticalRelaxed`, `Horizontal`, `Diagonal`
-  or `DiagonalRelaxed`
-- Math: `sqrt`, `exp`, `log(2.0)`, `log10`, `sign`, `floor`, `ceil`,
-  `clip(-1.0, 1.0)` (or `clip(lowerBound = 0)`), trigonometry, `dot`, and NaN
-  (`isNan`, `fillNan`, `dropNans`), which stays distinct from null
-- Rows before and after: `shift(1, fillValue = 0)`, `diff`, `pctChange`, `cumSum`,
-  `cumMax`, `rleId` (runs of equal values), `peakMax`; rolling windows over rows
-  (`rollingMean(3, center = true)`) or time (`rollingSumBy("day", 7.days)`),
-  `ewmMean(span = 12)`, `interpolate`
-- Values of a column: `sort`, `sortBy`, `topK`, `topKBy("score", k = 3)`, `gather`,
-  `unique`, `isDuplicated`, `replace({"N": "north"})`, `replaceStrict(..., default = ...)`,
-  `cut([-0.5, 0.5], labels = [...])`, `qcut(4)`, `df.valueCounts("col", sort = true)`, and
-  whole rows with `df.topK(5, by = "peak")` / `bottomK`
-- Across a row: `sumHorizontal(col(float))`, `maxHorizontal("a", "b")`,
-  `anyHorizontal`, `coalesce`; generated columns `intRange`, `linearSpace`, `repeat`;
-  `corr("a", "b", Spearman)`, `cov`
-- Reshaping: `pivot("season", index = "year", values = "oni")` (with `PivotAgg.Sum` or an
-  expression on `element()`), `unpivot(index = "year")`, `transpose`, `partitionBy`,
-  `toDummies`
-- Time windows: `groupByDynamic("day", every = 1.months).agg(...)`, the rolling group-by
-  `rolling("day", period = 7.days)`, and `joinAsof(other, leftOn = "t", rightOn = "day",
-  by = "site", tolerance = 1.days)`
-- Series: `df["oni"]`, `s.max.item(float)`, `s * 2`, `s.filter(s > 0)`,
-  `s.rollingMean(3)` (every expression method works on a Series), `df.withColumns(s)`
-- Rows as objects: `df.rows(Reading)`, `for r in df.iterRows(tuple[a: int, b: string])`,
-  `seqOfObjects.toDataFrame`
-- Arraymancer (optional, `import nanuq/arraymancer`): `df.toTensor(float)`,
-  `tensor.toDataFrame(["a", "b"])`
-
 ## Conventions
 
 - Names follow Polars, in camelCase: `withColumns`, `groupBy`, `nullCount`.
@@ -287,7 +259,3 @@ the `nightly` feature).
   division (`7 / 2 == 3.5`), as in Python Polars and in Nim.
 - Polars names that are Nim keywords work after a dot (`e.cast(Int32)`, `e.var`,
   `.when(c)`); as a first call they need backticks (`` `when`(c) ``).
-
-## Next steps
-
-See [BACKLOG.md](BACKLOG.md).
