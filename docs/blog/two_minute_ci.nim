@@ -198,11 +198,11 @@ page's own code touches, as above.
 
 ## What it costs
 
-Two things.
+One thing, and a warning.
 
-**The edit loop.** Changing one test file now recompiles the whole suite, about 26
-seconds, against about 12 seconds for one file on its own. When working on one file,
-run that file.
+**A warning on the edit loop.** Running a single file works as before, and is as fast
+as before. Running the whole suite after changing one file recompiles all of it, about
+26 seconds. So when working on one file, run that file.
 
 **Debug info.** `--strip-debug` drops the DWARF sections of the binary, almost all of
 which belong to the Polars library. What stays: Nim's own stack traces, which don't use
