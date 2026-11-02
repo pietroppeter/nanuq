@@ -125,12 +125,10 @@ jobs:
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       # lld links the Polars library in under a second instead of ~9 s (config.nims)
       - run: which ld.lld || sudo apt-get install -y --no-install-recommends lld
-      # every test file in one program: one compile, one link (tests/all.nim)
+      # every test file in one program: one compile, one link (tests/all.nim); this
+      # includes the examples in openspec/specs (tests/test_specs*.nim)
       - run: nim r -d:nanuqNoCargo --hints:off tests/all.nim
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
-      # the examples in openspec/specs must still compile, run and print what they show
-      # (one program for all specs, see tools/specexamples.nim)
-      - run: nim r --hints:off tools/specexamples.nim -d:nanuqNoCargo
 
   docs:
     needs: rust-lib

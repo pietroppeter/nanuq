@@ -23,13 +23,13 @@ import std/[os, osproc, strutils, parseopt, algorithm, tables]
 const prelude = "import nanuq, nanuq/datasets, std/[options, os, strutils]\n"
 const marker = "@@nanuq-example@@"
 
-type Example = object
-  line: int            ## 1-based line of the ```nim fence
-  code: seq[string]
-  outFirst, outLast: int  ## 0-based line range of the text body, -1 when absent
-  expected: string
+type Example* = object
+  line*: int            ## 1-based line of the ```nim fence
+  code*: seq[string]
+  outFirst*, outLast*: int  ## 0-based line range of the text body, -1 when absent
+  expected*: string
 
-proc parseExamples(lines: seq[string]): seq[Example] =
+proc parseExamples*(lines: seq[string]): seq[Example] =
   var i = 0
   while i < lines.len:
     if lines[i].strip == "```nim":
@@ -51,12 +51,12 @@ proc parseExamples(lines: seq[string]): seq[Example] =
     else:
       inc i
 
-type Spec = object
-  cap, path: string
-  lines: seq[string]
-  exs: seq[Example]
+type Spec* = object
+  cap*, path*: string
+  lines*: seq[string]
+  exs*: seq[Example]
 
-proc ownProgram(s: Spec): bool =
+proc ownProgram*(s: Spec): bool =
   ## Imports anything but the standard library and Nanuq's own modules.
   for ex in s.exs:
     for l in ex.code:
@@ -192,4 +192,5 @@ proc main() =
   echo total, " examples, ", failures, " failures"
   if failures > 0: quit 1
 
-main()
+when isMainModule:
+  main()

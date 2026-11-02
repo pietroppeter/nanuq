@@ -1,4 +1,5 @@
 ## Runs every test file (tests/test_*.nim) in one program: one compile, one link.
+## That includes the examples in openspec/specs (test_specs*.nim, see specsuite.nim).
 ##
 ##   nim r tests/all.nim              # all tests
 ##   nim r tests/all.nim "csv::*"     # unittest filters work as usual
@@ -11,7 +12,10 @@
 import std/[macros, os, strutils, algorithm]
 
 const optional = [("test_datamancer", "datamancer"), ("test_arraymancer", "arraymancer"),
-                  ("test_database", "db_connector/db_sqlite")]
+                  ("test_database", "db_connector/db_sqlite"),
+                  ("test_specs_datamancer", "datamancer"),
+                  ("test_specs_arraymancer", "arraymancer"),
+                  ("test_specs_database", "db_connector/db_sqlite")]
 
 macro importTests(): untyped =
   let dir = currentSourcePath().parentDir
