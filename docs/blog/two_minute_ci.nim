@@ -107,6 +107,7 @@ Measured locally (4 cores, cold cache) and on pull request runs of
 | CI docs job (`~/.nimble` now cached too) | 4m45s | 1m47s |
 | book full build, CI (lld only) | 6m54s | 5m29s |
 | book full build, one program (local) | 8m25s | 71 s |
+| book full build, one program (CI) | 6m54s | 76 s |
 
 The book gained less from the linker alone. Its chapters run Python too (the other half
 of each tab), so linking was a smaller share of their time. One program helped there
@@ -140,7 +141,9 @@ that also show up between two page-by-page builds: the row order of a Python
 
 A full build, which every Nanuq pin bump triggers, went from 505 seconds to 71 locally
 ([book PR #13](https://github.com/pietroppeter/nanuq-book/pull/13)): 26 seconds to
-compile all 56 chapters at once, 13 to run them.
+compile all 56 chapters at once, 13 to run them. On CI the whole build step took 76
+seconds, against 6m54s before this work. With the 18 chapters of book PR #12 on top,
+all 75 build in 82 seconds locally.
 
 ## Why nimib doesn't mind
 
