@@ -173,8 +173,11 @@ Polars can still do everything else.
    afterwards. For queries known at compile time a macro (or a Nimony plugin) can generate
    the same code ahead of time, with no compiler needed at run time.
 
-Replacing Polars completely means rewriting a project with many person-years in it, so
-the realistic outcome is a hybrid where Nim takes over the parts where it adds something.
+Replacing Polars completely means matching a project with many person-years in it, and
+following its releases. With specs, the book and a Polars oracle for every step, an
+agent-driven port of the commonly used core looks plausible; all of it, I/O and the
+streaming engine included, is a multi-year effort. Either way the path goes through a
+hybrid where Nim first takes over the parts where it adds something.
 
 **Where Nim adds something (so where to grow first):**
 
