@@ -148,18 +148,43 @@ all 75 build in 82 seconds locally.
 ## Why nimib doesn't mind
 
 nimib was never meant to have many documents in one program, yet the site and the book
-needed no changes to their pages. `nbInit` is a template, so everything that could
-confuse documents is resolved where it expands, in each page's own module:
+needed no changes to their pages. It helps to see what the macro in `docs/all.nim`
+actually expands to. With today's posts it is this, and nothing more:
 
-- `var nb {.inject.}` declares a module-level variable. Each page module gets its own
-  `nb`, private to it, so sixteen of them don't clash.
-- The page finds its own file with `instantiationInfo(-1, true)`, the file where the
-  template was expanded. That is the page, not `all.nim`. It reads that file as the
-  page's source, names the output after it, and places it under `srcDir`.
-- Code blocks show their code by reading the file named in the block's line info, so
-  they always quote the right page, whichever module imported it.
-- The renderer is a global (`nbToHtml`), but `nbInit` copies it into `nb.backend`, so
-  what one theme changes stays in its own page.
+```nim
+import "/…/docs/blog/above_4000"
+import "/…/docs/blog/aged_19"
+# … one line per post, in file-name order …
+import "/…/docs/blog/two_minute_ci"
+import "/…/docs/index"
+import "/…/docs/polars_coverage"
+import "/…/docs/openspec"
+```
+
+No `nbInit` appears in `all.nim`, and no page's code is pasted into it. Each import
+compiles a page as a module of its own, from its own file, exactly as `nim r` on that
+page would. That is where `nbInit`, a template, expands. In `move_37.nim` it becomes
+roughly:
+
+```nim
+var nb: Nb   # a top-level variable of module move_37, not exported
+nb.doc.initDir = getCurrentDir()
+nb.doc.thisFile = "/…/docs/blog/move_37.nim"  # instantiationInfo, fixed at compile time
+nb.doc.source = readFile(nb.doc.thisFile)
+# …
+```
+
+`two_minute_ci.nim` gets its own `var nb`, with its own path baked in, and the two
+never see each other. When the program starts, Nim runs each module's top-level code
+once, in import order: all of `above_4000` (`nbInit`, its blocks, `nbSave`), then all
+of `aged_19`, and so on. What is concatenated is the execution, not the source. Pasting
+the pages into one file, or `include`-ing them, would break the way you would expect:
+the second `var nb` is a redefinition, and every page would think it is `all.nim`.
+
+The rest of nimib follows the same pattern. Code blocks quote their code by reading the
+file named in the block's line info, so they quote the right page. The renderer is a
+global (`nbToHtml`), but `nbInit` copies it into `nb.backend`, so what one theme
+changes stays in its own page.
 
 The trouble you may remember comes from moving `nbInit` away from the page. Called
 from a helper in another file, `instantiationInfo` names the helper's file, and the page
