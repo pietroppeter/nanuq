@@ -352,7 +352,7 @@ proc lineDiff(a, b: string, context = 3): (string, int, int) =
 # Rendering
 # ---------------------------------------------------------------------------
 
-const css = """
+const varsCss = """
 :root{--ice:#f3f7f9;--floe:#fff;--ink:#12222e;--mute:#5a6b77;--rule:#d5e1e8;--fjord:#0d6f86;
 --add:#e3f4e6;--add-ink:#1f6b2c;--del:#fbe7e4;--del-ink:#a2321f;--mod:#fff2d6;--mod-ink:#8a5a00;
 --display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;--body:"Literata",Georgia,serif;
@@ -360,6 +360,10 @@ const css = """
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ice:#0d161d;--floe:#121e27;
 --ink:#e3ecf1;--mute:#93a6b3;--rule:#22323e;--fjord:#5cc4dc;--add:#12301b;--add-ink:#8fd19a;
 --del:#3a1a16;--del-ink:#f0a092;--mod:#33290f;--mod-ink:#f0c868;color-scheme:dark}}
+"""
+
+## The page frame of the standalone page: ground, column, header, headings.
+const pageCss = """
 *{box-sizing:border-box}
 body{margin:0;background:var(--ice);color:var(--ink);font:16px/1.6 var(--body);
 padding:0 max(16px,env(safe-area-inset-left,0px))}
@@ -372,6 +376,12 @@ h2{font-size:1.6rem;margin:2.5rem 0 .5rem}
 h3{font-size:1.2rem;margin:1.6rem 0 .4rem}
 .meta{font:.8rem/1.4 var(--mono);color:var(--mute)}
 a{color:var(--fjord)}
+footer{max-width:62rem;margin:3rem auto;color:var(--mute);font:.8rem var(--mono)}
+"""
+
+## The report itself (changes, requirements, diffs, specs). docs/openspec.nim reuses it
+## inside the dev-log theme, scoped to `.specview`.
+const reportCss* = """
 code,pre{font-family:var(--mono);font-size:.85em}
 p code,li code,td code{background:var(--rule);padding:.05em .3em;border-radius:3px}
 pre{background:var(--floe);border:1px solid var(--rule);border-radius:6px;padding:.8rem;overflow-x:auto;line-height:1.25}
@@ -443,10 +453,11 @@ body:has(#show-archived:checked) .archived,body.show-archived .archived{display:
 .spec>summary{font-size:1.15rem}
 .req.CURRENT{border-left-color:var(--fjord)}
 .speclist{columns:2 16rem;font-size:.9rem;padding-left:1.1rem}
-footer{max-width:62rem;margin:3rem auto;color:var(--mute);font:.8rem var(--mono)}
 """
 
-const toggleJs = """<script>
+const css = varsCss & pageCss & reportCss
+
+const toggleJs* = """<script>
 (function(){
   var box = document.getElementById("show-archived"), key = "specview-show-archived";
   function apply(on){ document.body.classList.toggle("show-archived", on); box.checked = on; }
@@ -735,6 +746,64 @@ proc renderSpecs(root: string, changes: seq[Change], files: seq[string]): string
       for r in sec.reqs: result.add renderReq("CURRENT", r, doc)
     result.add "</details>\n"
 
+type Report* = object
+  ## Everything specview reads: the changes, newest work first, and with a base the
+  ## files changed since it.
+  root*, base*, head*: string
+  changes: seq[Change]
+  files: seq[string]
+
+proc loadReport*(root: string, base = ""): Report =
+  result.root = root.absolutePath
+  result.base = base
+  let root = result.root
+  if not dirExists(root / "openspec"): quit "no openspec/ directory in " & root
+  let backlog = backlogEntries(readOr(root / "BACKLOG.md"))
+  for kind, dir in walkDir(root / "openspec" / "changes"):
+    if kind == pcDir and dir.lastPathPart != "archive":
+      result.changes.add loadChange(root, dir, false, backlog)
+  if dirExists(root / "openspec" / "changes" / "archive"):
+    for kind, dir in walkDir(root / "openspec" / "changes" / "archive"):
+      if kind == pcDir: result.changes.add loadChange(root, dir, true, backlog)
+  if base.len > 0:
+    result.files = changedFiles(root, base)
+    for c in result.changes.mitems:
+      c.touched = result.files.anyIt(it.startsWith(c.dir & "/"))
+  result.changes.sort(proc (a, b: Change): int =
+    result = cmp(a.archived, b.archived)
+    if result == 0: result = cmp(b.touched, a.touched)
+    if result == 0: result = cmp(a.name, b.name))
+  result.head = git(root, "log", "-1", "--format=%h %s")[0].strip
+
+proc renderNav*(r: Report): string =
+  ## Section links and the "Show archived changes" checkbox (needs `toggleJs`).
+  let base = r.base
+  "<nav class=\"nav\"><a href=\"#overview\">Changes</a><a href=\"#specs\">Specs</a>" &
+    (if base.len > 0: "<a href=\"#raw-diff\">Diff</a>" else: "") &
+    "<label><input type=\"checkbox\" id=\"show-archived\"> " &
+    (if base.len > 0: "Show older archived changes (" else: "Show archived changes (") &
+    $r.changes.countIt(it.archived and not it.touched) & ")</label></nav>" &
+    (if base.len > 0: "<p class=\"hint\">Compared with " & esc(base) &
+      ": changes this branch added, edited or archived are always shown; archived " &
+      "changes it did not touch are hidden.</p>" else: "")
+
+proc renderReport*(r: Report): string =
+  ## The changes overview, every change, every spec and, with a base, the file diffs.
+  let active = r.changes.filterIt(not it.archived)
+  result.add "<h2 id=\"overview\">Changes</h2><table class=\"overview\"><tr><th>Change</th><th>Stage</th><th>Tasks</th><th>Specs</th></tr>"
+  for c in r.changes:
+    let (done, total) = c.taskCounts
+    result.add "<tr" & (if c.archived and not c.touched: " class=\"archived\"" else: "") &
+      "><td><a href=\"#" & esc(c.name) & "\">" & esc(c.name) & "</a>" &
+      (if c.touched: " <span class=\"pill touched\">changed</span>" else: "") & "</td><td>" & c.stage &
+      "</td><td>" & $done & "/" & $total & "</td><td>" &
+      c.caps.mapIt("<code>" & esc(it.name) & "</code> " & it.countsLabel).join("<br>") & "</td></tr>"
+  result.add "</table>"
+  if active.len == 0: result.add "<p class=\"unchanged\">No active changes.</p>"
+  for c in r.changes: result.add renderChange(c, r.root)
+  result.add renderSpecs(r.root, r.changes, r.files)
+  if r.base.len > 0: result.add renderRawDiff(r.root, r.base, r.files)
+
 proc main() =
   var root = getCurrentDir()
   var base, outPath, mdPath = ""
@@ -751,66 +820,22 @@ proc main() =
         echo "usage: specview [--root:DIR] [--base:GIT_REF] [--out:FILE.html] [--md:FILE.md]"; quit 0
       else: quit "unknown option --" & key
     else: discard
-  root = root.absolutePath
-  if not dirExists(root / "openspec"): quit "no openspec/ directory in " & root
-
-  let backlog = backlogEntries(readOr(root / "BACKLOG.md"))
-  var changes: seq[Change]
-  for kind, dir in walkDir(root / "openspec" / "changes"):
-    if kind == pcDir and dir.lastPathPart != "archive":
-      changes.add loadChange(root, dir, false, backlog)
-  if dirExists(root / "openspec" / "changes" / "archive"):
-    for kind, dir in walkDir(root / "openspec" / "changes" / "archive"):
-      if kind == pcDir: changes.add loadChange(root, dir, true, backlog)
-  var files: seq[string]
-  if base.len > 0:
-    files = changedFiles(root, base)
-    for c in changes.mitems:
-      c.touched = files.anyIt(it.startsWith(c.dir & "/"))
-  changes.sort(proc (a, b: Change): int =
-    result = cmp(a.archived, b.archived)
-    if result == 0: result = cmp(b.touched, a.touched)
-    if result == 0: result = cmp(a.name, b.name))
-
-  var (head, _) = git(root, "log", "-1", "--format=%h %s")
-  head = head.strip
+  let r = loadReport(root, base)
   var html = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">" &
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>OpenSpec review</title>" &
     "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=JetBrains+Mono:wght@400;600&display=swap\">" &
     "<style>" & css & "</style></head><body>"
-  html.add "<header class=\"mast\"><span class=\"eyebrow\">" & esc(root.lastPathPart) &
-    " · OpenSpec review</span><h1>Where the changes stand</h1><div class=\"meta\">" & esc(head) &
+  html.add "<header class=\"mast\"><span class=\"eyebrow\">" & esc(r.root.lastPathPart) &
+    " · OpenSpec review</span><h1>Where the changes stand</h1><div class=\"meta\">" & esc(r.head) &
     (if base.len > 0: " · compared with " & esc(base) else: "") & " · generated " &
-    now().format("yyyy-MM-dd HH:mm") & "</div>" &
-    "<nav class=\"nav\"><a href=\"#overview\">Changes</a><a href=\"#specs\">Specs</a>" &
-    (if base.len > 0: "<a href=\"#raw-diff\">Diff</a>" else: "") &
-    "<label><input type=\"checkbox\" id=\"show-archived\"> " &
-    (if base.len > 0: "Show older archived changes (" else: "Show archived changes (") &
-    $changes.countIt(it.archived and not it.touched) & ")</label></nav>" &
-    (if base.len > 0: "<p class=\"hint\">Compared with " & esc(base) &
-      ": changes this branch added, edited or archived are always shown; archived " &
-      "changes it did not touch are hidden.</p>" else: "") & "</header><main>"
-
-  let active = changes.filterIt(not it.archived)
-  html.add "<h2 id=\"overview\">Changes</h2><table class=\"overview\"><tr><th>Change</th><th>Stage</th><th>Tasks</th><th>Specs</th></tr>"
-  for c in changes:
-    let (done, total) = c.taskCounts
-    html.add "<tr" & (if c.archived and not c.touched: " class=\"archived\"" else: "") &
-      "><td><a href=\"#" & esc(c.name) & "\">" & esc(c.name) & "</a>" &
-      (if c.touched: " <span class=\"pill touched\">changed</span>" else: "") & "</td><td>" & c.stage &
-      "</td><td>" & $done & "/" & $total & "</td><td>" &
-      c.caps.mapIt("<code>" & esc(it.name) & "</code> " & it.countsLabel).join("<br>") & "</td></tr>"
-  html.add "</table>"
-  if active.len == 0: html.add "<p class=\"unchanged\">No active changes.</p>"
-  for c in changes: html.add renderChange(c, root)
-  html.add renderSpecs(root, changes, files)
-  if base.len > 0: html.add renderRawDiff(root, base, files)
+    now().format("yyyy-MM-dd HH:mm") & "</div>" & renderNav(r) & "</header><main>"
+  html.add renderReport(r)
   html.add "</main><footer>Generated by tools/specview.nim</footer>" & toggleJs & "</body></html>\n"
   writeFile(outPath, html)
   echo "wrote ", outPath
   if mdPath.len > 0:
     let f = open(mdPath, fmAppend)   # $GITHUB_STEP_SUMMARY is appended to
-    f.write renderMarkdown(changes, base, files)
+    f.write renderMarkdown(r.changes, base, r.files)
     f.close
     echo "wrote ", mdPath
 
