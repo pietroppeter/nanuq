@@ -178,15 +178,14 @@ nb.doc.source = readFile(nb.doc.thisFile)
 never see each other. When the program starts, Nim runs each module's top-level code
 once, in import order: all of `above_4000` (`nbInit`, its blocks, `nbSave`), then all
 of `aged_19`, and so on. What is concatenated is the execution, not the source. Pasting
-the pages into one file, or `include`-ing them, would break the way you would expect:
-the second `var nb` is a redefinition, and every page would think it is `all.nim`.
+the pages into one file, or `include`-ing them, would break: the second `var nb` is a redefinition, and every page would think it is `all.nim`.
 
 The rest of nimib follows the same pattern. Code blocks quote their code by reading the
 file named in the block's line info, so they quote the right page. The renderer is a
 global (`nbToHtml`), but `nbInit` copies it into `nb.backend`, so what one theme
 changes stays in its own page.
 
-The trouble you may remember comes from moving `nbInit` away from the page. Called
+The known trouble with many nimib pages comes from moving `nbInit` away from the page. Called
 from a helper in another file, `instantiationInfo` names the helper's file, and the page
 gets the wrong source and name. That is why `nbInit` takes `thisFileRel`, and why
 nimibook needs it for Markdown chapters. Wrapping a page in a proc fails for another
