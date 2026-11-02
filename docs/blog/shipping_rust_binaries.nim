@@ -3,24 +3,17 @@ import std/os
 import ../nanuqtheme
 
 nbInit
-nb.title = "Shipping Nanuq's Rust binaries"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-27-shipping-rust-binaries.html"
-nb.useNanuqTheme(
-  titleHtml = "Shipping the <em>Rust</em> half",
-  eyebrow = "Nanuq dev log · 27 October 2026",
-  epigraph = "How do Nim users get libnanuq_ffi without a 10 minute Polars build, when there is no PyPI to upload wheels to?",
-  meta = "Research · no code yet · rendered with nimib",
-  summary = "How other Polars bindings ship their Rust half, and the plan for Nanuq's prebuilt libraries.",
-)
+nb.useDevlogPost("shipping-rust-binaries",
+  epigraph = "How do Nim users get libnanuq_ffi without a 10 minute Polars build, when there is no PyPI to upload wheels to?")
 
 nbText: """
 The first build of Nanuq compiles Polars from source, which takes about ten minutes.
 That's fine for us but not for someone trying the library for the first time. Python
 users never see this because PyPI hosts a prebuilt wheel per platform. Nim has no such
 registry, so this post looks at how other projects ship a native library without one,
-and what Nanuq will do. Nothing here is implemented yet. It follows
-[How Nanuq works](2026-10-27-how-nanuq-works.html).
+and what Nanuq will do. Nothing here was implemented when it was written; the plan
+shipped with Nanuq 0.1, and the comment at the top of `src/nanuq/ffi.nim` describes how
+it works today. It follows [How Nanuq works](2026-10-27-how-nanuq-works.html).
 
 > **The plan in one paragraph.** Do what Elixir's
 > [Explorer](https://github.com/elixir-explorer/explorer) (Polars for Elixir) and

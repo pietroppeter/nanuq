@@ -5,16 +5,8 @@ import ggplotnim
 import ../nanuqtheme
 
 nbInit
-nb.title = "Plotting a Nanuq DataFrame with ggplotnim"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-27-plotting-with-ggplotnim.html"
-nb.useNanuqTheme(
-  titleHtml = "Plotting with <em>ggplotnim</em>",
-  eyebrow = "Nanuq dev log · 27 October 2026",
-  epigraph = "Query in Polars, plot in Nim.",
-  meta = "Polars 0.55 · ggplotnim · Nim " & NimVersion & " · rendered with nimib",
-  summary = "Plotting a Nanuq DataFrame with ggplotnim, and where a smoother bridge could go.",
-)
+nb.useDevlogPost("plotting-with-ggplotnim",
+  epigraph = "Query in Polars, plot in Nim.")
 # nimib runs the code from docs/ (see nimib.toml), so paths below are site paths
 
 nbText: """

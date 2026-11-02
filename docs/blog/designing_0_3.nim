@@ -3,16 +3,8 @@ import std/os
 import ../nanuqtheme
 
 nbInit
-nb.title = "Designing Nanuq 0.3"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-31-designing-0-3.html"
-nb.useNanuqTheme(
-  titleHtml = "Designing Nanuq <em>0.3</em>",
-  eyebrow = "Nanuq dev log · 31 October 2026",
-  epigraph = "Dates, strings, Parquet and categoricals: every API choice 0.3 had to make, the options, and what we picked.",
-  meta = "API design · planned, not implemented yet · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.3: temporal types, the str and dt namespaces, Parquet, errors and categoricals.",
-)
+nb.useDevlogPost("designing-0-3",
+  epigraph = "Dates, strings, Parquet and categoricals: every API choice 0.3 had to make, the options, and what we picked.")
 
 nbText: """
 Nanuq 0.3 brings dates and times, string expressions, Parquet and IPC, typed errors,
@@ -21,8 +13,9 @@ release's explainer post first, a recap of the 2026 cycling season, and listed e
 API choice the story forced. This post is that list: for each choice, the options we
 weighed and the one we picked.
 
-Nothing here is implemented yet, so the code below is shown, not run. Two rules from
-0.2 guide every choice:
+This post was written before the code, so the snippets below are shown, not run. 0.3
+has shipped since: [Aged 19](2026-11-01-aged-19.html) runs these APIs on real data.
+Two rules from [0.2](2026-10-31-designing-0-2.html) guide every choice:
 
 - a closed set of option values is a pure enum with Polars' names, never a string;
 - a cast target is a Nim type: `cast(int32)`, not `cast(Int32)`.
@@ -230,8 +223,8 @@ Polars no longer needs a global string cache, so Nanuq has none.
 ## What's next
 
 Each section becomes an OpenSpec change, then the implementation, then the explainer
-that started all this. If a choice here looks wrong to you, now is the cheapest time to
-say so.
+that started all this, [Aged 19](2026-11-01-aged-19.html). The next release is
+designed in [Designing Nanuq 0.4](2026-11-01-designing-0-4.html).
 """
 
 nbSave

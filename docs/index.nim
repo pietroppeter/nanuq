@@ -1,7 +1,7 @@
-## The dev-log index: lists the rendered posts in docs/blog, newest first.
-## Render the posts first; nothing here needs editing when a post is added.
+## The dev-log index: lists the posts of docs/devlog.nim, newest first.
+## Render the posts first. A new post is added in docs/devlog.nim, not here.
 import nimib
-import std/[os, algorithm, re, strutils, times]
+import std/[os, algorithm, re, sequtils, strutils, times]
 import nanuqtheme
 
 nbInit
@@ -12,48 +12,45 @@ nb.useNanuqTheme(
   epigraph = "Watch out where the queries go, and process well that rusty data.",
   meta = "Rendered with nimib",
   summary = "Notes from building Nanuq, Polars DataFrames for Nim.",
+  sourcePath = "docs/index.nim",
 )
 
-type Post = object
-  file, title, summary: string
-  date: DateTime
-
-proc unescape(s: string): string =
-  s.multiReplace(("&quot;", "\""), ("&#x27;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"))
+# Every listed post must have been rendered, and every rendered post must be listed,
+# so a post can't be forgotten in docs/devlog.nim (nimib runs from docs/, see nimib.toml).
+var rendered: seq[string]
+for path in walkFiles("blog/*.html"):
+  if path.extractFilename.match(re"\d{4}-\d{2}-\d{2}-.*\.html"):
+    rendered.add path.extractFilename
+for p in devlogPosts:
+  if p.fileName notin rendered:
+    quit "index: blog/" & p.fileName & " is listed in docs/devlog.nim but was not rendered"
+for f in rendered:
+  if devlogPosts.allIt(it.fileName != f):
+    quit "index: blog/" & f & " is not listed in docs/devlog.nim"
+# The README keeps its own list of posts.
+let readme = readFile(".." / "README.md")
+for p in devlogPosts:
+  if "/blog/" & p.fileName notin readme:
+    quit "index: README.md does not link blog/" & p.fileName
 
 proc escape(s: string): string =
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
 
-proc readPost(path: string): Post =
-  ## Date and link from the dated file name, title from `<title>`, summary from
-  ## the description meta tag the theme writes.
-  let html = readFile(path)
-  result.file = path.extractFilename
-  result.date = parse(result.file[0 ..< 10], "yyyy-MM-dd")
-  var m: array[1, string]
-  if html.find(re"<title>([^<]*)</title>", m) >= 0: result.title = m[0].strip.unescape
-  if html.find(re"""<meta name="description" content="([^"]*)">""", m) >= 0:
-    result.summary = m[0].unescape
-
-var posts: seq[Post]
-for path in walkFiles("blog/*.html"):  # nimib runs from docs/ (see nimib.toml)
-  if path.extractFilename.match(re"\d{4}-\d{2}-\d{2}-.*\.html"):
-    posts.add readPost(path)
-posts.sort(proc (a, b: Post): int = cmp(b.file, a.file))
-
 nbText: """
 Nanuq brings [Polars](https://pola.rs) DataFrames to Nim. These posts follow its
-development, newest first. The code is on
+development, newest first. Since 0.2, each release gets an *API design* post on the choices it
+made and an *explainer*, a playful story told with its new features. Every post links
+to its source at the bottom. The code is on
 [GitHub](https://github.com/pietroppeter/nanuq); official documentation will come later.
 """
 
 var items = "<ol class=\"posts\">\n"
-for p in posts:
-  items.add "<li><time datetime=\"" & p.date.format("yyyy-MM-dd") & "\">" &
-    p.date.format("d MMMM yyyy") & "</time>\n<a href=\"blog/" & p.file & "\">" &
-    escape(p.title) & "</a>\n"
-  if p.summary.len > 0: items.add "<p>" & escape(p.summary) & "</p>\n"
-  items.add "</li>\n"
+for p in devlogPosts.reversed:
+  let date = parse(p.date, "yyyy-MM-dd")
+  items.add "<li><time datetime=\"" & p.date & "\">" & date.format("d MMMM yyyy") &
+    " · <span class=\"kind\">" & $p.kind & " · Nanuq " & p.release & "</span></time>\n" &
+    "<a href=\"blog/" & p.fileName & "\">" & p.titleHtml.multiReplace(("<em>", ""), ("</em>", "")).escape &
+    "</a>\n<p>" & escape(p.summary) & "</p>\n</li>\n"
 items.add "</ol>"
 nbRawHtml: items
 
