@@ -3,16 +3,8 @@ import std/os
 import ../nanuqtheme
 
 nbInit
-nb.title = "Designing Nanuq 0.6"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-designing-0-6.html"
-nb.useNanuqTheme(
-  titleHtml = "Designing Nanuq <em>0.6</em>",
-  eyebrow = "Nanuq dev log · 1 November 2026",
-  epigraph = "The streaming engine, saved query plans, bytes and decimals, Arrow memory shared with Nim, Excel, SQLite and cloud storage, on the same Polars as py-polars 2.1: the API choices 0.6 had to make, and what we picked.",
-  meta = "API design · runs on Nanuq 0.6 · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.6: streaming and sinks, plan serialization, Binary and Decimal, the Arrow C Data Interface, Excel, SQLite, testing helpers, the py-polars 2.1 pin, cloud storage, thirty functions from the coverage map, and what the book still asked for.",
-)
+nb.useDevlogPost("designing-0-6",
+  epigraph = "The streaming engine, saved query plans, bytes and decimals, Arrow memory shared with Nim, Excel, SQLite and cloud storage, on the same Polars as py-polars 2.1: the API choices 0.6 had to make, and what we picked.")
 
 nbText: """
 Nanuq 0.6 is the release the roadmap called "engine and edges". The engine part is
@@ -333,6 +325,12 @@ nbText: """
   namespace waits until we know which one to wrap.
 - **A shared library.** Shipping Nanuq as a dynamic library is about distribution,
   the theme of 0.7.
+
+## What's next
+
+The 0.6 explainer, a story about the game of go told with the new features, is on
+its way. Then 0.7, "distribution": a shared library, leaner builds with
+only the Polars features you use, and the coverage groups still marked partial.
 """
 
 nbSave

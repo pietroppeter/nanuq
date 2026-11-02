@@ -4,16 +4,8 @@ import nanuq
 import ../nanuqtheme
 
 nbInit
-nb.title = "The great polar bear census"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-31-bear-census.html"
-nb.useNanuqTheme(
-  titleHtml = "The great <em>polar bear</em> census",
-  eyebrow = "Nanuq dev log · 31 October 2026",
-  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.",
-  meta = "Nanuq 0.2 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "A season of messy ranger logs from Svalbard, cleaned and reported with everything new in Nanuq 0.2.",
-)
+nb.useDevlogPost("bear-census",
+  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.")
 
 # nimib runs from docs/ (see nimib.toml); the census files live in blog/census, and
 # the code below reads them with paths relative to that folder.
@@ -387,7 +379,7 @@ picture is less simple: Svalbard's bears have so far kept, and even improved, th
 body condition while the ice declined, which researchers expect to change as the ice
 keeps retreating.
 
-## What's in 0.2
+## What this post used from Nanuq 0.2
 
 Everything on this page, in the order it appeared:
 
@@ -402,6 +394,10 @@ Everything on this page, in the order it appeared:
 - null filling strategies (`fillNull(Forward)`, `forwardFill`);
 - window expressions with `over`, and `median`, `quantile`, `std`;
 - column selectors: several names, Nim type classes, `exclude`, and `name.suffix`.
+
+The Python twin of this post, which recorded the outputs it is checked against, is
+[blog/census/expected.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/census/expected.py).
+How these APIs were chosen is in [Designing Nanuq 0.2](2026-10-31-designing-0-2.html).
 """
 
 

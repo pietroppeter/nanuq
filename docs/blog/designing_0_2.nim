@@ -4,16 +4,8 @@ import nanuq, nanuq/datasets
 import ../nanuqtheme
 
 nbInit
-nb.title = "Designing Nanuq 0.2"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-31-designing-0-2.html"
-nb.useNanuqTheme(
-  titleHtml = "Designing Nanuq <em>0.2</em>",
-  eyebrow = "Nanuq dev log · 31 October 2026",
-  epigraph = "Looking back at the API choices behind 0.2: what Polars does, what Nim allows, and what we picked.",
-  meta = "API design · Nanuq 0.2 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "A look back at the API decisions of Nanuq 0.2: enums, casts, when/then, selectors, CSV options, fillNull and sample.",
-)
+nb.useDevlogPost("designing-0-2",
+  epigraph = "Looking back at the API choices behind 0.2: what Polars does, what Nim allows, and what we picked.")
 
 nbText: """
 Nanuq 0.2 shipped today with data types and casts, joins, frame verbs, conditional and

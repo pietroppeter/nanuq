@@ -4,16 +4,8 @@ import nanuq, nanuq/datasets
 import ../nanuqtheme
 
 nbInit
-nb.title = "How Nanuq works"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-10-27-how-nanuq-works.html"
-nb.useNanuqTheme(
-  titleHtml = "How <em>Nanuq</em> works",
-  eyebrow = "Nanuq dev log · 27 October 2026",
-  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.",
-  meta = "Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "How Nanuq wraps Polars for Nim through a small Rust C ABI, with a first tour of the API.",
-)
+nb.useDevlogPost("how-nanuq-works",
+  epigraph = "Watch out where the huskies go, and don't you eat that rusty data.")
 
 nbText: """
 **Nanuq** (Inuit for *polar bear*) brings [Polars](https://pola.rs) DataFrames to Nim.
@@ -237,7 +229,11 @@ This is a proof of concept. Natural next steps are:
 - add more IO (Parquet, `scan_csv`), joins, and nulls and dates,
 - ship prebuilt libraries so users don't need cargo.
 
-Source: [pietroppeter/nanuq](https://github.com/pietroppeter/nanuq).
+Looking back: nbindgen was weighed and set aside, so `ffi.nim` is still written by hand.
+Prebuilt libraries came first, in [Shipping the Rust half](2026-10-27-shipping-rust-binaries.html);
+`scanCsv`, joins and null filling in 0.2 ([the census](2026-10-31-bear-census.html)); dates
+and Parquet in 0.3 ([Aged 19](2026-11-01-aged-19.html)); and the Arrow C Data Interface
+in 0.6 ([Designing Nanuq 0.6](2026-11-01-designing-0-6.html)).
 """
 
 nbSave

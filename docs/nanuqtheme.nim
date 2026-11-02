@@ -1,11 +1,15 @@
 ## A nimib theme for the Nanuq docs: pack-ice palette, light and dark,
 ## self-contained apart from Google Fonts and highlight.js for Rust snippets.
 ##
-## Usage, right after `nbInit`:
-##   nb.useNanuqTheme(eyebrow = "Nanuq · proof of concept", epigraph = "...")
+## Usage, right after `nbInit`, for a dev-log post listed in devlog.nim:
+##   nb.useDevlogPost("above-4000", epigraph = "...")
+## and for any other page:
+##   nb.useNanuqTheme(titleHtml = "...", eyebrow = "...", epigraph = "...", meta = "...")
 
-import std/[json, strformat]
+import std/[json, os, strformat, strutils]
 import nimib
+import devlog
+export devlog
 
 const nanuqHead = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -55,6 +59,8 @@ body > footer { padding-block: 1rem 4rem; }
 .mast { display: grid; gap: .6rem; padding-bottom: 2rem; border-bottom: 1px solid var(--rule); margin-bottom: 1rem; }
 .eyebrow { font: 600 .75rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--fjord); }
 .mast h1 { font: 700 clamp(2.4rem, 7vw, 3.6rem)/1.02 var(--display); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+.eyebrow a { color: inherit; text-decoration: none; }
+.eyebrow a:hover { text-decoration: underline; }
 .mast h1 em { font-style: normal; color: var(--fjord); }
 .epigraph { font-style: italic; color: var(--mute); margin: 0; }
 .meta { font: .8rem/1.4 var(--mono); color: var(--mute); }
@@ -125,6 +131,18 @@ ol.posts time { display: block; font: .72rem/1.4 var(--mono); letter-spacing: .0
 ol.posts a { font: 700 1.25rem/1.3 var(--display); color: var(--ink); text-decoration: none; }
 ol.posts a:hover { color: var(--fjord); }
 ol.posts p { margin: .3rem 0 0; color: var(--mute); }
+/* the end of a post: previous and next post, related posts, where the source lives */
+nav.devlog { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); display: grid; gap: 1rem; }
+nav.devlog .pn { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+nav.devlog .pn a { display: block; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--floe); text-decoration: none; color: var(--ink); font: 700 1rem/1.3 var(--display); }
+nav.devlog .pn a:hover { border-color: var(--fjord); color: var(--fjord); }
+nav.devlog .pn a.next { grid-column: 2; text-align: right; }
+nav.devlog .pn small { display: block; font: 600 .65rem/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin-bottom: .2rem; }
+nav.devlog .rel { margin: 0; }
+nav.devlog .rel span, nav.devlog .links { font: .8rem/1.6 var(--mono); color: var(--mute); }
+@media (max-width: 34rem) { nav.devlog .pn { grid-template-columns: 1fr; } nav.devlog .pn a.next { grid-column: 1; } }
+ol.posts .kind { color: var(--fjord); }
 /* "Show source": the page's own nimib source, folded at the end */
 details.source { margin-top: 3rem; }
 details.source summary { cursor: pointer; width: max-content; font: 600 .75rem/1 var(--mono); letter-spacing: .06em;
@@ -160,14 +178,19 @@ func nanuqHeader(blk: JsonNode, nb: Nb): string =
 </header>"""
 
 func nanuqFooter(blk: JsonNode, nb: Nb): string =
-  ## Ends with a folded "Show source" section, like nimib's default theme.
+  ## Previous/next and related posts, then a folded "Show source" section, like
+  ## nimib's default theme.
   let source = nb.doc.context{"source_highlighted"}.getStr
-  "<footer>" & (if source.len == 0: "" else:
+  let sourcePath = nb.doc.context{"source_path"}.getStr
+  let sourceLink =
+    if sourcePath.len == 0: &"""<a href="{repoUrl}">pietroppeter/nanuq</a>"""
+    else: &"""<a href="{sourceUrl}{sourcePath}">{sourcePath}</a> in <a href="{repoUrl}">pietroppeter/nanuq</a>"""
+  "<footer>" & nb.doc.context{"devlog_nav"}.getStr & (if source.len == 0: "" else:
     """<details class="source"><summary></summary><pre><code class="nim-source">""" & source &
     "</code></pre></details>\n") &
   """<div class="foot">Made with <a href="https://github.com/pietroppeter/nimib">nimib</a>.
 Blocks marked "nim · ran" were executed when this page was built.
-Source: <a href="https://github.com/pietroppeter/nanuq">pietroppeter/nanuq</a>.</div></footer>""" & nanuqScripts
+Source: """ & sourceLink & ".</div></footer>" & nanuqScripts
 
 func emptyPartial(blk: JsonNode, nb: Nb): string = ""
 
@@ -180,9 +203,10 @@ proc escapeAttr(s: string): string =
     of '>': result.add "&gt;"
     else: result.add c
 
-proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "") =
-  ## `titleHtml` may contain `<em>` for the accented word. `summary` is the
-  ## one-line description the dev-log index shows for the page.
+proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "",
+                    sourcePath = "") =
+  ## `titleHtml` may contain `<em>` for the accented word. `summary` becomes the
+  ## description meta tag. `sourcePath` (from the repo root) is linked in the footer.
   let description =
     if summary.len > 0: "<meta name=\"description\" content=\"" & escapeAttr(summary) & "\">\n"
     else: ""
@@ -194,7 +218,66 @@ proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summ
   nb.doc.context["eyebrow"] = %eyebrow
   nb.doc.context["epigraph"] = %epigraph
   nb.doc.context["meta"] = %meta
+  nb.doc.context["source_path"] = %sourcePath
   nb.backend.partials["header"] = nanuqHeader
   nb.backend.partials["footer"] = nanuqFooter
   nb.backend.partials["left"] = emptyPartial
   nb.backend.partials["right"] = emptyPartial
+
+const
+  repoRoot = currentSourcePath.parentDir.parentDir
+  builtWith = block:
+    ## "Nanuq 0.6.0, Polars 2.1.0", read from the package and the crate.
+    var nanuq, polars: string
+    for line in staticRead(repoRoot / "nanuq.nimble").splitLines:
+      if line.startsWith("version"): nanuq = line.split('"')[1]
+    for line in staticRead(repoRoot / "src" / "rust" / "Cargo.toml").splitLines:
+      if line.startsWith("polars ="):
+        if "tag = \"py-" in line: polars = line.split("tag = \"py-")[1].split('"')[0]
+        elif "version = \"" in line: polars = line.split("version = \"")[1].split('"')[0]
+    "Nanuq " & nanuq & (if polars.len > 0: ", Polars " & polars else: "")
+
+func longDate(isoDate: string): string =
+  ## "2026-11-01" -> "1 November 2026"
+  const months = ["January", "February", "March", "April", "May", "June", "July",
+                  "August", "September", "October", "November", "December"]
+  let parts = isoDate.split('-')
+  $parts[2].parseInt & " " & months[parts[1].parseInt - 1] & " " & parts[0]
+
+func postLink(p: DevlogPost): string =
+  &"""<a href="{p.fileName}">{p.plainTitle}</a>"""
+
+func devlogNav(i: int): string =
+  result = """<nav class="devlog" aria-label="More from the dev log"><div class="pn">"""
+  if i > 0:
+    let p = devlogPosts[i - 1]
+    result.add &"""<a class="prev" rel="prev" href="{p.fileName}"><small>← Previous</small>{p.plainTitle}</a>"""
+  if i < devlogPosts.high:
+    let p = devlogPosts[i + 1]
+    result.add &"""<a class="next" rel="next" href="{p.fileName}"><small>Next →</small>{p.plainTitle}</a>"""
+  result.add "</div>"
+  var related: seq[string]
+  for j in relatedTo(devlogPosts[i].slug):
+    if abs(j - i) != 1: related.add postLink(devlogPosts[j])  # prev/next are already linked
+  if related.len > 0:
+    result.add """<p class="rel"><span>Related:</span> """ & related.join(", ") & "</p>"
+  result.add """<span class="links"><a href="../index.html">All posts</a></span></nav>""" & "\n"
+
+proc useDevlogPost*(nb: var Nb, slug, epigraph: string) =
+  ## Theme, title, dated file name, eyebrow, meta, summary and footer links of the
+  ## dev-log post `slug`, all from its entry in devlog.nim.
+  let i = findPost(slug)
+  doAssert i >= 0, "devlog: add " & slug & " to docs/devlog.nim"
+  let p = devlogPosts[i]
+  nb.title = p.plainTitle
+  # dated slug (module names can't start with a digit)
+  nb.doc.filename = nb.doc.filename.parentDir / p.fileName
+  nb.useNanuqTheme(
+    titleHtml = p.titleHtml,
+    eyebrow = """<a href="../index.html">Nanuq dev log</a> · """ & longDate(p.date),
+    epigraph = epigraph,
+    meta = &"{p.kind} · Nanuq {p.release} · built with {builtWith} and Nim {NimVersion} · rendered with nimib",
+    summary = p.summary,
+    sourcePath = p.source,
+  )
+  nb.doc.context["devlog_nav"] = %devlogNav(i)
