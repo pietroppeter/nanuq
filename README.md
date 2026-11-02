@@ -10,37 +10,53 @@ Nanuq (Inuit for "polar bear") brings [Polars](https://pola.rs) DataFrames to Ni
 > before 1.0.
 
 ```nim
-import nanuq, nanuq/datasets
+import nanuq
 
-echo penguins().lazy
-  .filter(col.sex.isNotNull)
-  .withColumns((col.body_mass_g / 1000).alias("mass_kg"))
-  .groupBy("species", "sex")
-  .agg(col.mass_kg.mean.round(2), col.flipper_length_mm.max, len())
-  .sort(["species", "sex"])
+type Size = enum cub, adult              # a Nim enum is a Polars Enum
+
+let bears = newDataFrame:
+  name: ["Nanuq", "Siku", "Ursa", "Kallik"]
+  island: ["Svalbard", "Svalbard", "Wrangel", "Wrangel"]
+  kg: [420, 95, 380, nil]                # nil is a missing value
+
+let sized = bears.withColumns:
+  choose(if col.kg < 150: cub else: adult).cast(Size).alias("size")
+echo sized.lazy
+  .dropNulls("kg")
+  .groupBy("island")
+  .agg(col.kg.mean, col.size.min)        # enum order: cub < adult
+  .sort("island")
   .collect
+
+for b in sized.rows(tuple[name: string, kg: Option[int]]):  # typed Nim values
+  if b.kg.isNone: echo b.name, " skipped the weigh-in"
 ```
 
 ```
-shape: (6, 5)
-┌───────────┬────────┬─────────┬───────────────────┬─────┐
-│ species   ┆ sex    ┆ mass_kg ┆ flipper_length_mm ┆ len │
-│ ---       ┆ ---    ┆ ---     ┆ ---               ┆ --- │
-│ str       ┆ str    ┆ f64     ┆ i64               ┆ u32 │
-╞═══════════╪════════╪═════════╪═══════════════════╪═════╡
-│ Adelie    ┆ female ┆ 3.37    ┆ 202               ┆ 73  │
-│ Adelie    ┆ male   ┆ 4.04    ┆ 210               ┆ 73  │
-│ Chinstrap ┆ female ┆ 3.53    ┆ 202               ┆ 34  │
-│ Chinstrap ┆ male   ┆ 3.94    ┆ 212               ┆ 34  │
-│ Gentoo    ┆ female ┆ 4.68    ┆ 222               ┆ 58  │
-│ Gentoo    ┆ male   ┆ 5.48    ┆ 231               ┆ 61  │
-└───────────┴────────┴─────────┴───────────────────┴─────┘
+shape: (2, 3)
+┌──────────┬───────┬───────┐
+│ island   ┆ kg    ┆ size  │
+│ ---      ┆ ---   ┆ ---   │
+│ str      ┆ f64   ┆ enum  │
+╞══════════╪═══════╪═══════╡
+│ Svalbard ┆ 257.5 ┆ cub   │
+│ Wrangel  ┆ 380.0 ┆ adult │
+└──────────┴───────┴───────┘
+Kallik skipped the weigh-in
 ```
 
-A lazy query reads like Python Polars, with `col.name` for a column and the names
-Polars uses. `nanuq/datasets` bundles the
-[Palmer penguins](https://allisonhorst.github.io/palmerpenguins/) data (CC0) for
-examples and tests.
+Queries read like Python Polars, with the same names in camelCase and `col.kg` for a
+column. Where Nim helps:
+
+- a frame is a block of `name: [values]` lines, with `nil` for a missing value;
+- `choose` writes `when/then/otherwise` as a plain `if`/`else`;
+- a Nim enum is a Polars Enum, so `cub` sorts before `adult` (as strings, `"adult"`
+  would come first);
+- results come back as typed Nim values (`rows`, `toList`, `df["kg", 0, int]`), with
+  `Option` where a value can be missing.
+
+`nanuq/datasets` bundles the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
+data (CC0) for examples and tests.
 
 For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter (in
 nimib: `nbRawHtml: df.toHtml`).
