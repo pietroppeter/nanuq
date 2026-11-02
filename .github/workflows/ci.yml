@@ -101,17 +101,26 @@ jobs:
         with:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # Nim packages from the cache: nimble install then only checks them (~45 s -> a few)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: nimble-test-2.2.4-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: nimble-test-2.2.4-
       # tests/test_datamancer.nim and test_arraymancer.nim need Datamancer (an optional
       # dependency, which brings Arraymancer); tests/test_database.nim needs db_connector
       - run: nimble install -y datamancer db_connector
+      - uses: actions/cache@v4
+        with:
+          path: ~/moto
+          key: moto-ubuntu-24.04-v1
       # tests/test_cloud.nim writes to a local S3 (moto) when moto_server is installed.
       # A venv keeps it away from the runner's system pyOpenSSL, which breaks with
       # the cryptography that pip brings; only moto_server goes on the PATH.
       - run: |
-          python3 -m venv "$RUNNER_TEMP/moto"
-          "$RUNNER_TEMP/moto/bin/pip" install -q "moto[server]"
+          [ -x ~/moto/bin/moto_server ] || { python3 -m venv ~/moto && ~/moto/bin/pip install -q "moto[server]"; }
           mkdir -p "$RUNNER_TEMP/bin"
-          ln -s "$RUNNER_TEMP/moto/bin/moto_server" "$RUNNER_TEMP/bin/moto_server"
+          ln -s ~/moto/bin/moto_server "$RUNNER_TEMP/bin/moto_server"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       # lld links the Polars library in under a second instead of ~9 s (config.nims)
@@ -143,6 +152,11 @@ jobs:
       # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror;
       # plotly (nim-plotly) is for the explainers' figures (El Niño, Above 4000, Move 37);
       # db_connector is for the SQLite sections of the 0.6 dev log and Move 37
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: nimble-docs-2.2.4-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: nimble-docs-2.2.4-
       - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim plotly@0.3.3 db_connector
       # the posts, then the index (it checks them), the coverage map and the OpenSpec
       # page, in one program (docs/all.nim)
