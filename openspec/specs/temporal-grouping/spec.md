@@ -110,3 +110,31 @@ shape: (2, 4)
 #### Scenario: Missing keys
 - **WHEN** `joinAsof` is called without `on` and without `leftOn` and `rightOn`
 - **THEN** `ValueError` is raised
+
+### Requirement: Group keys by name
+The `groupBy` parameter of `rolling` and `groupByDynamic` SHALL take a column name, several names, an expression or several expressions (`groupBy = "store"`, `["store", "aisle"]`, `[col("store")]`).
+
+```nim
+let df = newDataFrame(series("day", @[1, 2, 3, 1, 2]), series("store", @["a", "a", "a", "b", "b"]),
+                      series("sales", @[1, 2, 3, 10, 20]))
+echo df.rolling("day", "2i", groupBy = "store").agg(col("sales").sum)
+```
+
+```text
+shape: (5, 3)
+┌───────┬─────┬───────┐
+│ store ┆ day ┆ sales │
+│ ---   ┆ --- ┆ ---   │
+│ str   ┆ i64 ┆ i64   │
+╞═══════╪═════╪═══════╡
+│ a     ┆ 1   ┆ 1     │
+│ a     ┆ 2   ┆ 3     │
+│ a     ┆ 3   ┆ 5     │
+│ b     ┆ 1   ┆ 10    │
+│ b     ┆ 2   ┆ 30    │
+└───────┴─────┴───────┘
+```
+
+#### Scenario: Expressions still work
+- **WHEN** `groupBy = [col("store")]` is passed
+- **THEN** the result is the same as with `groupBy = "store"`

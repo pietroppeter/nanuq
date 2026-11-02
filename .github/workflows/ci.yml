@@ -101,8 +101,17 @@ jobs:
           nim-version: "2.2.4"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       # tests/test_datamancer.nim and test_arraymancer.nim need Datamancer (an optional
-      # dependency, which brings Arraymancer)
-      - run: nimble install -y datamancer
+      # dependency, which brings Arraymancer); tests/test_database.nim needs db_connector
+      - run: nimble install -y datamancer db_connector
+      # tests/test_cloud.nim writes to a local S3 (moto) when moto_server is installed.
+      # A venv keeps it away from the runner's system pyOpenSSL, which breaks with
+      # the cryptography that pip brings; only moto_server goes on the PATH.
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/moto"
+          "$RUNNER_TEMP/moto/bin/pip" install -q "moto[server]"
+          mkdir -p "$RUNNER_TEMP/bin"
+          ln -s "$RUNNER_TEMP/moto/bin/moto_server" "$RUNNER_TEMP/bin/moto_server"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       # -d:nanuqNoCargo: fail rather than silently rebuild Rust here
       - run: for t in tests/test_*.nim; do nim r -d:nanuqNoCargo --hints:off "$t"; done
       - run: nim r -d:nanuqNoCargo --hints:off examples/basic.nim
@@ -124,8 +133,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: sudo apt-get update && sudo apt-get install -y libpcre3 libcairo2 liblapack3 libblas3
       # ggplotnim is for the plotting post; stb_image comes from its GitHub mirror;
-      # plotly (nim-plotly) is for the explainers' figures (El Niño, Above 4000)
-      - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim plotly@0.3.3
+      # plotly (nim-plotly) is for the explainers' figures (El Niño, Above 4000);
+      # db_connector is for the SQLite section of the 0.6 dev log
+      - run: nimble install -y nimib https://github.com/define-private-public/stb_image-Nim ggplotnim plotly@0.3.3 db_connector
       - name: Render dev log posts
         run: for f in docs/blog/*.nim; do nim r -d:nanuqNoCargo --hints:off "$f"; done
       # the index lists the rendered posts, so it comes after them

@@ -6,7 +6,10 @@ name: Release lib
 # (src/nanuq/lib-sums.txt). Running it by hand (workflow_dispatch) builds and tests
 # without publishing, unless "publish" is ticked on main: then the release step
 # also creates the lib-v<version> tag on the commit it built. PRs that change this
-# workflow build and test without publishing.
+# workflow build and test without publishing. The smoke tests also check the
+# per-platform link flags in src/nanuq/ffi.nim (cloud storage added crypt32 on
+# Windows and SystemConfiguration on macOS), so a PR that changes those should
+# touch this file or be run by hand.
 #
 # The archives are built with a pinned nightly Rust and the crate features
 # "nightly" (Polars' SIMD and nightly-only code paths) and "jemalloc" (the
@@ -69,7 +72,7 @@ jobs:
     env:
       ARCHIVE: libnanuq_ffi-${{ needs.version.outputs.version }}-${{ matrix.target }}${{ matrix.variant }}.tar.gz
       MACOSX_DEPLOYMENT_TARGET: "11.0"
-      TOOLCHAIN: nightly-2026-04-01   # pinned, so release builds are reproducible
+      TOOLCHAIN: nightly-2026-09-01   # pinned, so release builds are reproducible; the toolchain of the Polars tag in src/rust/Cargo.toml (py-2.1.0)
     defaults:
       run:
         shell: bash
@@ -89,7 +92,12 @@ jobs:
         run: |
           if [ -n "${{ matrix.cpu }}" ]; then export RUSTFLAGS="-C target-cpu=${{ matrix.cpu }}"; fi
           # 64 KiB pages, so the library also runs on aarch64 kernels that use them (as py-polars)
-          if [ "${{ matrix.target }}" = aarch64-unknown-linux-gnu ]; then export JEMALLOC_SYS_WITH_LG_PAGE=16; fi
+          if [ "${{ matrix.target }}" = aarch64-unknown-linux-gnu ]; then
+            export JEMALLOC_SYS_WITH_LG_PAGE=16
+            # fat LTO in one codegen unit runs the 16 GB arm runner out of memory
+            # since 0.6 (cloud storage), so this target uses thin LTO
+            export CARGO_PROFILE_DIST_LTO=thin CARGO_PROFILE_DIST_CODEGEN_UNITS=16
+          fi
           cargo "+$TOOLCHAIN" build --profile dist --manifest-path src/rust/Cargo.toml \
             --target ${{ matrix.target }} --features "${{ matrix.features }}"
           tar czf "$ARCHIVE" -C src/rust/target/${{ matrix.target }}/dist libnanuq_ffi.a

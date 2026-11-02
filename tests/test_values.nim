@@ -1,4 +1,4 @@
-import std/[unittest, options]
+import std/[unittest, options, algorithm]
 import nanuq
 
 proc ints(xs: openArray[int]): DataFrame = newDataFrame(series("x", xs))
@@ -31,10 +31,10 @@ suite "picking values":
     check col("x").gather(3).one(df).toList("r", int) == @[40]
     check col("x").gatherEvery(2, 1).one(df).toList("r", int) == @[20, 40]
   test "topK and bottomK":
-    check col("x").topK(2).one(df).toList("r", int) == @[40, 30]
-    check col("x").bottomK(2).one(df).toList("r", int) == @[10, 20]
+    check col("x").topK(2).sort(descending = true).one(df).toList("r", int) == @[40, 30]
+    check col("x").bottomK(2).sort.one(df).toList("r", int) == @[10, 20]
     let f = newDataFrame(series("y", [1982, 1997, 2015]), series("o", [2.2, 2.4, 2.6]))
-    check f.select(col("y").topKBy("o", k = 2)).toList("y", int) == @[2015, 1997]
+    check f.select(col("y").topKBy("o", k = 2)).toList("y", int).sorted == @[1997, 2015]
     check f.select(col("y").bottomKBy(col("o"), k = 1)).toList("y", int) == @[1982]
   test "indexOf and searchSorted":
     check col("x").indexOf(30).one(df).toList("r", int) == @[2]

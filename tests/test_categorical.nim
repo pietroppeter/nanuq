@@ -57,7 +57,7 @@ suite "run-time Enum and Categorical":
     let df = newDataFrame(series("x", ["high", "low", "high"])).select(col.x.cast(t))
     check df.dtype("x") == t
     check df.dtype("x").categories == @["low", "high"]
-    check df.select(col.x.cat.getCategories).toList("x", string) == @["low", "high"]
+    check not compiles(col.x.cat.getCategories)  # removed in Polars 2.0
     expect ValueError:
       discard Enum(["a", "a"])
 

@@ -161,13 +161,13 @@ type
     ## model yet.
     Boolean, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32,
     UInt64, Float32, Float64, String, Null, Date, Datetime, Duration, Time, Categorical,
-    Enum, List, Array, Struct, Other
+    Enum, List, Array, Struct, Binary, Decimal, Other
 
   DataType* = object
     ## A Polars data type. Compare with the constants (`Int64`, `String`, ...) or
     ## with a Nim type (`dtype == Date`, `dtype == DateTime`). Nested types are
     ## built with `List(inner)`, `Array(inner, width)` and `Struct(fields)`.
-    ## Dtypes Nanuq does not model yet (decimals, binary, ...) have kind
+    ## Dtypes Nanuq does not model yet (Int128, Object, ...) have kind
     ## `DataTypeKind.Other` and keep Polars' name.
     case kind*: DataTypeKind
     of DataTypeKind.Other: name*: string
@@ -183,6 +183,9 @@ type
       width*: int               ## Number of values in each array
     of DataTypeKind.Struct:
       fields*: seq[Field]       ## The fields, in order
+    of DataTypeKind.Decimal:
+      precision*: int           ## Total number of digits (1 to 38)
+      scale*: int               ## Digits after the decimal point
     else: discard
 
   Field* = object
@@ -219,6 +222,8 @@ const
   Float64* = DataType(kind: DataTypeKind.Float64)
   String* = DataType(kind: DataTypeKind.String)
   Null* = DataType(kind: DataTypeKind.Null)
+  Binary* = DataType(kind: DataTypeKind.Binary)
+    ## Raw bytes. Nanuq reads them as strings (which hold any bytes).
   Categorical* = DataType(kind: DataTypeKind.Categorical)
     ## Strings stored as numbers, with categories found in the data (Polars'
     ## global categories). For a fixed set of values use `Enum`.
@@ -230,6 +235,7 @@ proc `==`*(a, b: DataType): bool {.noSideEffect.} =
   of DataTypeKind.Datetime, DataTypeKind.Duration:
     a.timeUnit == b.timeUnit and a.timeZone == b.timeZone
   of DataTypeKind.Enum: a.categories == b.categories
+  of DataTypeKind.Decimal: a.precision == b.precision and a.scale == b.scale
   of DataTypeKind.List: a.listInner[0] == b.listInner[0]
   of DataTypeKind.Array: a.width == b.width and a.arrayInner[0] == b.arrayInner[0]
   of DataTypeKind.Struct:
@@ -241,6 +247,15 @@ proc `==`*(a, b: DataType): bool {.noSideEffect.} =
   else: true
 
 proc `==`*(a, b: Field): bool = a.name == b.name and a.dtype == b.dtype
+
+proc Decimal*(precision = 38, scale = 0): DataType =
+  ## Polars' `Decimal`: exact numbers with `precision` digits, `scale` of them
+  ## after the point (`Decimal(10, 2)` for money). Read them as `string` or
+  ## `float`.
+  if precision notin 1..38 or scale notin 0..precision:
+    raise newException(ValueError, "Decimal precision must be 1 to 38 and scale 0 to precision, not (" &
+                       $precision & ", " & $scale & ")")
+  DataType(kind: DataTypeKind.Decimal, precision: precision, scale: scale)
 
 proc List*(inner: DataType): DataType =
   ## Polars' `List`: lists of any length of `inner` values (`List(Int64)`). Nim
@@ -337,6 +352,8 @@ proc shortName(t: DataType): string =
     let sh = t.shape
     "array[" & shortName(d) & ", " & (if sh.len == 1: $sh[0] else: "(" & sh.join(", ") & ")") & "]"
   of DataTypeKind.Struct: "struct[" & $t.fields.len & "]"
+  of DataTypeKind.Binary: "binary"
+  of DataTypeKind.Decimal: "decimal[" & $t.precision & "," & $t.scale & "]"
   of DataTypeKind.Other: t.name
 
 proc `$`*(t: DataType): string =
@@ -364,6 +381,7 @@ proc `$`*(t: DataType): string =
     var fs: seq[string]
     for f in t.fields: fs.add f.name.escape & ": " & $f.dtype
     "Struct({" & fs.join(", ") & "})"
+  of DataTypeKind.Decimal: "Decimal(" & $t.precision & ", " & $t.scale & ")"
   of DataTypeKind.Other: t.name
   else: $t.kind
 
@@ -458,7 +476,7 @@ proc toSpecs(ts: openArray[DataType]): DtypeSpecs =
       result.zones[i] = t.timeZone
     if t.kind == DataTypeKind.Enum:
       result.cats[i] = cstrings(t.categories)   # points into ts, alive for the call
-    if t.kind in {DataTypeKind.List, DataTypeKind.Array, DataTypeKind.Struct}:
+    if t.kind in {DataTypeKind.List, DataTypeKind.Array, DataTypeKind.Struct, DataTypeKind.Decimal}:
       let h = toHandle(t)
       result.handles.add h
       result.specs[i].nested = h
@@ -483,6 +501,8 @@ proc toHandle(t: DataType): ptr NqDataType =
       hs[i] = toHandle(f.dtype)
     result = nq_dtype_struct(names.firstOrNil, hs.firstOrNil, hs.len.csize_t)
     for h in hs: nq_dtype_free(h)
+  of DataTypeKind.Decimal:
+    result = nq_dtype_decimal(t.precision.csize_t, t.scale.csize_t)
   else:
     let sp = toSpecs([t])
     result = nq_dtype_from_spec(sp.specs[0].unsafeAddr)
@@ -526,6 +546,10 @@ proc fromHandle(h: ptr NqDataType): DataType =
       fs[i] = Field(name: takeString nq_dtype_field_name(h, i.csize_t), dtype: fromHandle(f))
       nq_dtype_free(f)
     Struct(fs)
+  of DataTypeKind.Decimal:
+    var p, sc: csize_t
+    if not nq_dtype_decimal_params(h, addr p, addr sc): raiseLast()
+    DataType(kind: DataTypeKind.Decimal, precision: p.int, scale: sc.int)
   else:
     DataType(kind: DataTypeKind(k))
 
@@ -684,16 +708,25 @@ proc castTo*(s: Series, dtype: DataType, strict = true): Series
 proc series*[T: SizedNumber](name: string, data: openArray[T]): Series =
   ## A column of the Polars type with the size of `T`: `series("a", [1'i32, 2])`
   ## is Int32, `float32` gives Float32.
-  when T is float32:
+  when T is uint64:  # all 64 bits, above high(int64) too
+    result = wrap nq_series_new_u64(name.cstring, (if data.len > 0: data[0].unsafeAddr else: nil),
+                                  nil, data.len.csize_t)
+  elif T is float32:
     var buf = newSeq[float](data.len)
     for i, x in data: buf[i] = x.float
   else:
     var buf = newSeq[int](data.len)
     for i, x in data: buf[i] = x.int
-  series(name, buf).castTo(dataType(T))
+  when T isnot uint64: result = series(name, buf).castTo(dataType(T))
 
 proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
-  when T is float32:
+  when T is uint64:
+    var buf = newSeq[uint64](data.len)
+    var valid = newSeq[bool](data.len)
+    for i, x in data:
+      if x.isSome: (buf[i] = x.get; valid[i] = true)
+    result = wrap nq_series_new_u64(name.cstring, buf.firstOrNil, valid.firstOrNil, data.len.csize_t)
+  elif T is float32:
     var buf = newSeq[Option[float]](data.len)
     for i, x in data:
       if x.isSome: buf[i] = some(x.get.float)
@@ -701,7 +734,7 @@ proc series*[T: SizedNumber](name: string, data: openArray[Option[T]]): Series =
     var buf = newSeq[Option[int]](data.len)
     for i, x in data:
       if x.isSome: buf[i] = some(x.get.int)
-  series(name, buf).castTo(dataType(T))
+  when T isnot uint64: result = series(name, buf).castTo(dataType(T))
 
 proc series*[T: NimEnum](name: string, data: openArray[T]): Series =
   ## An Enum column from Nim enum values; the categories are all values of `T`.
@@ -849,6 +882,9 @@ proc blockColumn(line: NimNode): NimNode =
     vals = opts
   newCall(bindSym("series", brOpen), name, vals)
 
+proc emptyFrameOf(schema: Schema): DataFrame
+proc emptyFrameOf(schema: openArray[(string, DataType)]): DataFrame
+
 macro newDataFrame*(columns: varargs[untyped]): untyped =
   ## Builds a DataFrame from columns of equal length, given as series or as a
   ## block with one `name: [values]` line per column. In the block, a name that
@@ -860,6 +896,12 @@ macro newDataFrame*(columns: varargs[untyped]): untyped =
   ##     rider: ["Pogačar", "Seixas"]
   ##     wins: [22, nil]
   ##     "win %": [0.31, 0.12]
+  ##
+  ## `newDataFrame(schema = {"a": Int64, "b": String})` is an empty frame with
+  ## those columns (Python's `pl.DataFrame(schema=...)`).
+  if columns.len == 1 and columns[0].kind == nnkExprEqExpr and
+      columns[0][0].eqIdent("schema"):
+    return newCall(bindSym"emptyFrameOf", columns[0][1])
   if columns.len == 1 and columns[0].kind == nnkStmtList:
     result = newCall(bindSym"newDataFrameOf")
     for line in columns[0]: result.add blockColumn(line)
@@ -912,6 +954,26 @@ proc getBool*(df: DataFrame, column: string, row: int): bool =
   if not nq_df_get_bool(df.raw, column.cstring, row.csize_t, result.addr): raiseLast()
 
 proc getStr*(df: DataFrame, column: string, row: int): string =
+  if df.dtype(column).kind == DataTypeKind.Binary:
+    # raw bytes may hold zeros, which a C string can't: read the one row as a column
+    if row < 0 or row >= df.height:
+      raise newException(IndexDefect, "row " & $row & " not in 0 ..< " & $df.height)
+    let lazyAll = wrap nq_df_lazy(df.raw)
+    let lazyOne = wrap nq_lf_slice(lazyAll.raw, row.int64, 1)
+    let one = wrap nq_lf_collect(lazyOne.raw)
+    let size = nq_df_column_str_size(one.raw, column.cstring)
+    if size < 0: raiseLast()
+    result = newString(size)
+    var offsets: array[2, uint64]
+    var valid: array[1, bool]
+    if not nq_df_column_str(one.raw, column.cstring,
+                            (if size > 0: cast[ptr uint8](result[0].addr) else: nil), size.csize_t,
+                            offsets[0].addr, valid[0].addr, 1):
+      raiseLast()
+    if not valid[0]:
+      raise newException(InvalidOperationError, "cannot read null in column '" & column & "' row " &
+                         $row & " as string")
+    return
   takeString nq_df_get_str(df.raw, column.cstring, row.csize_t)
 
 proc `[]`*(df: DataFrame, column: string, row: int, T: typedesc[int]): int = df.getInt(column, row)
@@ -1049,6 +1111,11 @@ proc readColumn[T](df: DataFrame, column: string, _: typedesc[T]): (seq[T], seq[
     if not nq_df_column_f64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
       raiseLast()
     (vals, valid)
+  elif T is uint64:  # all 64 bits, above high(int64) too
+    var vals = newSeq[uint64](n)
+    if not nq_df_column_u64(df.raw, column.cstring, vals.firstOrNil, valid.firstOrNil, n.csize_t):
+      raiseLast()
+    (vals, valid)
   elif T is SizedNumber:
     let (wide, ok) = readColumn(df, column, (when T is float32: float else: int))
     var vals = newSeq[T](n)
@@ -1168,16 +1235,23 @@ template defBinOp(name, op) =
   proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Expr, b: T): Expr = binary(a, op, lit(b))
   proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Expr): Expr = binary(lit(a), op, b)
 
+template defCmpOp(name, op, mirrored) =
+  ## Comparisons with a value on the left are mirrored (`0 < x` is `x > 0`), as in
+  ## Python, so the result keeps the column's name instead of "literal".
+  proc name*(a, b: Expr): Expr = binary(a, op, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Expr, b: T): Expr = binary(a, op, lit(b))
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Expr): Expr = binary(b, mirrored, lit(a))
+
 defBinOp(`+`, nqAdd)
 defBinOp(`-`, nqSub)
 defBinOp(`*`, nqMul)
 defBinOp(`/`, nqDiv)    # true division, as in Python Polars and Nim
-defBinOp(`==`, nqEq)
-defBinOp(`!=`, nqNotEq)
-defBinOp(`<`, nqLt)
-defBinOp(`<=`, nqLtEq)
-defBinOp(`>`, nqGt)
-defBinOp(`>=`, nqGtEq)
+defCmpOp(`==`, nqEq, nqEq)
+defCmpOp(`!=`, nqNotEq, nqNotEq)
+defCmpOp(`<`, nqLt, nqGt)
+defCmpOp(`<=`, nqLtEq, nqGtEq)
+defCmpOp(`>`, nqGt, nqLt)
+defCmpOp(`>=`, nqGtEq, nqLtEq)
 defBinOp(`and`, nqAnd)
 defBinOp(`or`, nqOr)
 defBinOp(`mod`, nqMod)
@@ -1535,6 +1609,9 @@ proc over*(e: Expr, partitionBy: openArray[string]): Expr =
 proc over*(e: Expr, partitionBy: Expr): Expr = e.over([partitionBy])
   ## Window over one key expression: `col.x.shift.over(col.g)`.
 proc over*(e: Expr, partitionBy: string): Expr = e.over([col(partitionBy)])
+proc over*(e: Expr, a, b: string, more: varargs[string]): Expr =
+  ## Window over several key columns: `col.x.sum.over("g", "h")`.
+  e.over(@[a, b] & @more)
 
 # ---------------------------------------------------------------------------
 # Column selectors
@@ -1613,6 +1690,33 @@ proc exclude*(s: Selector, names: varargs[string]): Selector =
   result = s
   for n in names: result.excluded.add n
 
+template defSelectorOp(name) =
+  # Without these, `all() > 0` goes through system's `>` template (`0 < all()`), which
+  # puts the literal first and names every result column "literal".
+  proc name*(a: Selector, b: Expr): Expr = name(a.toExpr, b)
+  proc name*(a: Expr, b: Selector): Expr = name(a, b.toExpr)
+  proc name*(a, b: Selector): Expr = name(a.toExpr, b.toExpr)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: Selector, b: T): Expr =
+    name(a.toExpr, b)
+  proc name*[T: SomeNumber | string | bool | TemporalValue | NimEnum](a: T, b: Selector): Expr =
+    name(a, b.toExpr)
+
+defSelectorOp(`+`)
+defSelectorOp(`-`)
+defSelectorOp(`*`)
+defSelectorOp(`/`)
+defSelectorOp(`==`)
+defSelectorOp(`!=`)
+defSelectorOp(`<`)
+defSelectorOp(`<=`)
+defSelectorOp(`>`)
+defSelectorOp(`>=`)
+defSelectorOp(`and`)
+defSelectorOp(`or`)
+defSelectorOp(`mod`)
+defSelectorOp(`div`)
+defSelectorOp(`^`)
+
 proc name*(e: Expr): ExprName = ExprName(e: e)
 proc suffix*(n: ExprName, s: string): Expr =
   ## Appends `s` to the name of every column the expression produces:
@@ -1629,6 +1733,9 @@ proc prefix*(n: ExprName, s: string): Expr =
 proc lazy*(df: DataFrame): LazyFrame = wrap nq_df_lazy(df.raw)
 
 proc collect*(lf: LazyFrame): DataFrame = wrap nq_lf_collect(lf.raw)
+proc collectEager(lf: LazyFrame): DataFrame = wrap nq_lf_collect_eager(lf.raw)
+  ## Collects the way eager DataFrame methods do in Python Polars: no plan
+  ## optimizations, so errors and row order are the eager ones.
 proc collect*(df: DataFrame): DataFrame {.error: "this is already a DataFrame " &
     "(eager groupBy(...).agg(...) returns one since 0.4): drop the .collect".} =
   ## Catches a leftover `.collect` on a DataFrame at compile time, instead of
@@ -1711,9 +1818,9 @@ proc `cast`*(lf: LazyFrame, dtypes: openArray[(string, DataType)], strict = true
   ## Casts the named columns: `lf.cast({"a": Int32, "b": Float32})`.
   var names = newSeq[cstring](dtypes.len)
   var ts = newSeq[DataType](dtypes.len)
-  for i, (name, t) in dtypes:
-    names[i] = name.cstring
-    ts[i] = t
+  for i in 0 ..< dtypes.len:
+    names[i] = dtypes[i][0].cstring  # not a loop copy, which dies each round
+    ts[i] = dtypes[i][1]
   let sp = toSpecs(ts)
   wrap nq_lf_cast(lf.raw, names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t, strict)
 
@@ -1826,9 +1933,9 @@ proc rename*(lf: LazyFrame, mapping: openArray[(string, string)], strict = true)
   ## Renames columns: `rename({"old": "new"})`. With `strict`, a missing column
   ## raises `PolarsError`.
   var olds, news: seq[cstring]
-  for (o, n) in mapping:
-    olds.add o.cstring
-    news.add n.cstring
+  for i in 0 ..< mapping.len:
+    olds.add mapping[i][0].cstring  # not a loop copy, which dies each round
+    news.add mapping[i][1].cstring
   wrap nq_lf_rename(lf.raw, olds.firstOrNil, news.firstOrNil, olds.len.csize_t, strict)
 
 proc slice*(lf: LazyFrame, offset: int, length: int): LazyFrame =
@@ -1891,26 +1998,101 @@ proc selectColumns(lf: LazyFrame, columns: openArray[string]): LazyFrame =
   for i, c in columns: sel[i] = col(c)
   lf.select(sel)
 
+type CsvEncoding* {.pure.} = enum
+  ## Text encoding of a CSV file: `Utf8Lossy` replaces invalid UTF-8 with `�`
+  ## instead of raising (Python's `encoding="utf8-lossy"`).
+  Utf8, Utf8Lossy
+
+type StorageOptions* = openArray[(string, string)]
+  ## Options for cloud storage, as Python's `storage_options`:
+  ## `{"aws_region": "eu-west-1"}`. Empty: Polars reads credentials from the
+  ## environment.
+
+proc isCloudPath*(path: string): bool =
+  ## True for `s3://`, `gs://`, `az://`, `abfss://`, `hf://`, `http(s)://` and other
+  ## object-store URIs (not `file://`).
+  let i = path.find("://")
+  i > 0 and not path.startsWith("file:")
+
+proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
+proc toOptB(x: bool): Option[bool] = some(x)
+proc toOptB(x: Option[bool]): Option[bool] = x
+
+proc cloudOptions(path: string, storage: StorageOptions): ptr NqCloudOptions =
+  if storage.len == 0: return nil
+  var ks, vs: seq[cstring]
+  for p in storage:
+    ks.add p[0].cstring
+    vs.add p[1].cstring
+  result = nq_cloud_options_new(path.cstring, ks.firstOrNil, vs.firstOrNil, ks.len.csize_t)
+  if result == nil: raiseLast()
+
+proc csvOpts(separator: char, includeHeader: bool, nullValue: string,
+             quoteStyle: QuoteStyle, floatPrecision: Option[int], decimalComma,
+             maintainOrder, mkdir: bool): NqSinkOptions
+proc sinkOptions(format: uint8, maintainOrder, mkdir: bool): NqSinkOptions
+proc writeCloud(df: DataFrame, path: string, o: NqSinkOptions, storage: StorageOptions)
+
+template withCloud(path: string, storage: StorageOptions, c, body: untyped) =
+  let c = cloudOptions(path, storage)
+  try:
+    body
+  finally:
+    if c != nil: nq_cloud_options_free(c)
+
 proc scanCsvImpl(path: string, data: ptr string, separator: char, hasHeader: bool,
                  nullValues: openArray[string],
                  schemaOverrides: openArray[(string, DataType)],
                  skipRows: int, nRows: Option[int], columns: openArray[string],
                  inferSchemaLength: Option[int],
-                 ignoreErrors, decimalComma, tryParseDates: bool): LazyFrame =
+                 ignoreErrors, decimalComma, tryParseDates: bool,
+                 quoteChar: Option[char], encoding: CsvEncoding,
+                 newColumns: openArray[string], commentPrefix = "",
+                 storageOptions: StorageOptions = [], fileNames = false): LazyFrame =
+  if newColumns.len > 0 and schemaOverrides.len > 0 and not fileNames:
+    # schemaOverrides use the new names, as in Polars: map them back to the
+    # names in the file first
+    let plain = scanCsvImpl(path, data, separator, hasHeader, nullValues, [], skipRows,
+                            nRows, [], inferSchemaLength, ignoreErrors, decimalComma,
+                            tryParseDates, quoteChar, encoding, [], commentPrefix,
+                            storageOptions)
+    var old: seq[string]
+    for name, _ in plain.collectSchema: old.add name
+    var renamed: seq[(string, DataType)]
+
+    for (n, t) in schemaOverrides:
+      let i = newColumns.find(n)
+      renamed.add (if i >= 0 and i < old.len: (old[i], t) else: (n, t))
+    return scanCsvImpl(path, data, separator, hasHeader, nullValues, renamed, skipRows,
+                       nRows, columns, inferSchemaLength, ignoreErrors, decimalComma,
+                       tryParseDates, quoteChar, encoding, newColumns, commentPrefix,
+                       storageOptions, fileNames = true)
   let nulls = cstrings(nullValues)
   var names = newSeq[cstring](schemaOverrides.len)
   var ts = newSeq[DataType](schemaOverrides.len)
-  for i, (n, t) in schemaOverrides:
-    names[i] = n.cstring
-    ts[i] = t
+  for i in 0 ..< schemaOverrides.len:
+    # index, not a loop copy: the cstring must point at a string that lives on
+    names[i] = schemaOverrides[i][0].cstring
+    ts[i] = schemaOverrides[i][1]
   let sp = toSpecs(ts)
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_csv(path.cstring, dp, dl, separator.uint8, hasHeader,
-                               nulls.firstOrNil, nulls.len.csize_t,
-                               names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
-                               skipRows.csize_t, nRows.toC,
-                               inferSchemaLength.toC, ignoreErrors, decimalComma,
-                               tryParseDates)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_csv(path.cstring, dp, dl, separator.uint8, hasHeader,
+                                 nulls.firstOrNil, nulls.len.csize_t,
+                                 names.firstOrNil, sp.specs.firstOrNil, names.len.csize_t,
+                                 skipRows.csize_t, nRows.toC,
+                                 inferSchemaLength.toC, ignoreErrors, decimalComma,
+                                 tryParseDates,
+                                 (if quoteChar.isSome: quoteChar.get.int32 else: -1'i32),
+                                 encoding == CsvEncoding.Utf8Lossy, cOrNil(commentPrefix), c)
+  if newColumns.len > 0:
+    var pairs: seq[(string, string)]
+    var i = 0
+    for name, _ in result.collectSchema:
+      if i >= newColumns.len: break
+      pairs.add (name, newColumns[i])
+      inc i
+    result = result.rename(pairs)
   result = result.selectColumns(columns)
 
 proc scanCsv*(path: string, separator = ',', hasHeader = true,
@@ -1919,7 +2101,10 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): LazyFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = [], commentPrefix = "",
+              storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads a CSV file; nothing is read until the query runs. `path` may be
   ## a glob such as `"logs/*.csv"` when every file has the same columns.
   ##
@@ -1930,10 +2115,14 @@ proc scanCsv*(path: string, separator = ',', hasHeader = true,
   ## before the header, `nRows` limits the rows read and `columns` keeps only
   ## those columns, in that order. With `tryParseDates`, string columns that look
   ## like ISO dates, datetimes or times become `Date`, Datetime or `TimeOfDay`
-  ## columns.
+  ## columns. `quoteChar = none(char)` turns quoting off, `newColumns` renames
+  ## the first columns (handy with `hasHeader = false`, which names them column_0,
+  ## column_1, ... as Polars 2 does). Lines starting with `commentPrefix` (e.g.
+  ## `"#"`) are skipped. `path` may be a cloud URI (`s3://bucket/x.csv`,
+  ## `https://...`), with credentials in `storageOptions` or the environment.
   scanCsvImpl(path, nil, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates)
+              tryParseDates, quoteChar, encoding, newColumns, commentPrefix, storageOptions)
 
 proc readCsv*(path: string, separator = ',', hasHeader = true,
               nullValues: openArray[string] = [],
@@ -1941,21 +2130,31 @@ proc readCsv*(path: string, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = [], commentPrefix = "",
+              storageOptions: StorageOptions = []): DataFrame =
   ## Reads a CSV file now: `scanCsv(...).collect`, with the same options.
   ##
   ## .. code-block:: nim
   ##   let df = readCsv("data.csv", separator = ';', nullValues = ["NA"],
   ##                    schemaOverrides = {"bears": Int64})
   scanCsv(path, separator, hasHeader, nullValues, schemaOverrides, skipRows, nRows,
-          columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates).collect
+          columns, inferSchemaLength, ignoreErrors, decimalComma, tryParseDates, quoteChar,
+          encoding, newColumns, commentPrefix, storageOptions).collect
 
 proc writeCsv*(df: DataFrame, path: string, separator = ',', includeHeader = true,
                nullValue = "", quoteStyle = QuoteStyle.Necessary,
-               floatPrecision: int | Option[int] = none(int), decimalComma = false) =
+               floatPrecision: int | Option[int] = none(int), decimalComma = false,
+               storageOptions: StorageOptions = []) =
   ## Writes `df` as CSV. Nulls are written as `nullValue`; `floatPrecision`
   ## sets the number of decimals for floats (`none(int)`: as many as needed).
+  ## A cloud URI `path` is written through a sink, with `storageOptions`.
   let p = toOpt(floatPrecision)
+  if isCloudPath(path):
+    writeCloud(df, path, csvOpts(separator, includeHeader, nullValue, quoteStyle, p,
+                                 decimalComma, true, false), storageOptions)
+    return
   if not nq_df_write_csv(df.raw, path.cstring, separator.uint8, includeHeader,
                          nullValue.cstring, NqQuoteStyle(ord(quoteStyle)),
                          (if p.isSome: p.get.int32 else: -1'i32), decimalComma):
@@ -1967,13 +2166,15 @@ proc readCsv*(source: Stream, separator = ',', hasHeader = true,
               skipRows = 0, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [],
               inferSchemaLength: int | Option[int] = some(100),
-              ignoreErrors = false, decimalComma = false, tryParseDates = false): DataFrame =
+              ignoreErrors = false, decimalComma = false, tryParseDates = false,
+              quoteChar = some('"'), encoding = CsvEncoding.Utf8,
+              newColumns: openArray[string] = [], commentPrefix = ""): DataFrame =
   ## Reads CSV from a stream (all of it, now), with the same options as reading
   ## a file: `readCsv(newStringStream("a,b\n1,2\n"))`.
   var data = source.readAll
   scanCsvImpl("", addr data, separator, hasHeader, nullValues, schemaOverrides, skipRows,
               toOpt(nRows), columns, toOpt(inferSchemaLength), ignoreErrors, decimalComma,
-              tryParseDates).collect
+              tryParseDates, quoteChar, encoding, newColumns, commentPrefix).collect
 
 # ---------------------------------------------------------------------------
 # Parquet and IPC
@@ -1988,7 +2189,10 @@ type
     ## Codec for `writeIpc`.
     Uncompressed, Lz4, Zstd
 
-proc cOrNil(s: string): cstring = (if s.len == 0: nil else: s.cstring)
+proc parquetOpts(compression: ParquetCompression, compressionLevel: Option[int],
+                 statistics: bool, rowGroupSize: Option[int], maintainOrder,
+                 mkdir: bool): NqSinkOptions
+proc ipcOpts(compression: IpcCompression, maintainOrder, mkdir: bool): NqSinkOptions
 
 proc keepRowIndex(columns: openArray[string], rowIndexName: string): seq[string] =
   ## `columns` keeps the row index, as in Polars.
@@ -1997,26 +2201,38 @@ proc keepRowIndex(columns: openArray[string], rowIndexName: string): seq[string]
 
 proc scanParquetImpl(path: string, data: ptr string, nRows: Option[int],
                      columns: openArray[string], rowIndexName: string,
-                     rowIndexOffset: int, lowMemory: bool): LazyFrame =
+                     rowIndexOffset: int, lowMemory: bool,
+                     hivePartitioning = none(bool),
+                     storageOptions: StorageOptions = []): LazyFrame =
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
-                                   rowIndexOffset.uint32, lowMemory)
+  let hive = (if hivePartitioning.isNone: -1'i32 else: hivePartitioning.get.int32)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_parquet(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                                     rowIndexOffset.uint32, lowMemory, hive, c)
   result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanParquet*(path: string, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
-                  rowIndexOffset = 0, lowMemory = false): LazyFrame =
+                  rowIndexOffset = 0, lowMemory = false,
+                  hivePartitioning: bool | Option[bool] = none(bool),
+                  storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads a Parquet file, or a glob of files with the same columns.
   ## `nRows` limits the rows read, `columns` keeps only those columns, and a
   ## `rowIndexName` adds a row number column first, counting from `rowIndexOffset`.
-  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, lowMemory)
+  ## `hivePartitioning` reads `key=value` directories as columns (`none`: when the
+  ## path is a directory or glob). `path` may be a cloud URI, with credentials in
+  ## `storageOptions` or the environment.
+  scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, lowMemory,
+                  toOptB(hivePartitioning), storageOptions)
 
 proc readParquet*(path: string, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
-                  rowIndexOffset = 0, lowMemory = false): DataFrame =
+                  rowIndexOffset = 0, lowMemory = false,
+                  hivePartitioning: bool | Option[bool] = none(bool),
+                  storageOptions: StorageOptions = []): DataFrame =
   ## Reads a Parquet file now: `scanParquet(...).collect`.
   scanParquetImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
-                  lowMemory).collect
+                  lowMemory, toOptB(hivePartitioning), storageOptions).collect
 
 proc readParquet*(source: Stream, nRows: int | Option[int] = none(int),
                   columns: openArray[string] = [], rowIndexName = "",
@@ -2028,13 +2244,19 @@ proc readParquet*(source: Stream, nRows: int | Option[int] = none(int),
 
 proc writeParquet*(df: DataFrame, path: string, compression = ParquetCompression.Zstd,
                    compressionLevel: int | Option[int] = none(int), statistics = true,
-                   rowGroupSize: int | Option[int] = none(int)) =
+                   rowGroupSize: int | Option[int] = none(int),
+                   storageOptions: StorageOptions = []) =
   ## Writes `df` as a Parquet file. `compressionLevel` applies to `Gzip` (0-9),
   ## `Brotli` (0-11) and `Zstd` (1-22); `none(int)` uses the codec's default.
   ## `statistics` writes min, max and null counts per row group, which let scans
-  ## skip row groups.
+  ## skip row groups. A cloud URI `path` (`s3://bucket/x.parquet`) is written
+  ## through a sink, with credentials in `storageOptions` or the environment.
   let lvl = toOpt(compressionLevel)
   let rg = toOpt(rowGroupSize)
+  if isCloudPath(path):
+    writeCloud(df, path, parquetOpts(compression, lvl, statistics, rg, true, false),
+               storageOptions)
+    return
   if lvl.isSome and compression notin {ParquetCompression.Gzip, ParquetCompression.Brotli,
                                        ParquetCompression.Zstd}:
     raise newException(ValueError, "compressionLevel needs Gzip, Brotli or Zstd, not " &
@@ -2046,24 +2268,26 @@ proc writeParquet*(df: DataFrame, path: string, compression = ParquetCompression
 
 proc scanIpcImpl(path: string, data: ptr string, nRows: Option[int],
                  columns: openArray[string], rowIndexName: string,
-                 rowIndexOffset: int): LazyFrame =
+                 rowIndexOffset: int, storageOptions: StorageOptions = []): LazyFrame =
   let (dp, dl) = dataArg(data)
-  result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
-                               rowIndexOffset.uint32)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_ipc(path.cstring, dp, dl, nRows.toC, cOrNil(rowIndexName),
+                                 rowIndexOffset.uint32, c)
   result = result.selectColumns(keepRowIndex(columns, rowIndexName))
 
 proc scanIpc*(path: string, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
-              rowIndexOffset = 0): LazyFrame =
+              rowIndexOffset = 0, storageOptions: StorageOptions = []): LazyFrame =
   ## Lazily reads an Arrow IPC file (Feather v2), or a glob of them. Options as
   ## in `scanParquet`.
-  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset)
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset, storageOptions)
 
 proc readIpc*(path: string, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
-              rowIndexOffset = 0): DataFrame =
+              rowIndexOffset = 0, storageOptions: StorageOptions = []): DataFrame =
   ## Reads an Arrow IPC file now: `scanIpc(...).collect`.
-  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
+  scanIpcImpl(path, nil, toOpt(nRows), columns, rowIndexName, rowIndexOffset,
+              storageOptions).collect
 
 proc readIpc*(source: Stream, nRows: int | Option[int] = none(int),
               columns: openArray[string] = [], rowIndexName = "",
@@ -2072,45 +2296,49 @@ proc readIpc*(source: Stream, nRows: int | Option[int] = none(int),
   var data = source.readAll
   scanIpcImpl("", addr data, toOpt(nRows), columns, rowIndexName, rowIndexOffset).collect
 
-proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed) =
-  ## Writes `df` as an Arrow IPC file (Feather v2).
+proc writeIpc*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed,
+               storageOptions: StorageOptions = []) =
+  ## Writes `df` as an Arrow IPC file (Feather v2), to a cloud URI as `writeParquet`.
+  if isCloudPath(path):
+    writeCloud(df, path, ipcOpts(compression, true, false), storageOptions)
+    return
   if not nq_df_write_ipc(df.raw, path.cstring, NqIpcCompression(ord(compression))):
     raiseLast()
 
 # Eager shortcuts: run a single lazy step and collect.
-proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collect
+proc select*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.select(exprs).collectEager
 proc select*(df: DataFrame, columns: varargs[string]): DataFrame =
   ## Columns by name: `df.select("a", "b")`.
-  df.lazy.select(columns).collect
-proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collect
-proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collect
+  df.lazy.select(columns).collectEager
+proc withColumns*(df: DataFrame, exprs: varargs[Expr]): DataFrame = df.lazy.withColumns(exprs).collectEager
+proc filter*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.filter(predicate).collectEager
 proc sort*(df: DataFrame, by: string, descending = false, nullsLast = false,
            maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc sort*(df: DataFrame, by: openArray[string], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc sort*(df: DataFrame, by: openArray[Expr], descending: openArray[bool] = [],
            nullsLast: openArray[bool] = [], maintainOrder = false): DataFrame =
-  df.lazy.sort(by, descending, nullsLast, maintainOrder).collect
+  df.lazy.sort(by, descending, nullsLast, maintainOrder).collectEager
 proc groupBy*(df: DataFrame, by: varargs[Expr]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
   ## Group rows; `agg` then returns a DataFrame, as in Python.
 proc groupBy*(df: DataFrame, by: varargs[string]): GroupBy = GroupBy(lazy: df.lazy.groupBy(by))
-proc agg*(g: GroupBy, aggs: varargs[Expr]): DataFrame = g.lazy.agg(aggs).collect
-proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collect
+proc agg*(g: GroupBy, aggs: varargs[Expr]): DataFrame = g.lazy.agg(aggs).collectEager
+proc dropNulls*(df: DataFrame, subset: varargs[string]): DataFrame = df.lazy.dropNulls(subset).collectEager
 proc `cast`*(df: DataFrame, dtypes: openArray[(string, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
-proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collect
-proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
+proc `cast`*(df: DataFrame, dtype: DataType, strict = true): DataFrame = df.lazy.cast(dtype, strict).collectEager
+proc `cast`*(df: DataFrame, T: typedesc, strict = true): DataFrame = df.lazy.cast(T, strict).collectEager
 
 proc join*(df, other: DataFrame, on: openArray[string], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collectEager
 proc join*(df, other: DataFrame, on: openArray[Expr], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collect
+  df.lazy.join(other.lazy, on, how, suffix, validate, nullsEqual, coalesce, maintainOrder).collectEager
 proc join*(df, other: DataFrame, leftOn, rightOn: openArray[string], how = JoinType.Inner,
            suffix = "_right", validate = JoinValidation.ManyToMany, nullsEqual = false,
            coalesce = none(bool), maintainOrder = MaintainOrderJoin.None): DataFrame =
@@ -2123,36 +2351,37 @@ proc join*(df, other: DataFrame, leftOn, rightOn: openArray[Expr], how = JoinTyp
                maintainOrder).collect
 proc join*(df, other: DataFrame, how: JoinType, suffix = "_right",
            maintainOrder = MaintainOrderJoin.None): DataFrame =
-  df.lazy.join(other.lazy, how, suffix, maintainOrder).collect
+  df.lazy.join(other.lazy, how, suffix, maintainOrder).collectEager
 proc concat*(frames: openArray[DataFrame], how = ConcatMethod.Vertical): DataFrame =
   var lfs: seq[LazyFrame]
   for f in frames: lfs.add f.lazy
   concat(lfs, how).collect
 
 proc drop*(df: DataFrame, columns: openArray[string], strict = true): DataFrame =
-  df.lazy.drop(columns, strict).collect
+  df.lazy.drop(columns, strict).collectEager
 proc drop*(df: DataFrame, column: string, strict = true): DataFrame =
-  df.lazy.drop(column, strict).collect
+  df.lazy.drop(column, strict).collectEager
 proc rename*(df: DataFrame, mapping: openArray[(string, string)], strict = true): DataFrame =
-  df.lazy.rename(mapping, strict).collect
-proc slice*(df: DataFrame, offset: int, length: int): DataFrame = df.lazy.slice(offset, length).collect
-proc slice*(df: DataFrame, offset: int): DataFrame = df.lazy.slice(offset).collect
-proc tail*(df: DataFrame, n = 5): DataFrame = df.lazy.tail(n).collect
-proc reverse*(df: DataFrame): DataFrame = df.lazy.reverse.collect
+  df.lazy.rename(mapping, strict).collectEager
+proc slice*(df: DataFrame, offset: int, length: int): DataFrame = df.lazy.slice(offset, length).collectEager
+proc slice*(df: DataFrame, offset: int): DataFrame = df.lazy.slice(offset).collectEager
+proc tail*(df: DataFrame, n = 5): DataFrame = df.lazy.tail(n).collectEager
+proc reverse*(df: DataFrame): DataFrame = df.lazy.reverse.collectEager
 proc withRowIndex*(df: DataFrame, name = "index", offset = 0): DataFrame =
-  df.lazy.withRowIndex(name, offset).collect
+  df.lazy.withRowIndex(name, offset).collectEager
 proc unique*(df: DataFrame, subset: openArray[string] = [], keep = UniqueKeepStrategy.Any,
              maintainOrder = false): DataFrame =
-  df.lazy.unique(subset, keep, maintainOrder).collect
+  df.lazy.unique(subset, keep, maintainOrder).collectEager
 proc unique*(df: DataFrame, subset: string, keep = UniqueKeepStrategy.Any,
              maintainOrder = false): DataFrame =
-  df.lazy.unique(subset, keep, maintainOrder).collect
+  df.lazy.unique(subset, keep, maintainOrder).collectEager
 
-proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacement,
-                shuffle: bool, seed: Option[int]): DataFrame =
+proc sampleImpl(df: DataFrame, n: int, fraction: float, byFraction, withReplacement: bool,
+                shuffle: Option[bool], seed: Option[int]): DataFrame =
   if seed.isSome and seed.get < 0:
     raise newException(ValueError, "sample seed must not be negative")
-  wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, shuffle,
+  let sh = (if shuffle.isNone: -1'i32 else: shuffle.get.int32)
+  wrap nq_df_sample(df.raw, n.csize_t, fraction, byFraction, withReplacement, sh,
                     seed.isSome, seed.get(0).uint64)
 
 proc setRandomSeed*(seed: int) =
@@ -2161,23 +2390,24 @@ proc setRandomSeed*(seed: int) =
   if seed < 0: raise newException(ValueError, "random seed must not be negative")
   nq_set_random_seed(seed.uint64)
 
-proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed = none(int)): DataFrame =
-  ## `n` random rows. Random unless `seed` is given (or `setRandomSeed` was called).
+  ## `n` random rows. `shuffle`: `true` shuffles them, `false` keeps their
+  ## order, `none` (the default) guarantees no order, as in Polars. Random unless `seed` is given (or `setRandomSeed` was called).
   if n < 0: raise newException(ValueError, "sample size must not be negative")
-  sampleImpl(df, n, 0.0, false, withReplacement, shuffle, seed)
+  sampleImpl(df, n, 0.0, false, withReplacement, toOptB(shuffle), seed)
 
-proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, n: int, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed: int): DataFrame =
   ## `n` random rows; the same `seed` gives the same rows: `df.sample(3, seed = 42)`.
   df.sample(n, withReplacement, shuffle, some(seed))
 
-proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed = none(int)): DataFrame =
   ## A random `fraction` of the rows: `df.sample(fraction = 0.1)`.
-  sampleImpl(df, 0, fraction, true, withReplacement, shuffle, seed)
+  sampleImpl(df, 0, fraction, true, withReplacement, toOptB(shuffle), seed)
 
-proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle = false,
+proc sample*(df: DataFrame, fraction: float, withReplacement = false, shuffle: bool | Option[bool] = none(bool),
              seed: int): DataFrame =
   df.sample(fraction, withReplacement, shuffle, some(seed))
 
@@ -2267,6 +2497,12 @@ proc describe*(lf: LazyFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
           if dt.kind == DataTypeKind.Duration and metric notin ["count", "null_count"]:
             # Polars can't cast durations to str
             wrap nq_expr_dt(e.raw, nqdToString, nil, "polars", false, nquMicroseconds, 0)
+          elif metric notin ["count", "null_count"] and
+              (dt.kind == DataTypeKind.Datetime or (dt.kind == DataTypeKind.Date and metric == "mean")):
+            # as Python, which prints the values with str(datetime): no ".000000"
+            let tz = dt.kind == DataTypeKind.Datetime and dt.timeZone.len > 0
+            let fmt = (if tz: "%Y-%m-%d %H:%M:%S%.f%:z" else: "%Y-%m-%d %H:%M:%S%.f")
+            wrap nq_expr_dt(e.raw, nqdToString, nil, fmt.cstring, false, nquMicroseconds, 0)
           else: e.cast(target)
         exprs.add v.alias(metric & ":" & name)
     let c = col(name)
@@ -2313,7 +2549,36 @@ proc describe*(df: DataFrame, percentiles: openArray[float] = [0.25, 0.5, 0.75],
 # ---------------------------------------------------------------------------
 
 const configVars = ["POLARS_FMT_MAX_ROWS", "POLARS_FMT_MAX_COLS", "POLARS_TABLE_WIDTH",
-                    "POLARS_FMT_STR_LEN"]
+                    "POLARS_FMT_STR_LEN", "POLARS_FMT_TABLE_FORMATTING",
+                    "POLARS_FMT_TABLE_ROUNDED_CORNERS",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_NAMES",
+                    "POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION",
+                    "POLARS_FMT_TABLE_HIDE_COLUMN_SEPARATOR",
+                    "POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW",
+                    "POLARS_FMT_TABLE_INLINE_COLUMN_DATA_TYPE",
+                    "POLARS_FMT_TABLE_CELL_ALIGNMENT",
+                    "POLARS_FMT_TABLE_CELL_NUMERIC_ALIGNMENT",
+                    "POLARS_FMT_TABLE_CELL_LIST_LEN"]
+
+type
+  TableFormat* {.pure.} = enum
+    ## Table styles for `setTblFormatting` (Python's names in CamelCase).
+    AsciiFull = "ASCII_FULL", AsciiFullCondensed = "ASCII_FULL_CONDENSED",
+    AsciiNoBorders = "ASCII_NO_BORDERS", AsciiBordersOnly = "ASCII_BORDERS_ONLY",
+    AsciiBordersOnlyCondensed = "ASCII_BORDERS_ONLY_CONDENSED",
+    AsciiHorizontalOnly = "ASCII_HORIZONTAL_ONLY", AsciiMarkdown = "ASCII_MARKDOWN",
+    Markdown = "MARKDOWN", Utf8Full = "UTF8_FULL",
+    Utf8FullCondensed = "UTF8_FULL_CONDENSED", Utf8NoBorders = "UTF8_NO_BORDERS",
+    Utf8BordersOnly = "UTF8_BORDERS_ONLY", Utf8HorizontalOnly = "UTF8_HORIZONTAL_ONLY",
+    Nothing = "NOTHING"
+  CellAlignment* {.pure.} = enum
+    ## Cell alignment for `setTblCellAlignment`.
+    Left = "LEFT", Center = "CENTER", Right = "RIGHT"
+
+proc setFlag(name: string, active: Option[bool]) =
+  if active.isSome and active.get: putEnv(name, "1") else: delEnv(name)
+
 
 proc setVar(name: string, n: Option[int]) =
   if n.isSome: putEnv(name, $n.get) else: delEnv(name)
@@ -2331,6 +2596,47 @@ proc setFmtStrLengths*(n: int | Option[int]) =
   ## Characters shown of each string value (`-1`: all; `none(int)`: Polars' default, 30).
   setVar(configVars[3], toOpt(n))
 
+proc setTblFormatting*(format: TableFormat | Option[TableFormat], roundedCorners = false) =
+  ## The table style used when a frame prints (`none(TableFormat)`: Polars'
+  ## default, `Utf8FullCondensed`), with rounded corners for the UTF-8 styles.
+  let f = (when format is TableFormat: some(format) else: format)
+  if f.isSome: putEnv(configVars[4], $f.get) else: delEnv(configVars[4])
+  setFlag(configVars[5], some(roundedCorners))
+proc setAsciiTables*(active: bool | Option[bool] = true) =
+  ## ASCII characters instead of UTF-8 box drawing for table borders.
+  let a = toOptB(active)
+  if a.isSome and a.get: putEnv(configVars[4], $TableFormat.AsciiFullCondensed)
+  else: delEnv(configVars[4])
+proc setTblHideColumnDataTypes*(active: bool | Option[bool] = true) =
+  ## Hides the data type line under the column names.
+  setFlag(configVars[6], toOptB(active))
+proc setTblHideColumnNames*(active: bool | Option[bool] = true) =
+  ## Hides the column names.
+  setFlag(configVars[7], toOptB(active))
+proc setTblHideDataframeShape*(active: bool | Option[bool] = true) =
+  ## Hides the `shape: (rows, columns)` line.
+  setFlag(configVars[8], toOptB(active))
+proc setTblHideColumnSeparator*(active: bool | Option[bool] = true) =
+  ## Hides the line between column names and values.
+  setFlag(configVars[9], toOptB(active))
+proc setTblDataframeShapeBelow*(active: bool | Option[bool] = true) =
+  ## Prints the shape line below the table.
+  setFlag(configVars[10], toOptB(active))
+proc setTblColumnDataTypeInline*(active: bool | Option[bool] = true) =
+  ## Puts the data type next to each column name (`kg (i64)`).
+  setFlag(configVars[11], toOptB(active))
+proc setTblCellAlignment*(alignment: CellAlignment | Option[CellAlignment]) =
+  ## Alignment of all cells (`none`: Polars' default, left).
+  let a = (when alignment is CellAlignment: some(alignment) else: alignment)
+  if a.isSome: putEnv(configVars[12], $a.get) else: delEnv(configVars[12])
+proc setTblCellNumericAlignment*(alignment: CellAlignment | Option[CellAlignment]) =
+  ## Alignment of numeric cells (`none`: as the other cells).
+  let a = (when alignment is CellAlignment: some(alignment) else: alignment)
+  if a.isSome: putEnv(configVars[13], $a.get) else: delEnv(configVars[13])
+proc setFmtTableCellListLen*(n: int | Option[int]) =
+  ## Items shown of each list value (`-1`: all; `none(int)`: Polars' default, 3).
+  setVar(configVars[14], toOpt(n))
+
 proc setFloatPrecision*(n: int | Option[int]) =
   ## Decimal places shown for floats when a frame prints (`none(int)`: Polars'
   ## default, which shows what the value needs). Python's `float_precision`.
@@ -2341,9 +2647,25 @@ proc setFloatPrecision*(n: int | Option[int]) =
 proc setConfig*(tblRows: int | Option[int] = none(int); tblCols: int | Option[int] = none(int);
                 tblWidthChars: int | Option[int] = none(int);
                 fmtStrLengths: int | Option[int] = none(int);
-                floatPrecision: int | Option[int] = none(int)) =
+                floatPrecision: int | Option[int] = none(int);
+                tblFormatting: TableFormat | Option[TableFormat] = none(TableFormat);
+                asciiTables: bool | Option[bool] = none(bool);
+                tblHideColumnDataTypes: bool | Option[bool] = none(bool);
+                tblHideColumnNames: bool | Option[bool] = none(bool);
+                tblHideDataframeShape: bool | Option[bool] = none(bool);
+                tblCellAlignment: CellAlignment | Option[CellAlignment] = none(CellAlignment)) =
   ## Sets several display options at once, like Python's `pl.Config(...)`:
   ## `setConfig(tblRows = 12, floatPrecision = 2)`. Options left out are unchanged.
+  when tblFormatting is TableFormat: setTblFormatting(tblFormatting)
+  else:
+    if tblFormatting.isSome: setTblFormatting(tblFormatting)
+  if toOptB(asciiTables).isSome: setAsciiTables(asciiTables)
+  if toOptB(tblHideColumnDataTypes).isSome: setTblHideColumnDataTypes(tblHideColumnDataTypes)
+  if toOptB(tblHideColumnNames).isSome: setTblHideColumnNames(tblHideColumnNames)
+  if toOptB(tblHideDataframeShape).isSome: setTblHideDataframeShape(tblHideDataframeShape)
+  when tblCellAlignment is CellAlignment: setTblCellAlignment(tblCellAlignment)
+  else:
+    if tblCellAlignment.isSome: setTblCellAlignment(tblCellAlignment)
   if toOpt(tblRows).isSome: setTblRows(tblRows)
   if toOpt(tblCols).isSome: setTblCols(tblCols)
   if toOpt(tblWidthChars).isSome: setTblWidthChars(tblWidthChars)
@@ -2356,7 +2678,7 @@ proc resetConfig*() =
   nq_set_float_precision(-1)
 
 type ConfigSnapshot = object
-  vars: array[4, Option[string]]
+  vars: array[configVars.len, Option[string]]
   floatPrecision: int32
 
 proc saveConfig(): ConfigSnapshot =
@@ -2408,14 +2730,14 @@ type
     ## `e.cat`: functions of Categorical and Enum columns, as Polars' `Expr.cat`.
 
 proc cat*(e: Expr): CatNameSpace = CatNameSpace(e)
-  ## Categorical functions: `col.medal.cat.getCategories`.
+  ## Categorical functions: `col.medal.cat.lenChars`.
 
 proc catOp(c: CatNameSpace, op: NqCatOp, s = "", offset = 0'i64, length = -1'i64): Expr =
   wrap nq_expr_cat(Expr(c).raw, op, s.cstring, offset, length)
 
-proc getCategories*(c: CatNameSpace): Expr = c.catOp(nqcGetCategories)
-  ## The categories as a string column: for an Enum all of them in order, for a
-  ## Categorical those seen so far.
+proc getCategories*(c: CatNameSpace): Expr {.error: "cat.getCategories was removed " &
+    "in Polars 2.0: use unique() for the values in a column, or the dtype's " &
+    "categories for an Enum".} = discard
 proc lenBytes*(c: CatNameSpace): Expr = c.catOp(nqcLenBytes)
   ## Length of each value in bytes (u32).
 proc lenChars*(c: CatNameSpace): Expr = c.catOp(nqcLenChars)
@@ -2530,6 +2852,11 @@ proc concatStr*(exprs: openArray[Expr], separator = "", ignoreNulls = false): Ex
   ## `ignoreNulls = false`, a null anywhere gives null.
   let r = raws(exprs)
   wrap nq_expr_concat_str(r.firstOrNil, r.len.csize_t, separator.cstring, ignoreNulls)
+proc concatStr*(exprs: openArray[Selector], separator = "", ignoreNulls = false): Expr =
+  ## `concatStr([all()], "-")`: selectors expand to their columns.
+  var e: seq[Expr]
+  for x in exprs: e.add x.toExpr
+  concatStr(e, separator, ignoreNulls)
 
 proc format*(fstring: string, args: varargs[Expr]): Expr =
   ## Builds a string column from a template with `{}` placeholders, as Polars'
@@ -3086,7 +3413,7 @@ proc valueCounts*(lf: LazyFrame, column: string | Expr, sort = false, normalize 
 proc valueCounts*(df: DataFrame, column: string | Expr, sort = false, normalize = false,
                   name = ""): DataFrame =
   ## How often each value of `column` occurs (see the LazyFrame version).
-  df.lazy.valueCounts(column, sort, normalize, name).collect
+  df.lazy.valueCounts(column, sort, normalize, name).collectEager
 
 # ---------------------------------------------------------------------------
 # Horizontal functions, ranges, correlation (0.4)
@@ -3195,6 +3522,19 @@ converter toColumnNames*(x: seq[string]): ColumnNames = ColumnNames(names: x)
 converter toColumnNames*[N: static int](x: array[N, string]): ColumnNames =
   ColumnNames(names: @x)
 
+type GroupKeys* = object
+  ## Group keys for `groupBy` parameters: one name or expression, or several
+  ## (`groupBy = "store"`, `groupBy = ["store", "aisle"]`, `groupBy = [col.store]`).
+  exprs*: seq[Expr]
+converter toGroupKeys*(x: string): GroupKeys = GroupKeys(exprs: @[col(x)])
+converter toGroupKeys*(x: Expr): GroupKeys = GroupKeys(exprs: @[x])
+converter toGroupKeys*(x: seq[string]): GroupKeys =
+  for n in x: result.exprs.add col(n)
+converter toGroupKeys*[N: static int](x: array[N, string]): GroupKeys =
+  for n in x: result.exprs.add col(n)
+converter toGroupKeys*(x: seq[Expr]): GroupKeys = GroupKeys(exprs: x)
+converter toGroupKeys*[N: static int](x: array[N, Expr]): GroupKeys = GroupKeys(exprs: @x)
+
 proc element*(): Expr = wrap nq_expr_element()
   ## The values being aggregated, in a `pivot` aggregation: `element().tanh.mean`.
 proc item*(e: Expr, allowEmpty = false): Expr = wrap nq_expr_item(e.raw, allowEmpty)
@@ -3272,7 +3612,7 @@ proc unpivot*(df: DataFrame, on: ColumnNames = ColumnNames(),
               index: ColumnNames = ColumnNames(), variableName = "variable",
               valueName = "value"): DataFrame =
   ## Wide to long (see the LazyFrame version).
-  df.lazy.unpivot(on, index, variableName, valueName).collect
+  df.lazy.unpivot(on, index, variableName, valueName).collectEager
 
 proc transpose*(df: DataFrame, includeHeader = false, headerName = "column",
                 columnNames: openArray[string] = []): DataFrame =
@@ -3348,13 +3688,13 @@ proc groupByDynamic*(lf: LazyFrame, indexColumn: string | Expr,
                      every: string | TimeInterval, period: OptInterval = OptInterval(),
                      offset: OptInterval = OptInterval(), includeBoundaries = false,
                      closed = ClosedWindow.Left, label = Label.Left,
-                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): LazyGroupBy =
+                     groupBy: GroupKeys = GroupKeys(), startBy = StartBy.WindowBound): LazyGroupBy =
   ## Groups rows into time windows of the sorted `indexColumn`: a window starts
   ## every `every` (`1.months`, `"1y"`) and spans `period` (default `every`),
   ## shifted by `offset`. Follow with `agg`. `groupBy` groups within the windows.
   let p = period.value
   let o = offset.value
-  LazyGroupBy(lf: lf, by: @groupBy, kind: gkDynamic, index: byExpr(indexColumn),
+  LazyGroupBy(lf: lf, by: groupBy.exprs, kind: gkDynamic, index: byExpr(indexColumn),
               every: toInterval(every), period: (if p.len == 0: toInterval(every) else: p),
               offset: (if o.len == 0: "0ns" else: o), label: NqLabel(ord(label)),
               includeBoundaries: includeBoundaries, closed: NqClosedWindow(ord(closed)),
@@ -3363,22 +3703,22 @@ proc groupByDynamic*(df: DataFrame, indexColumn: string | Expr,
                      every: string | TimeInterval, period: OptInterval = OptInterval(),
                      offset: OptInterval = OptInterval(), includeBoundaries = false,
                      closed = ClosedWindow.Left, label = Label.Left,
-                     groupBy: openArray[Expr] = [], startBy = StartBy.WindowBound): GroupBy =
+                     groupBy: GroupKeys = GroupKeys(), startBy = StartBy.WindowBound): GroupBy =
   GroupBy(lazy: df.lazy.groupByDynamic(indexColumn, every, period, offset, includeBoundaries,
                                        closed, label, groupBy, startBy))
 
 proc rolling*(lf: LazyFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
-              groupBy: openArray[Expr] = []): LazyGroupBy =
+              groupBy: GroupKeys = GroupKeys()): LazyGroupBy =
   ## One group per row: the rows whose `indexColumn` lies in the `period` before
   ## it (shift the window with `offset`, default minus `period`). Follow with `agg`.
   let p = toInterval(period)
   let o = offset.value
-  LazyGroupBy(lf: lf, by: @groupBy, kind: gkRolling, index: byExpr(indexColumn), period: p,
+  LazyGroupBy(lf: lf, by: groupBy.exprs, kind: gkRolling, index: byExpr(indexColumn), period: p,
               offset: (if o.len == 0: negated(p) else: o), closed: NqClosedWindow(ord(closed)))
 proc rolling*(df: DataFrame, indexColumn: string | Expr, period: string | TimeInterval,
               offset: OptInterval = OptInterval(), closed = ClosedWindow.Right,
-              groupBy: openArray[Expr] = []): GroupBy =
+              groupBy: GroupKeys = GroupKeys()): GroupBy =
   GroupBy(lazy: df.lazy.rolling(indexColumn, period, offset, closed, groupBy))
 
 proc joinAsofImpl(lf, other: LazyFrame, leftOn, rightOn: Expr, byLeft, byRight: seq[string],
@@ -3429,7 +3769,7 @@ proc gatherEvery*(lf: LazyFrame, n: int, offset = 0): LazyFrame =
   ## Every `n`-th row, starting at row `offset` (Python's `gather_every`).
   lf.select(all().gatherEvery(n, offset))
 proc gatherEvery*(df: DataFrame, n: int, offset = 0): DataFrame =
-  df.lazy.gatherEvery(n, offset).collect
+  df.lazy.gatherEvery(n, offset).collectEager
 
 proc topKImpl(lf: LazyFrame, k: int, by: openArray[Expr], reverse, bottom: bool): LazyFrame =
   if k < 0: raise newException(ValueError, "k must not be negative")
@@ -3454,17 +3794,17 @@ proc bottomK*(lf: LazyFrame, k: int, by: ColumnNames, reverse = false): LazyFram
   topKImpl(lf, k, by.names.mapIt(col(it)), reverse, true)
 
 proc topK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc topK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc topK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
-  df.lazy.topK(k, by, reverse).collect
+  df.lazy.topK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: openArray[Expr], reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: Expr, reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 proc bottomK*(df: DataFrame, k: int, by: ColumnNames, reverse = false): DataFrame =
-  df.lazy.bottomK(k, by, reverse).collect
+  df.lazy.bottomK(k, by, reverse).collectEager
 
 # ---------------------------------------------------------------------------
 # Series (0.4)
@@ -3882,7 +4222,7 @@ proc explode*(lf: LazyFrame, columns: ColumnNames, emptyAsNull = true, keepNulls
   let ns = cstrings(columns.names)
   wrap nq_lf_explode(lf.raw, ns.firstOrNil, ns.len.csize_t, emptyAsNull, keepNulls)
 proc explode*(df: DataFrame, columns: ColumnNames, emptyAsNull = true, keepNulls = true): DataFrame =
-  df.lazy.explode(columns, emptyAsNull, keepNulls).collect
+  df.lazy.explode(columns, emptyAsNull, keepNulls).collectEager
 
 # ---------------------------------------------------------------------------
 # String functions that give lists and structs (0.5)
@@ -4028,9 +4368,9 @@ proc unnest*(lf: LazyFrame, columns: ColumnNames, separator = none(string)): Laz
 proc unnest*(lf: LazyFrame, columns: ColumnNames, separator: string): LazyFrame =
   lf.unnest(columns, some(separator))
 proc unnest*(df: DataFrame, columns: ColumnNames, separator = none(string)): DataFrame =
-  df.lazy.unnest(columns, separator).collect
+  df.lazy.unnest(columns, separator).collectEager
 proc unnest*(df: DataFrame, columns: ColumnNames, separator: string): DataFrame =
-  df.lazy.unnest(columns, some(separator)).collect
+  df.lazy.unnest(columns, some(separator)).collectEager
 
 proc arrOp(a: ArrayNameSpace, op: NqArrOp, x: Expr = nil, y: Expr = nil, f1 = false,
            f2 = false, n = 0): Expr =
@@ -4089,9 +4429,11 @@ proc schemaArgs(schema, overrides: SchemaArg): (seq[cstring], DtypeSpecs, bool) 
   let full = schema.len > 0
   var names: seq[cstring]
   var ts: seq[DataType]
-  for (n, t) in (if full: schema else: overrides):
-    names.add n.cstring
-    ts.add t
+  template take(src) =
+    for i in 0 ..< src.len:
+      names.add src[i][0].cstring  # not a loop copy, which dies each round
+      ts.add src[i][1]
+  if full: take(schema) else: take(overrides)
   (names, toSpecs(ts), full)
 
 proc readJsonImpl(path: string, data: ptr string, lines: bool, schema, overrides: SchemaArg,
@@ -4113,9 +4455,19 @@ proc readJson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaAr
   ## Reads JSON from a stream: `readJson(newStringStream(text))`.
   var data = source.readAll
   readJsonImpl("", addr data, false, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
+proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
+                 rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): LazyFrame
+
 proc readNdjson*(path: string, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
-                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): DataFrame =
   ## Reads newline-delimited JSON, one object per line (options as in `readJson`).
+  if isCloudPath(path):
+    return scanNdjson(path, schema = schema, schemaOverrides = schemaOverrides,
+                      inferSchemaLength = inferSchemaLength, ignoreErrors = ignoreErrors,
+                      storageOptions = storageOptions).collect
   readJsonImpl(path, nil, true, schema, schemaOverrides, toOpt(inferSchemaLength), ignoreErrors)
 proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
                  inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): DataFrame =
@@ -4124,12 +4476,16 @@ proc readNdjson*(source: Stream, schema: SchemaArg = [], schemaOverrides: Schema
 
 proc scanNdjson*(path: string, nRows: int | Option[int] = none(int), rowIndexName = "",
                  rowIndexOffset = 0, schema: SchemaArg = [], schemaOverrides: SchemaArg = [],
-                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false): LazyFrame =
-  ## Lazily reads newline-delimited JSON files (a path or a glob).
+                 inferSchemaLength: int | Option[int] = 100, ignoreErrors = false,
+                 storageOptions: StorageOptions = []): LazyFrame =
+  ## Lazily reads newline-delimited JSON files (a path or a glob, or a cloud URI).
   let (names, specs, full) = schemaArgs(schema, schemaOverrides)
-  wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC, cOrNil(rowIndexName),
-                         rowIndexOffset.uint32, names.firstOrNil, specs.specs.firstOrNil,
-                         names.len.csize_t, full, toOpt(inferSchemaLength).toC, ignoreErrors)
+  withCloud(path, storageOptions, c):
+    result = wrap nq_lf_scan_ndjson(path.cstring, nil, 0, toOpt(nRows).toC,
+                                    cOrNil(rowIndexName), rowIndexOffset.uint32,
+                                    names.firstOrNil, specs.specs.firstOrNil,
+                                    names.len.csize_t, full, toOpt(inferSchemaLength).toC,
+                                    ignoreErrors, c)
 
 proc writeJsonImpl(df: DataFrame, path: cstring, lines: bool): string =
   let r = nq_df_write_json(df.raw, path, lines)
@@ -4143,8 +4499,12 @@ proc toNdjson*(df: DataFrame): string = writeJsonImpl(df, nil, true)
 proc writeJson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, false)
   ## Writes the frame as a JSON array of row objects.
 proc writeJson*(df: DataFrame, dest: Stream) = dest.write(df.toJson)
-proc writeNdjson*(df: DataFrame, path: string) = discard writeJsonImpl(df, path.cstring, true)
-  ## Writes the frame as newline-delimited JSON.
+proc writeNdjson*(df: DataFrame, path: string, storageOptions: StorageOptions = []) =
+  ## Writes the frame as newline-delimited JSON, to a file or a cloud URI.
+  if isCloudPath(path):
+    writeCloud(df, path, sinkOptions(3, true, false), storageOptions)
+    return
+  discard writeJsonImpl(df, path.cstring, true)
 proc writeNdjson*(df: DataFrame, dest: Stream) = dest.write(df.toNdjson)
 
 # ---------------------------------------------------------------------------
@@ -4216,7 +4576,7 @@ proc sql*(lf: LazyFrame, query: string, tableName = "self"): LazyFrame =
   newSQLContext({tableName: lf}).execute(query)
 proc sql*(df: DataFrame, query: string, tableName = "self"): DataFrame =
   ## Runs a SQL query on `df` now (see the LazyFrame version).
-  df.lazy.sql(query, tableName).collect
+  df.lazy.sql(query, tableName).collectEager
 proc sql*(query: string, frames: openArray[(string, LazyFrame)]): LazyFrame =
   ## Runs a SQL query on `frames` (Python's `pl.sql` with named frames).
   newSQLContext(frames).execute(query)
@@ -4283,6 +4643,114 @@ proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnDtype: DataType,
   ## `mapBatches` with a result of type `returnDtype`.
   mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), some(returnDtype), returnsScalar)
 
+# ---------------------------------------------------------------------------
+# Arrow C Data Interface and zero-copy views (0.6)
+# ---------------------------------------------------------------------------
+
+export ArrowSchema, ArrowArray, ArrowArrayStream
+
+type
+  ArrowExport* = object
+    ## A Series exported through the Arrow C Data Interface: the standard C
+    ## structs any Arrow library reads. Hand `addr x.schema` and `addr x.array`
+    ## to a consumer; a consumer that takes the array over sets its `release`
+    ## to nil. Whatever is still owned is released when `x` goes away.
+    schema*: ArrowSchema
+    array*: ArrowArray
+
+proc release*(x: var ArrowSchema) =
+  ## Releases the schema (its producer frees it), unless already released.
+  if x.release != nil: x.release(addr x)
+proc release*(x: var ArrowArray) =
+  if x.release != nil: x.release(addr x)
+proc release*(x: var ArrowArrayStream) =
+  if x.release != nil: x.release(addr x)
+
+proc `=destroy`(x: ArrowExport) =
+  if x.schema.release != nil: x.schema.release(addr x.schema)
+  if x.array.release != nil: x.array.release(addr x.array)
+proc `=copy`(a: var ArrowExport, b: ArrowExport) {.error: "an ArrowExport owns C memory: move it".}
+
+proc toArrow*(s: Series): ArrowExport =
+  ## The column through the Arrow C Data Interface, without copying the values
+  ## (several chunks are joined first). Python's `Series.to_arrow`.
+  if not nq_series_to_arrow(s.raw, addr result.schema, addr result.array): raiseLast()
+
+proc fromArrow*(schema: ArrowSchema, array: var ArrowArray, name = ""): Series =
+  ## A Series from Arrow C structs, without copying: the array is taken over
+  ## (its `release` becomes nil), the schema is only read. `name` overrides
+  ## the schema's name. Python's `pl.from_arrow`.
+  var sc = schema
+  wrap nq_series_from_arrow((if name.len > 0: name.cstring else: nil), addr sc, addr array)
+
+proc fromArrow*(x: var ArrowExport, name = ""): Series =
+  ## Imports an `ArrowExport` (from `toArrow` or built by hand).
+  fromArrow(x.schema, x.array, name)
+
+proc toArrow*(df: DataFrame): ArrowArrayStream =
+  ## The frame as an Arrow C stream of record batches (struct arrays), the way
+  ## Arrow tools exchange tables (Python's `__arrow_c_stream__`). The consumer
+  ## releases it.
+  if not nq_df_to_arrow_stream(df.raw, addr result): raiseLast()
+
+proc fromArrow*(stream: var ArrowArrayStream): DataFrame =
+  ## Reads a whole Arrow C stream of record batches into a frame, then releases
+  ## the stream.
+  wrap nq_df_from_arrow_stream(addr stream)
+
+type
+  ColumnView*[T] = object
+    ## Read-only, zero-copy access to the values of a numeric column without
+    ## nulls (see `view`). It keeps the column's buffer alive while it exists.
+    ex: ArrowExport
+    data: ptr UncheckedArray[T]
+    n: int
+
+proc arrowFormat(T: typedesc): string =
+  when T is int8: "c"
+  elif T is uint8: "C"
+  elif T is int16: "s"
+  elif T is uint16: "S"
+  elif T is int32: "i"
+  elif T is uint32: "I"
+  elif T is int64 or (T is int and sizeof(int) == 8): "l"
+  elif T is uint64: "L"
+  elif T is float32: "f"
+  elif T is float64: "g"
+  else: {.error: "view supports numeric types only, not " & $T.}
+
+proc view*[T: SomeNumber](s: Series, _: typedesc[T]): ColumnView[T] =
+  ## The values of `s` as a `ColumnView[T]`, without copying. `T` must match
+  ## the column's type exactly (`int` for Int64, `float` for Float64, `int32`
+  ## for Int32, ...) and the column must have no nulls (else
+  ## `InvalidOperationError`). Use `v[i]`, `v.len`, `for x in v` or
+  ## `v.toOpenArray` (for procs taking an `openArray[T]`).
+  result.ex = s.toArrow
+  if $result.ex.schema.format != arrowFormat(T):
+    raise newException(InvalidOperationError, "cannot view column '" & s.name & "' of type " &
+                       $s.dtype & " as " & $T)
+  if result.ex.array.nullCount != 0:
+    raise newException(InvalidOperationError, "column '" & s.name & "' has " &
+                       $result.ex.array.nullCount & " null(s): fill them first, or use toList")
+  result.n = result.ex.array.length.int
+  if result.n > 0:
+    let base = cast[ptr UncheckedArray[T]](result.ex.array.buffers[1])
+    result.data = cast[ptr UncheckedArray[T]](addr base[result.ex.array.offset])
+
+proc view*[T: SomeNumber](df: DataFrame, column: string, _: typedesc[T]): ColumnView[T] =
+  ## A zero-copy view of a frame column (see `view(Series)`).
+  df.getColumn(column).view(T)
+
+proc len*[T](v: ColumnView[T]): int = v.n
+proc `[]`*[T](v: ColumnView[T], i: int): T =
+  if i < 0 or i >= v.n: raise newException(IndexDefect, "index " & $i & " not in 0 .. " & $(v.n - 1))
+  v.data[i]
+iterator items*[T](v: ColumnView[T]): T =
+  for i in 0 ..< v.n: yield v.data[i]
+template toOpenArray*[T](v: ColumnView[T]): openArray[T] =
+  ## The values as an `openArray[T]`, for procs like `sum`: `sum(v.toOpenArray)`.
+  toOpenArray(v.data, 0, v.n - 1)
+
 proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
   ## Each value passed to a typed Nim proc or closure: `proc (x: int): string`.
   ## The values are read as `T` (an object or named tuple for a struct column,
@@ -4302,6 +4770,13 @@ proc mapElements*[T, U](e: Expr, f: proc (x: T): U): Expr =
         if x.isSome: ys[i] = f(x.get)
       series(s.name, ys)
     else:
+      when T is SomeNumber and not (T is int and sizeof(int) != 8):
+        if s.nullCount == 0 and s.dtype == dataType(T):
+          # Numbers without nulls: read the batch in place (no copy in).
+          let v = s.view(T)
+          var ys = newSeq[U](v.len)
+          for i in 0 ..< v.len: ys[i] = f(v.data[i])
+          return series(s.name, ys)
       if s.nullCount == 0:
         # No nulls: plain seqs both ways, which skips the Option copies.
         let xs = s.toList(T)
@@ -4514,7 +4989,8 @@ proc update*(df, other: DataFrame, on: ColumnNames = ColumnNames(), how = JoinTy
   for c in r.columns:
     if c in cols0: rcols.add c
   r = r.select(rcols)
-  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true))
+  let j = l.join(r, on = keys, how = how, suffix = "__nq_upd", coalesce = some(true),
+                maintainOrder = (if how == JoinType.Full: MaintainOrderJoin.LeftRight else: MaintainOrderJoin.Left))
   var sel: seq[Expr]
   for c in cols0:
     if c notin keys and c in rcols:
@@ -4628,7 +5104,7 @@ proc interpolate*(lf: LazyFrame, how = InterpolationMethod.Linear): LazyFrame =
   ## `DataFrame.interpolate`); see `Expr.interpolate`.
   lf.select(all().toExpr.interpolate(how))
 proc interpolate*(df: DataFrame, how = InterpolationMethod.Linear): DataFrame =
-  df.lazy.interpolate(how).collect
+  df.lazy.interpolate(how).collectEager
 
 proc `cast`*(lf: LazyFrame, dtypes: openArray[(DataType, DataType)], strict = true): LazyFrame =
   ## Casts the columns of each key type to its value type:
@@ -4642,9 +5118,9 @@ proc `cast`*(lf: LazyFrame, dtypes: openArray[(Selector, DataType)], strict = tr
   for (sel, dst) in dtypes: es.add sel.toExpr.cast(dst, strict)
   lf.withColumns(es)
 proc `cast`*(df: DataFrame, dtypes: openArray[(DataType, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
 proc `cast`*(df: DataFrame, dtypes: openArray[(Selector, DataType)], strict = true): DataFrame =
-  df.lazy.cast(dtypes, strict).collect
+  df.lazy.cast(dtypes, strict).collectEager
 
 proc explode*(lf: LazyFrame, a, b: string, more: varargs[string]): LazyFrame =
   ## Explodes several columns given by name: `lf.explode("a", "b")`.
@@ -4662,12 +5138,12 @@ proc fillNull*[T: SomeNumber | string | bool](lf: LazyFrame, value: T): LazyFram
   elif T is string: lf.withColumns(col(string).toExpr.fillNull(value))
   else: lf.withColumns(col(bool).toExpr.fillNull(value))
 proc fillNull*[T: SomeNumber | string | bool](df: DataFrame, value: T): DataFrame =
-  df.lazy.fillNull(value).collect
+  df.lazy.fillNull(value).collectEager
 proc fillNull*(lf: LazyFrame, strategy: FillNullStrategy, limit = none(int)): LazyFrame =
   ## Fills the nulls of every column with a strategy: `fillNull(Forward)`.
   lf.withColumns(all().toExpr.fillNull(strategy, limit))
 proc fillNull*(df: DataFrame, strategy: FillNullStrategy, limit = none(int)): DataFrame =
-  df.lazy.fillNull(strategy, limit).collect
+  df.lazy.fillNull(strategy, limit).collectEager
 
 proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
   ## Rows where every predicate holds: `filter(col.m > 4000, col.country == "CH")`
@@ -4676,7 +5152,7 @@ proc filter*(lf: LazyFrame, a, b: Expr, more: varargs[Expr]): LazyFrame =
   for m in more: p = p and m
   lf.filter(p)
 proc filter*(df: DataFrame, a, b: Expr, more: varargs[Expr]): DataFrame =
-  df.lazy.filter(a, b, more).collect
+  df.lazy.filter(a, b, more).collectEager
 
 proc groupBy*(df: DataFrame, by: varargs[string], maintainOrder: bool): GroupBy =
   ## `groupBy("a", maintainOrder = true)`, for Python parity: Nanuq always keeps
@@ -4686,3 +5162,1044 @@ proc groupBy*(lf: LazyFrame, by: varargs[string], maintainOrder: bool): LazyGrou
   lf.groupBy(by)
 proc groupBy*(df: DataFrame, by: varargs[Expr], maintainOrder: bool): GroupBy = df.groupBy(by)
 proc groupBy*(lf: LazyFrame, by: varargs[Expr], maintainOrder: bool): LazyGroupBy = lf.groupBy(by)
+
+# ---------------------------------------------------------------------------
+# Streaming engine, sinks and profiling (0.6)
+# ---------------------------------------------------------------------------
+
+type
+  Engine* {.pure.} = enum
+    ## Which engine runs a query (Python's `engine=`). `Auto` lets Polars pick
+    ## (today the in-memory engine); `Streaming` processes the data in batches,
+    ## so it can handle data larger than memory.
+    Auto, Streaming, InMemory
+
+  PartitionBy* = object
+    ## Target of a partitioned sink (Python's `pl.PartitionBy`): one Hive-style
+    ## directory per value of the `key` columns under `basePath`
+    ## (`basePath/year=2024/...`), or, without `key`, files of at most
+    ## `maxRowsPerFile` rows.
+    basePath*: string
+    key*: seq[string]
+    includeKey*: bool = true
+    maxRowsPerFile*: int
+
+proc collect*(lf: LazyFrame, engine: Engine): DataFrame =
+  ## Runs the query with the given engine: `collect(engine = Engine.Streaming)`.
+  wrap nq_lf_collect_engine(lf.raw, ord(engine).uint8)
+
+proc collectAll*(lfs: openArray[LazyFrame], engine: Engine): seq[DataFrame] =
+  ## `collectAll` with the given engine.
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  var outs = newSeq[ptr NqDataFrame](lfs.len)
+  if not nq_collect_all_engine(rs.firstOrNil, rs.len.csize_t, ord(engine).uint8,
+                               outs.firstOrNil): raiseLast()
+  for o in outs: result.add wrap(o)
+
+proc sinkOptions(format: uint8, maintainOrder, mkdir: bool): NqSinkOptions =
+  NqSinkOptions(format: format, parquetCompression: NqParquetCompression(ord(ParquetCompression.Zstd)),
+                compressionLevel: -1, statistics: true, separator: ','.uint8,
+                includeHeader: true, nullValue: "", floatPrecision: -1,
+                maintainOrder: maintainOrder, mkdir: mkdir)
+
+proc sinkImpl(lf: LazyFrame, path: string, part: ptr PartitionBy, o: NqSinkOptions,
+              lazy: bool, storageOptions: StorageOptions = []): LazyFrame =
+  var o = o
+  let target = (if part == nil: path else: part[].basePath)
+  withCloud(target, storageOptions, c):
+    o.cloud = c
+    if part == nil:
+      result = wrap nq_lf_sink(lf.raw, path.cstring, nil, nil, 0, true, 0, addr o)
+    else:
+      let keys = part[].key.mapIt(col(it))
+      let raws = keys.mapIt(it.raw)
+      result = wrap nq_lf_sink(lf.raw, nil, part[].basePath.cstring, raws.firstOrNil,
+                               raws.len.csize_t, part[].includeKey,
+                               part[].maxRowsPerFile.int64, addr o)
+  if not lazy:
+    discard result.collect(Engine.Streaming)
+
+proc parquetOpts(compression: ParquetCompression, compressionLevel: Option[int],
+                 statistics: bool, rowGroupSize: Option[int], maintainOrder,
+                 mkdir: bool): NqSinkOptions =
+  if compressionLevel.isSome and compression notin {ParquetCompression.Gzip,
+      ParquetCompression.Brotli, ParquetCompression.Zstd}:
+    raise newException(ValueError, "compressionLevel needs Gzip, Brotli or Zstd, not " &
+                       $compression)
+  result = sinkOptions(0, maintainOrder, mkdir)
+  result.parquetCompression = NqParquetCompression(ord(compression))
+  result.compressionLevel = (if compressionLevel.isSome: compressionLevel.get.int32 else: -1'i32)
+  result.statistics = statistics
+  result.rowGroupSize = (if rowGroupSize.isSome: rowGroupSize.get.int64 else: 0'i64)
+
+proc ipcOpts(compression: IpcCompression, maintainOrder, mkdir: bool): NqSinkOptions =
+  result = sinkOptions(1, maintainOrder, mkdir)
+  result.ipcCompression = NqIpcCompression(ord(compression))
+
+proc csvOpts(separator: char, includeHeader: bool, nullValue: string,
+             quoteStyle: QuoteStyle, floatPrecision: Option[int], decimalComma,
+             maintainOrder, mkdir: bool): NqSinkOptions =
+  result = sinkOptions(2, maintainOrder, mkdir)
+  result.separator = separator.uint8
+  result.includeHeader = includeHeader
+  result.nullValue = nullValue.cstring
+  result.quoteStyle = NqQuoteStyle(ord(quoteStyle))
+  result.floatPrecision = (if floatPrecision.isSome: floatPrecision.get.int32 else: -1'i32)
+  result.decimalComma = decimalComma
+
+type SinkTarget = string | PartitionBy
+
+proc writeCloud(df: DataFrame, path: string, o: NqSinkOptions, storage: StorageOptions) =
+  discard sinkImpl(df.lazy, path, nil, o, false, storage)
+
+proc sinkTo(lf: LazyFrame, target: SinkTarget, o: NqSinkOptions, lazy: bool,
+            storageOptions: StorageOptions): LazyFrame =
+  when target is string:
+    sinkImpl(lf, target, nil, o, lazy, storageOptions)
+  else:
+    var t = target
+    sinkImpl(lf, "", addr t, o, lazy, storageOptions)
+
+proc sinkParquet*(lf: LazyFrame, target: SinkTarget, compression = ParquetCompression.Zstd,
+                  compressionLevel: int | Option[int] = none(int), statistics = true,
+                  rowGroupSize: int | Option[int] = none(int), maintainOrder = true,
+                  mkdir = false, lazy: static bool = false,
+                  storageOptions: StorageOptions = []): auto =
+  ## Runs the query with the streaming engine and writes the result to a
+  ## Parquet file (`target` a path) or to partitioned files (`PartitionBy`).
+  ## Options as in `writeParquet`; `mkdir` creates missing directories. With
+  ## `lazy = true` it returns the sink as a LazyFrame instead, which writes
+  ## the file when collected (several at once with `collectAll`). A cloud URI
+  ## target (`s3://bucket/x.parquet`) takes credentials from `storageOptions` or
+  ## the environment.
+  let o = parquetOpts(compression, toOpt(compressionLevel), statistics, toOpt(rowGroupSize),
+                      maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
+
+proc sinkIpc*(lf: LazyFrame, target: SinkTarget, compression = IpcCompression.Uncompressed,
+              maintainOrder = true, mkdir = false, lazy: static bool = false,
+              storageOptions: StorageOptions = []): auto =
+  ## Like `sinkParquet`, to Arrow IPC files (options as in `writeIpc`).
+  let o = ipcOpts(compression, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
+
+proc sinkCsv*(lf: LazyFrame, target: SinkTarget, separator = ',', includeHeader = true,
+              nullValue = "", quoteStyle = QuoteStyle.Necessary,
+              floatPrecision: int | Option[int] = none(int), decimalComma = false,
+              maintainOrder = true, mkdir = false, lazy: static bool = false,
+              storageOptions: StorageOptions = []): auto =
+  ## Like `sinkParquet`, to CSV files (options as in `writeCsv`).
+  let o = csvOpts(separator, includeHeader, nullValue, quoteStyle, toOpt(floatPrecision),
+                  decimalComma, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
+
+proc sinkNdjson*(lf: LazyFrame, target: SinkTarget, maintainOrder = true, mkdir = false,
+                 lazy: static bool = false, storageOptions: StorageOptions = []): auto =
+  ## Like `sinkParquet`, to newline-delimited JSON files.
+  let o = sinkOptions(3, maintainOrder, mkdir)
+  when lazy: sinkTo(lf, target, o, true, storageOptions)
+  else: discard sinkTo(lf, target, o, false, storageOptions)
+
+proc profile*(lf: LazyFrame): tuple[result, timings: DataFrame] {.error: "profile was " &
+    "removed in Polars 2.0 (its timings were misleading under the streaming engine); " &
+    "use explain or time collect".} = discard
+
+# ---------------------------------------------------------------------------
+# Plan and expression serialization, more meta (0.6)
+# ---------------------------------------------------------------------------
+
+type
+  SerializationFormat* {.pure.} = enum
+    ## Format of `serialize` and `deserialize`: Polars' versioned binary format,
+    ## or JSON text.
+    Binary, Json
+
+proc takeBytes(b: NqBytes, ok: bool): string =
+  if not ok:
+    nq_bytes_free(b)
+    raiseLast()
+  result = newString(b.len.int)
+  if b.len > 0: copyMem(addr result[0], b.p, b.len.int)
+  nq_bytes_free(b)
+
+proc serialize*(lf: LazyFrame, format = SerializationFormat.Binary): string =
+  ## The query plan as bytes (in a string) or JSON text. In-memory frames in
+  ## the plan travel with it. Plans with Nim callbacks can't be serialized.
+  var ok: bool
+  let b = nq_lf_serialize(lf.raw, format == SerializationFormat.Json, addr ok)
+  takeBytes(b, ok)
+
+proc serialize*(lf: LazyFrame, path: string, format = SerializationFormat.Binary) =
+  ## Writes the serialized plan to a file.
+  writeFile(path, lf.serialize(format))
+
+proc deserialize*(T: typedesc[LazyFrame], data: string,
+                  format = SerializationFormat.Binary): LazyFrame =
+  ## Rebuilds a LazyFrame from `serialize`'s output (Python's
+  ## `pl.LazyFrame.deserialize`).
+  wrap nq_lf_deserialize((if data.len > 0: unsafeAddr data[0] else: nil), data.len.csize_t,
+                         format == SerializationFormat.Json)
+
+proc deserializeFile*(T: typedesc[LazyFrame], path: string,
+                      format = SerializationFormat.Binary): LazyFrame =
+  ## Rebuilds a LazyFrame from a file written by `serialize(path)`.
+  deserialize(LazyFrame, readFile(path), format)
+
+proc serialize*(m: MetaNameSpace, format = SerializationFormat.Binary): string =
+  ## The expression as bytes (in a string) or JSON text.
+  var ok: bool
+  let b = nq_expr_serialize(Expr(m).raw, format == SerializationFormat.Json, addr ok)
+  takeBytes(b, ok)
+
+proc deserialize*(T: typedesc[Expr], data: string,
+                  format = SerializationFormat.Binary): Expr =
+  ## Rebuilds an expression from `e.meta.serialize`'s output.
+  wrap nq_expr_deserialize((if data.len > 0: unsafeAddr data[0] else: nil), data.len.csize_t,
+                           format == SerializationFormat.Json)
+
+proc metaBool2(m: MetaNameSpace, other: Expr, what: int32, flag = false): bool =
+  let r = nq_expr_meta_bool2(Expr(m).raw, raw(other), what, flag)
+  if r < 0: raiseLast()
+  r == 1
+
+proc eq*(m: MetaNameSpace, other: Expr): bool = m.metaBool2(other, 0)
+  ## Whether both expressions are the same tree.
+proc ne*(m: MetaNameSpace, other: Expr): bool = not m.eq(other)
+proc isRegexProjection*(m: MetaNameSpace): bool = m.metaBool2(nil, 2)
+  ## Whether it selects columns by a regex (`col("^x.*$")`).
+proc isColumnSelection*(m: MetaNameSpace, allowAliasing = false): bool =
+  ## Whether it only selects columns (a name, a regex, a selector).
+  m.metaBool2(nil, 3, allowAliasing)
+proc isLiteral*(m: MetaNameSpace, allowAliasing: bool): bool = m.metaBool2(nil, 4, allowAliasing)
+proc pop*(m: MetaNameSpace): seq[Expr] =
+  ## The inputs of the outermost node.
+  var n: csize_t
+  let a = nq_expr_meta_pop(Expr(m).raw, addr n)
+  if a == nil: raiseLast()
+  for i in 0 ..< n.int: result.add wrap(a[i])
+  nq_expr_array_free(a, n)
+proc treeFormat*(m: MetaNameSpace): string =
+  ## The expression tree as text.
+  let s = nq_expr_meta_tree_format(Expr(m).raw)
+  if s == nil: raiseLast()
+  takeString s
+
+# ---------------------------------------------------------------------------
+# Binary and Decimal data, the bin namespace, bitwise operations (0.6)
+# ---------------------------------------------------------------------------
+
+proc binaryImpl(name: string, data: openArray[Option[string]]): Series =
+  var bytes: seq[uint8]
+  var offsets = newSeq[uint64](data.len + 1)
+  var valid = newSeq[bool](data.len)
+  for i, x in data:
+    if x.isSome:
+      valid[i] = true
+      for c in x.get: bytes.add c.uint8
+    offsets[i + 1] = bytes.len.uint64
+  wrap nq_series_new_binary(name.cstring, bytes.firstOrNil, offsets.firstOrNil,
+                            valid.firstOrNil, data.len.csize_t)
+
+proc series*(name: string, data: openArray[string], dtype: DataType): Series =
+  ## Strings as a column of `dtype`. With `Binary` each string is taken as raw
+  ## bytes (any bytes, not only UTF-8): `series("b", ["\x00\xff"], Binary)`.
+  ## Other types cast the strings: `series("d", ["1.25"], Decimal(5, 2))`.
+  if dtype.kind == DataTypeKind.Binary:
+    var opts = newSeq[Option[string]](data.len)
+    for i, x in data: opts[i] = some(x)
+    binaryImpl(name, opts)
+  else:
+    castSeries(series(name, data), dtype)
+
+proc series*(name: string, data: openArray[Option[string]], dtype: DataType): Series =
+  if dtype.kind == DataTypeKind.Binary: binaryImpl(name, data)
+  else: castSeries(series(name, data), dtype)
+
+type
+  BinNameSpace* = distinct Expr
+    ## `e.bin`: operations on Binary columns.
+  BinaryEncoding* {.pure.} = enum
+    ## Text encodings of bytes for `bin.encode`, `bin.decode` and `str.encode`.
+    Hex, Base64
+
+proc bin*(e: Expr): BinNameSpace = BinNameSpace(e)
+proc binOp(b: BinNameSpace, op: int32, a: Expr = nil): Expr =
+  wrap nq_expr_bin(Expr(b).raw, op, raw(a))
+proc binLit(x: string | Expr): Expr =
+  when x is string: series("", [x], Binary).lit else: x
+proc contains*(b: BinNameSpace, literal: string | Expr): Expr = binOp(b, 0, binLit(literal))
+  ## Whether the bytes contain `literal`.
+proc startsWith*(b: BinNameSpace, prefix: string | Expr): Expr = binOp(b, 1, binLit(prefix))
+proc endsWith*(b: BinNameSpace, suffix: string | Expr): Expr = binOp(b, 2, binLit(suffix))
+proc encode*(b: BinNameSpace, encoding: BinaryEncoding): Expr =
+  ## The bytes as hex or base64 text.
+  binOp(b, (if encoding == BinaryEncoding.Hex: 3 else: 4))
+proc decode*(b: BinNameSpace, encoding: BinaryEncoding): Expr =
+  ## Hex or base64 text (held as bytes) decoded; invalid input raises.
+  binOp(b, (if encoding == BinaryEncoding.Hex: 5 else: 6))
+proc size*(b: BinNameSpace, unit = SizeUnit.Bytes): Expr =
+  ## Number of bytes of each value (or kilobytes, ... as floats).
+  result = binOp(b, 7)
+  if unit != SizeUnit.Bytes:
+    result = result.cast(Float64) / pow(1024.0, ord(unit).float)
+
+proc slice*(b: BinNameSpace, offset: int | Expr, length: int | Expr): Expr =
+  ## `length` bytes from `offset` (negative: from the end).
+  wrap nq_expr_bin_slice(Expr(b).raw, 0, lit(offset).raw, lit(length).raw, false)
+proc head*(b: BinNameSpace, n: int | Expr): Expr =
+  ## The first `n` bytes (negative: all but the last `-n`).
+  wrap nq_expr_bin_slice(Expr(b).raw, 1, lit(n).raw, nil, false)
+proc tail*(b: BinNameSpace, n: int | Expr): Expr =
+  ## The last `n` bytes.
+  wrap nq_expr_bin_slice(Expr(b).raw, 2, lit(n).raw, nil, false)
+proc get*(b: BinNameSpace, index: int | Expr, nullOnOob = false): Expr =
+  ## The byte at `index` (negative: from the end) as UInt8; out of bounds
+  ## raises, or gives null with `nullOnOob`.
+  wrap nq_expr_bin_slice(Expr(b).raw, 3, lit(index).raw, nil, nullOnOob)
+
+proc toInteger*(s: StrNameSpace, base: int | Expr = 10, dtype = Int64, strict = true): Expr =
+  ## Parses strings as integers in `base` (2 to 36, or a column). Unparsable
+  ## values raise, or give null with `strict = false`.
+  let sp = toSpecs([dtype])
+  wrap nq_expr_str_to_integer(Expr(s).raw, lit(base).raw, sp.specs[0].unsafeAddr, strict)
+
+proc encode*(s: StrNameSpace, encoding: BinaryEncoding): Expr =
+  ## The UTF-8 bytes of each string as hex or base64 text.
+  wrap nq_expr_str_codec(Expr(s).raw, (if encoding == BinaryEncoding.Hex: 0 else: 1), 0)
+proc toDecimal*(s: StrNameSpace, scale: int): Expr =
+  ## Parses strings as decimals with `scale` digits after the point
+  ## (`Decimal(38, scale)`).
+  wrap nq_expr_str_codec(Expr(s).raw, 4, scale.int64)
+
+proc bitwiseOp(e: Expr, op: int32): Expr = wrap nq_expr_bitwise(e.raw, op)
+proc bitwiseCountOnes*(e: Expr): Expr = bitwiseOp(e, 0)
+  ## Number of 1 bits in each integer.
+proc bitwiseCountZeros*(e: Expr): Expr = bitwiseOp(e, 1)
+proc bitwiseLeadingOnes*(e: Expr): Expr = bitwiseOp(e, 2)
+proc bitwiseLeadingZeros*(e: Expr): Expr = bitwiseOp(e, 3)
+proc bitwiseTrailingOnes*(e: Expr): Expr = bitwiseOp(e, 4)
+proc bitwiseTrailingZeros*(e: Expr): Expr = bitwiseOp(e, 5)
+proc bitwiseAnd*(e: Expr): Expr = bitwiseOp(e, 6)
+  ## All values combined with bitwise and (an aggregation).
+proc bitwiseOr*(e: Expr): Expr = bitwiseOp(e, 7)
+proc bitwiseXor*(e: Expr): Expr = bitwiseOp(e, 8)
+
+# ---------------------------------------------------------------------------
+# Excel (0.6): read with calamine, write with rust_xlsxwriter (Rust crates in the lib)
+# ---------------------------------------------------------------------------
+
+proc excelSheetNames(path: string): seq[string] =
+  let r = nq_excel_sheet_names(path.cstring)
+  if r == nil: raiseLast()
+  let t = takeString r
+  if t.len > 0: result = t.split('\n')
+
+proc readExcelImpl(path: string, sheetName: string, sheetIndex: int, hasHeader: bool,
+                   headerRow, skipRows: int, columns: openArray[string],
+                   schemaOverrides: openArray[(string, DataType)]): DataFrame =
+  if skipRows < 0 or headerRow < 0:
+    raise newException(ValueError, "skipRows and headerRow must not be negative")
+  result = wrap nq_read_excel(path.cstring, (if sheetName.len > 0: sheetName.cstring else: nil),
+                              sheetIndex.csize_t, hasHeader, headerRow.csize_t, skipRows.csize_t)
+  if schemaOverrides.len > 0: result = result.cast(schemaOverrides)
+  if columns.len > 0: result = result.select(columns)
+
+proc readExcel*(path: string, sheetName = "", sheetId = 1, hasHeader = true, headerRow = 0,
+                skipRows = 0, columns: openArray[string] = [],
+                schemaOverrides: openArray[(string, DataType)] = []): DataFrame =
+  ## Reads one sheet of an Excel (.xlsx, .xlsm, .xlsb, .xls) or OpenDocument
+  ## (.ods) file: the sheet named `sheetName`, else the `sheetId`-th (from 1).
+  ## Row `headerRow` (from 0) holds the column names unless `hasHeader = false`
+  ## (`column_1`, ...); `skipRows` rows are skipped after the header (from the
+  ## top without one), as Python's default engine (fastexcel) does. Column types
+  ## are inferred from the cells: Boolean, Int64 (whole numbers), Float64, Date
+  ## (dates at midnight), Datetime[ms], else String; `schemaOverrides` casts some
+  ## columns.
+  if sheetName.len == 0 and sheetId < 1:
+    raise newException(ValueError, "sheetId counts from 1; use readExcelSheets for all sheets")
+  readExcelImpl(path, sheetName, sheetId - 1, hasHeader, headerRow, skipRows, columns,
+                schemaOverrides)
+
+proc readExcelSheets*(path: string, hasHeader = true, headerRow = 0,
+                      skipRows = 0): OrderedTable[string, DataFrame] =
+  ## Every sheet of a workbook, by name, in order (Python's `sheet_id = 0`).
+  for i, n in excelSheetNames(path):
+    result[n] = readExcelImpl(path, n, i, hasHeader, headerRow, skipRows, [], [])
+
+proc writeExcel*(df: DataFrame, path: string, worksheet = "Sheet1", includeHeader = true,
+                 autofit = false, floatPrecision: int | Option[int] = none(int)) =
+  ## Writes `df` to a new .xlsx file with one worksheet: a bold header row, then
+  ## the values as Excel numbers, booleans, dates (`yyyy-mm-dd`), datetimes and
+  ## text. `floatPrecision` sets the decimals shown for floats; `autofit` sizes
+  ## the columns to their contents.
+  let p = toOpt(floatPrecision)
+  if not nq_write_excel(df.raw, path.cstring, worksheet.cstring, includeHeader, autofit,
+                        (if p.isSome: p.get.int32 else: -1'i32)):
+    raiseLast()
+
+# ---------------------------------------------------------------------------
+# Smaller functions (0.6): method spellings, xor, ranges, joinWhere, hist, ...
+# ---------------------------------------------------------------------------
+
+template defMethod(name, op: untyped) =
+  proc name*[T: Expr | SomeNumber | string | bool](a: Expr, b: T): Expr = op(a, lit(b))
+    ## Method spelling of an operator, as in Python Polars (`col("a").mul(2)`).
+
+defMethod(add, `+`)
+defMethod(sub, `-`)
+defMethod(mul, `*`)
+defMethod(truediv, `/`)
+defMethod(floordiv, `div`)
+defMethod(eq, `==`)
+defMethod(ne, `!=`)
+defMethod(lt, `<`)
+defMethod(le, `<=`)
+defMethod(gt, `>`)
+defMethod(ge, `>=`)
+proc neg*(e: Expr): Expr = lit(0) - e
+  ## `-e`, as a method.
+
+proc `xor`*(a, b: Expr): Expr = wrap nq_expr_xor(a.raw, b.raw)
+  ## Exclusive or: logical for booleans, bitwise for integers (Python's `^`).
+proc `xor`*[T: SomeInteger | bool](a: Expr, b: T): Expr = a xor lit(b)
+proc `xor`*[T: SomeInteger | bool](a: T, b: Expr): Expr = lit(a) xor b
+
+proc setSorted*(e: Expr, descending = false): Expr =
+  ## Marks the values as sorted, so Polars can use fast paths (binary search,
+  ## sorted joins). Wrong results follow if they are not.
+  wrap nq_expr_set_sorted(e.raw, descending)
+proc setSorted*(df: DataFrame, column: string, descending = false): DataFrame =
+  ## The frame with `column` marked as sorted.
+  df.withColumns(col(column).setSorted(descending))
+
+proc hist*(e: Expr, bins: openArray[float] = [], binCount: int | Option[int] = none(int),
+           includeCategory = false, includeBreakpoint = false): Expr =
+  ## Counts of values per bin: given `bins` edges, or `binCount` equal bins
+  ## (default 10). With `includeCategory`/`includeBreakpoint` the result is a
+  ## struct with the bin's label and right edge.
+  let b = (if bins.len > 0: lit(series("bins", @bins)) else: nil)
+  let n = toOpt(binCount)
+  wrap nq_expr_hist(e.raw, raw(b), (if n.isSome: n.get.int64 else: -1'i64),
+                    includeCategory, includeBreakpoint)
+proc hist*(s: Series, bins: openArray[float] = [], binCount: int | Option[int] = none(int),
+           includeCategory = true, includeBreakpoint = true): DataFrame =
+  ## A frame of bins (`breakpoint`, `category`) and their `count`.
+  let df = s.toFrame.select(col(s.name).hist(bins, binCount, includeCategory, includeBreakpoint))
+  if includeCategory or includeBreakpoint: df.unnest(s.name) else: df
+
+proc intRanges*(start, stop: int | Expr, step: int | Expr = 1, dtype = Int64): Expr =
+  ## One list of integers per row, from `start` up to `stop` by `step`
+  ## (columns or numbers).
+  let sp = toSpecs([dtype])
+  wrap nq_expr_int_ranges(lit(start).raw, lit(stop).raw, lit(step).raw, sp.specs[0].unsafeAddr)
+proc arange*(start, stop: int | Expr, step = 1, dtype = Int64): Expr =
+  ## Another name for `intRange` (Python's `pl.arange`).
+  intRange(start, stop, step, dtype)
+proc dateRanges*(start, stop: Date | Expr, interval: string | TimeInterval = "1d",
+                 closed = ClosedWindow.Both): Expr =
+  ## One list of dates per row, from `start` to `stop` every `interval`.
+  wrap nq_expr_date_ranges(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                           NqClosedWindow(ord(closed)), false, false, nquMicroseconds, "")
+proc datetimeRanges*(start, stop: DateTime | Expr, interval: string | TimeInterval = "1d",
+                     closed = ClosedWindow.Both,
+                     timeUnit: TimeUnit | Option[TimeUnit] = none(TimeUnit),
+                     timeZone = ""): Expr =
+  ## One list of datetimes per row, from `start` to `stop` every `interval`.
+  let tu = toTu(timeUnit)
+  wrap nq_expr_date_ranges(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                           NqClosedWindow(ord(closed)), true, tu.isSome,
+                           NqTimeUnit(ord(tu.get(TimeUnit.Microseconds))), timeZone.cstring)
+
+proc joinWhere*(lf, other: LazyFrame, predicates: varargs[Expr], suffix = "_right"): LazyFrame =
+  ## Joins rows of `lf` and `other` where every predicate holds, for
+  ## inequality joins: `joinWhere(other, col("start") <= col("t"), col("t") < col("end"))`.
+  ## Columns of `other` with a clashing name get `suffix`.
+  let ps = raws(predicates)
+  wrap nq_lf_join_where(lf.raw, other.raw, ps.firstOrNil, ps.len.csize_t, suffix.cstring)
+proc joinWhere*(df, other: DataFrame, predicates: varargs[Expr], suffix = "_right"): DataFrame =
+  df.lazy.joinWhere(other.lazy, predicates, suffix).collectEager
+
+proc explainAll*(lfs: openArray[LazyFrame]): string =
+  ## The combined optimized plan of several queries (what `collectAll` runs).
+  var rs = newSeq[ptr NqLazyFrame](lfs.len)
+  for i, l in lfs: rs[i] = l.raw
+  let s = nq_explain_all(rs.firstOrNil, rs.len.csize_t)
+  if s == nil: raiseLast()
+  takeString s
+
+proc threadPoolSize*(): int = nq_thread_pool_size().int
+  ## Number of threads Polars computes with (set `POLARS_MAX_THREADS` before
+  ## the first query to change it).
+
+proc append*(df: var DataFrame, other: DataFrame) =
+  ## Appends the rows of `other` to `df` (same columns and types), in place:
+  ## Python's `df.append(other)`.
+  df = df.vstack(other)
+
+proc remove*(lf: LazyFrame, predicate: Expr): LazyFrame =
+  ## The rows where `predicate` is not true (rows where it is null stay): the
+  ## opposite of `filter`.
+  lf.filter((not predicate).fillNull(true))
+proc remove*(df: DataFrame, predicate: Expr): DataFrame = df.lazy.remove(predicate).collectEager
+
+proc isSorted*(s: Series, descending = false, nullsLast = false): bool =
+  ## Whether the values are sorted (nulls first, unless `nullsLast`).
+  let f = s.toFrame
+  f.equals(f.sort(s.name, descending = descending, nullsLast = nullsLast, maintainOrder = true))
+
+type
+  EpochUnit* {.pure.} = enum
+    ## Unit of the numbers `fromEpoch` reads (Python's `"d"`, `"s"`, `"ms"`, `"us"`, `"ns"`).
+    Days, Seconds, Milliseconds, Microseconds, Nanoseconds
+
+proc fromEpoch*(e: Expr, unit = EpochUnit.Seconds): Expr =
+  ## Numbers counting time since 1970-01-01 as Datetime (Date for `Days`).
+  case unit
+  of EpochUnit.Days: e.cast(Int32).cast(Date)
+  of EpochUnit.Seconds: (e.cast(Int64) * 1_000_000).cast(dataType(DateTime, TimeUnit.Microseconds))
+  of EpochUnit.Milliseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Milliseconds))
+  of EpochUnit.Microseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Microseconds))
+  of EpochUnit.Nanoseconds: e.cast(Int64).cast(dataType(DateTime, TimeUnit.Nanoseconds))
+proc fromEpoch*(column: string, unit = EpochUnit.Seconds): Expr = fromEpoch(col(column), unit)
+
+proc readParquetSchema*(path: string): Schema =
+  ## The column names and types of a Parquet file, without reading the data.
+  scanParquet(path).collectSchema
+
+type
+  UnstackDirection* {.pure.} = enum
+    ## How `unstack` lays values out (Python's `how`).
+    Vertical, Horizontal
+
+proc unstack*(df: DataFrame, step: int, how = UnstackDirection.Vertical,
+              columns: openArray[string] = [], fillValues: Expr = nil): DataFrame =
+  ## Reshapes each column into several of `step` values (`Vertical`: runs of
+  ## consecutive values; `Horizontal`: `step` values per row), named
+  ## `<column>_<i>`. Missing values at the end are null or `fillValues`.
+  if step <= 0: raise newException(ValueError, "unstack step must be positive")
+  var d = (if columns.len > 0: df.select(columns) else: df)
+  let h = d.height
+  let (nRows, nCols) = (if how == UnstackDirection.Vertical: (step, (h + step - 1) div step)
+                        else: ((h + step - 1) div step, step))
+  let fill = nRows * nCols - h
+  if fill > 0:
+    var exprs: seq[Expr]
+    for c in d.columns:
+      exprs.add col(c).extendConstant(if fillValues.isNil: lit(nil) else: fillValues, fill)
+    d = d.select(exprs)
+  if how == UnstackDirection.Horizontal:
+    var order = newSeq[int](nRows * nCols)
+    for i in 0 ..< order.len: order[i] = (i mod nCols) * nRows + i div nCols
+    d = d.withColumns(lit(series("__order", order))).sort("__order").drop("__order")
+  let width = len($max(nCols - 1, 0))
+  var parts: seq[Series]
+  for c in d.columns:
+    let s = d.getColumn(c)
+    for k in 0 ..< nCols:
+      parts.add d.slice(k * nRows, nRows).getColumn(c).rename(c & "_" & align($k, width, '0'))
+  newDataFrame(parts)
+
+proc rollingMap*[T, U](e: Expr, f: proc (window: seq[T]): U, windowSize: int,
+                       minPeriods: int | Option[int] = none(int), center = false): Expr =
+  ## `f` applied to each window of `windowSize` values (Python's
+  ## `rolling_map`): the window holds the non-null values; fewer than
+  ## `minPeriods` (default `windowSize`) gives null.
+  if windowSize <= 0: raise newException(ValueError, "windowSize must be positive")
+  let mp = toOpt(minPeriods).get(windowSize)
+  let g = proc (s: Series): Series =
+    let xs = s.toList(Option[T])
+    var ys = newSeq[Option[U]](xs.len)
+    let off = (if center: windowSize div 2 else: windowSize - 1)
+    for i in 0 ..< xs.len:
+      let lo = i - off
+      let hi = lo + windowSize - 1
+      var w: seq[T]
+      for j in max(lo, 0) .. min(hi, xs.high):
+        if xs[j].isSome: w.add xs[j].get
+      if w.len >= mp: ys[i] = some(f(w))
+    series(s.name, ys)
+  e.mapBatches(g, dataType(U))
+
+proc scatter*[T](s: Series, indices: openArray[int], values: openArray[T]): Series =
+  ## A copy of `s` with the values at `indices` replaced by `values` (Python's
+  ## `Series.scatter`). Negative indices count from the end.
+  if indices.len != values.len:
+    raise newException(ValueError, "scatter needs as many values as indices")
+  var idx = newSeq[int](indices.len)
+  for i, x in indices:
+    let j = (if x < 0: s.len + x else: x)
+    if j < 0 or j >= s.len: raise newException(IndexDefect, "index " & $x & " out of bounds")
+    idx[i] = j
+  let upd = newDataFrame(series("__r", idx), series("__v", @values), series("__hit", newSeq[bool](idx.len).mapIt(true)))
+  let f = s.toFrame.withRowIndex("__r").withColumns(col("__r").cast(Int64))
+  let j = f.join(upd, on = ["__r"], how = JoinType.Left).sort("__r")
+  j.select(`when`(col("__hit").fillNull(false)).then(col("__v").cast(s.dtype)).otherwise(col(s.name)).alias(s.name)).getColumn(s.name)
+proc scatter*[T: not openArray](s: Series, indices: openArray[int], value: T): Series =
+  ## The values at `indices` all set to `value`.
+  var vs = newSeq[T](indices.len)
+  for i in 0 ..< vs.len: vs[i] = value
+  s.scatter(indices, vs)
+proc `set`*[T](s: Series, mask: Series, value: T): Series =
+  ## A copy of `s` with `value` where the boolean `mask` is true (Python's
+  ## `Series.set`).
+  let f = newDataFrame(s.rename("__s"), mask.rename("__m"))
+  f.select(`when`(col("__m").fillNull(false)).then(lit(value)).otherwise(col("__s")).alias(s.name)).getColumn(s.name)
+
+type DtypeOf* = object
+  ## The data type of an expression, resolved when the query runs (Python's
+  ## `pl.dtype_of`): cast to it with `cast`, show it with `display`.
+  e: Expr
+  inner: bool
+
+proc dtypeOf*(e: Expr): DtypeOf = DtypeOf(e: e)
+proc dtypeOf*(column: string): DtypeOf = DtypeOf(e: col(column))
+proc innerDtype*(d: DtypeOf): DtypeOf = DtypeOf(e: d.e, inner: true)
+  ## The inner type of a List or Array type.
+proc display*(d: DtypeOf): Expr = wrap nq_expr_dtype_display(d.e.raw, d.inner)
+  ## The type as text (Polars' short name, `i64`), one value.
+proc `cast`*(e: Expr, d: DtypeOf, strict = true): Expr =
+  ## Casts to the type of another expression: `col("a").cast(dtypeOf("b"))`.
+  if d.inner: raise newException(ValueError, "cast to innerDtype is not supported")
+  wrap nq_expr_cast_dtype_of(e.raw, d.e.raw, strict)
+
+# ---------------------------------------------------------------------------
+# Book port needs (0.6): frame and group-by aggregations, group iteration, ...
+# ---------------------------------------------------------------------------
+
+proc frameAgg(schema: Schema, numericOnly: bool, temporalToo: bool,
+              f: proc (e: Expr): Expr): seq[Expr] =
+  for name, t in schema:
+    let ok = not numericOnly or t.isNumeric or t == Boolean or t.kind == DataTypeKind.Decimal or
+             (temporalToo and t.isTemporal)
+    result.add(if ok: f(col(name)).alias(name) else: lit(nil).cast(t).alias(name))
+
+template defFrameAgg(name: untyped, numericOnly, temporalToo: bool, body: untyped) =
+  proc name*(lf: LazyFrame): LazyFrame =
+    ## One row with the aggregation of each column (null for columns of
+    ## another kind), as Python's `LazyFrame.<name>()`.
+    lf.select(frameAgg(lf.collectSchema, numericOnly, temporalToo, proc (it {.inject.}: Expr): Expr = body))
+  proc name*(df: DataFrame): DataFrame =
+    ## One row with the aggregation of each column, as Python's `DataFrame.<name>()`.
+    df.lazy.name.collectEager
+
+defFrameAgg(sum, true, false, it.sum)
+defFrameAgg(mean, true, true, it.mean)
+defFrameAgg(median, true, true, it.median)
+defFrameAgg(product, true, false, it.product)
+defFrameAgg(min, false, false, it.min)
+defFrameAgg(max, false, false, it.max)
+defFrameAgg(nUnique, false, false, it.nUnique)
+defFrameAgg(count, false, false, it.count)
+
+proc std*(lf: LazyFrame, ddof = 1): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.std(ddof)))
+proc std*(df: DataFrame, ddof = 1): DataFrame = df.lazy.std(ddof).collectEager
+proc `var`*(lf: LazyFrame, ddof = 1): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, false, proc (it: Expr): Expr = it.`var`(ddof)))
+proc `var`*(df: DataFrame, ddof = 1): DataFrame = df.lazy.`var`(ddof).collectEager
+proc quantile*(lf: LazyFrame, quantile: float,
+               interpolation = QuantileMethod.Nearest): LazyFrame =
+  lf.select(frameAgg(lf.collectSchema, true, true,
+                     proc (it: Expr): Expr = it.quantile(quantile, interpolation)))
+proc quantile*(df: DataFrame, quantile: float,
+               interpolation = QuantileMethod.Nearest): DataFrame =
+  df.lazy.quantile(quantile, interpolation).collectEager
+proc nullCount*(lf: LazyFrame): LazyFrame =
+  ## One row with the number of nulls in each column (Python's `null_count()`).
+  lf.select(frameAgg(lf.collectSchema, false, false, proc (it: Expr): Expr = it.nullCount))
+proc nullCount*(df: DataFrame): DataFrame = df.lazy.nullCount.collectEager
+
+proc fillNan*(lf: LazyFrame, value: float | Expr | typeof(nil)): LazyFrame =
+  ## NaN in float columns replaced with `value` (`nil` for null).
+  var es: seq[Expr]
+  for name, t in lf.collectSchema:
+    if t.isFloat: es.add col(name).fillNan(value)
+  if es.len == 0: lf else: lf.withColumns(es)
+proc fillNan*(df: DataFrame, value: float | Expr | typeof(nil)): DataFrame =
+  df.lazy.fillNan(value).collectEager
+
+proc select*(exprs: varargs[Expr]): DataFrame =
+  ## Expressions evaluated without a frame (Python's `pl.select`):
+  ## `select(lit(1).alias("one"), intRange(0, 3))`.
+  newDataFrame().select(exprs)
+
+proc keyNames(g: LazyGroupBy): seq[string] =
+  for e in g.by: result.add e.meta.outputName
+
+proc plainGroups(g: LazyGroupBy, what: string) =
+  if g.kind != gkPlain:
+    raise newException(InvalidOperationError, what & " needs a plain groupBy")
+
+template defGroupAgg(name: untyped, body: untyped) =
+  proc name*(g: LazyGroupBy): LazyFrame =
+    ## Each group's `name` of every other column (Python's `GroupBy.<name>()`).
+    let it {.inject.} = col("*")
+    g.agg(body)
+  proc name*(g: GroupBy): DataFrame = g.lazy.name.collectEager
+
+defGroupAgg(sum, it.sum)
+defGroupAgg(mean, it.mean)
+defGroupAgg(median, it.median)
+defGroupAgg(min, it.min)
+defGroupAgg(max, it.max)
+defGroupAgg(first, it.first)
+defGroupAgg(last, it.last)
+defGroupAgg(nUnique, it.nUnique)
+defGroupAgg(all, it)
+
+proc quantile*(g: LazyGroupBy, quantile: float, interpolation = QuantileMethod.Nearest): LazyFrame =
+  g.agg(col("*").quantile(quantile, interpolation))
+proc quantile*(g: GroupBy, quantile: float, interpolation = QuantileMethod.Nearest): DataFrame =
+  g.lazy.quantile(quantile, interpolation).collectEager
+proc len*(g: LazyGroupBy, name = "len"): LazyFrame =
+  ## The number of rows of each group, in column `name`.
+  g.agg(len().alias(name))
+proc len*(g: GroupBy, name = "len"): DataFrame = g.lazy.len(name).collectEager
+proc count*(g: LazyGroupBy): LazyFrame = g.len("count")
+  ## The number of rows of each group, in column `count`.
+proc count*(g: GroupBy): DataFrame = g.lazy.count.collectEager
+
+proc head*(g: LazyGroupBy, n = 5): LazyFrame =
+  ## The first `n` rows of each group, groups in order of appearance.
+  plainGroups(g, "head")
+  let rs = raws(g.by)
+  wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, false)
+proc head*(g: GroupBy, n = 5): DataFrame = g.lazy.head(n).collectEager
+proc tail*(g: LazyGroupBy, n = 5): LazyFrame =
+  ## The last `n` rows of each group.
+  plainGroups(g, "tail")
+  let rs = raws(g.by)
+  wrap nq_lf_group_head(g.lf.raw, rs.firstOrNil, rs.len.csize_t, n.int64, true)
+proc tail*(g: GroupBy, n = 5): DataFrame = g.lazy.tail(n).collectEager
+
+iterator pairs*(g: GroupBy): tuple[key: seq[string], frame: DataFrame] =
+  ## The groups, in order of appearance: `for key, part in df.groupBy("species")`.
+  ## `key` holds the key values as strings, in `by` order (Python yields a tuple).
+  plainGroups(g.lazy, "iterating")
+  let names = keyNames(g.lazy)
+  let df = g.lazy.lf.collectEager
+  for k, part in df.partitionBy(names, maintainOrder = true, asDict = true):
+    yield (k, part)
+
+# ---------------------------------------------------------------------------
+# 0.6: small functions from the Polars coverage map (add-coverage-easy-wins-0-6)
+# ---------------------------------------------------------------------------
+
+proc nullColumns(schema: Schema, n: int): seq[Expr] =
+  for name, t in schema:
+    let v = lit(nil).cast(t)
+    result.add (if n == 0: v else: repeat(v, n)).alias(name)
+
+proc nullFrame(schema: Schema, n: int): DataFrame =
+  if schema.len == 0: return newDataFrameOf()
+  let r = newDataFrameOf().lazy.select(nullColumns(schema, n)).collect
+  if n == 0: r.head(0) else: r
+
+proc emptyFrameOf(schema: openArray[(string, DataType)]): DataFrame =
+  var s: Schema
+  for (name, t) in schema: s[name] = t
+  nullFrame(s, 0)
+
+proc emptyFrameOf(schema: Schema): DataFrame = nullFrame(schema, 0)
+
+proc clear*(df: DataFrame, n = 0): DataFrame =
+  ## A frame with the same columns and types and no rows, or `n` rows of nulls.
+  nullFrame(df.schema, n)
+
+proc clear*(lf: LazyFrame, n = 0): LazyFrame =
+  ## `clear` on a LazyFrame (the schema is resolved now).
+  nullFrame(lf.collectSchema, n).lazy
+
+proc isEmpty*(df: DataFrame): bool = df.height == 0
+  ## True when the frame has no rows.
+proc isEmpty*(s: Series): bool = s.len == 0
+  ## True when the series has no values.
+
+proc getColumnIndex*(df: DataFrame, name: string): int =
+  ## The position of column `name`; raises `ColumnNotFoundError` if there is none.
+  result = df.columns.find(name)
+  if result < 0: raise newException(ColumnNotFoundError, "no column named '" & name & "'")
+
+proc rowsByKey*[K; T: object | tuple](df: DataFrame, key: string, _: typedesc[K],
+                                      _: typedesc[T],
+                                      unique: static bool = false): auto =
+  ## The rows grouped by the values of column `key`, in order of appearance:
+  ## `df.rowsByKey("station", string, tuple[day: Date, rain: float])` is an
+  ## `OrderedTable[string, seq[...]]`. The key column is left out of the rows
+  ## unless `T` has a field with its name. With `unique = true` each key maps to
+  ## its last row instead of a seq.
+  let keys = df.toList(key, K)
+  let rs = df.rows(T)
+  when unique:
+    var t = initOrderedTable[K, T]()
+    for i, k in keys: t[k] = rs[i]
+    t
+  else:
+    var t = initOrderedTable[K, seq[T]]()
+    for i, k in keys: t.mgetOrPut(k, @[]).add rs[i]
+    t
+
+proc shift*(lf: LazyFrame, n = 1): LazyFrame =
+  ## Shifts every column down by `n` rows (up when negative), filling with nulls.
+  lf.select(all().shift(n))
+proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](lf: LazyFrame, n = 1,
+    fillValue: T): LazyFrame =
+  ## Like `shift`, filling with `fillValue`.
+  lf.select(all().toExpr.shift(n, fillValue))
+proc shift*(df: DataFrame, n = 1): DataFrame = df.lazy.shift(n).collectEager
+  ## Shifts every column down by `n` rows (up when negative), filling with nulls.
+proc shift*[T: SomeNumber | string | bool | TemporalValue | Expr](df: DataFrame, n = 1,
+    fillValue: T): DataFrame = df.lazy.shift(n, fillValue).collectEager
+
+proc first*(lf: LazyFrame): LazyFrame = lf.slice(0, 1)
+  ## The first row.
+proc last*(lf: LazyFrame): LazyFrame = lf.tail(1)
+  ## The last row.
+
+proc dropNans*(lf: LazyFrame, subset: varargs[string]): LazyFrame =
+  ## Drops rows with a NaN in any float column, or only in the `subset` columns.
+  let names = cstrings(subset)
+  wrap nq_lf_drop_nans(lf.raw, names.firstOrNil, names.len.csize_t)
+proc dropNans*(df: DataFrame, subset: varargs[string]): DataFrame =
+  df.lazy.dropNans(subset).collectEager
+
+proc epoch*(d: DtNameSpace, timeUnit = EpochUnit.Microseconds): Expr =
+  ## Time since 1970-01-01 in `timeUnit`: `Seconds` and `Days` are whole numbers.
+  case timeUnit
+  of EpochUnit.Nanoseconds: d.timestamp(TimeUnit.Nanoseconds)
+  of EpochUnit.Microseconds: d.timestamp(TimeUnit.Microseconds)
+  of EpochUnit.Milliseconds: d.timestamp(TimeUnit.Milliseconds)
+  of EpochUnit.Seconds: d.timestamp(TimeUnit.Milliseconds) div 1000
+  of EpochUnit.Days: Expr(d).cast(dataType(Date)).cast(Int32)
+
+# Series bin namespace
+
+type SeriesBinNameSpace* = distinct Series
+proc bin*(s: Series): SeriesBinNameSpace = SeriesBinNameSpace(s)
+  ## The binary functions on a Series.
+seriesNsOps(SeriesBinNameSpace, "bin")
+
+# Expressions
+
+proc win(e: Expr, op: NqWinOp, a: Expr = nil, b: Expr = nil, i = 0'i64, j = 0'i64,
+         x = 0.0, y = 0.0, flag = false): Expr =
+  wrap nq_expr_win(e.raw, op, (if a.isNil: nil else: a.raw), (if b.isNil: nil else: b.raw),
+                   i, j, x, y, flag)
+
+proc eqMissing*[T](e: Expr, other: T): Expr = win(e, nqwEqMissing, lit(other))
+  ## `==` where null equals null (never null itself).
+proc neMissing*[T](e: Expr, other: T): Expr = win(e, nqwNeMissing, lit(other))
+  ## `!=` where null equals null (never null itself).
+
+proc nth*(indices: varargs[int]): Expr =
+  ## The columns at these positions (negative counts from the end):
+  ## `select(nth(0, -1))`.
+  var ix = newSeq[int64](indices.len)
+  for i, v in indices: ix[i] = v.int64
+  wrap nq_expr_nth(ix.firstOrNil, ix.len.csize_t, true)
+
+proc cumulativeEval*(e: Expr, expr: Expr, minSamples = 1): Expr =
+  ## Runs `expr` (on `element()`) over the growing window of values up to each
+  ## row: `col.x.cumulativeEval(element().sum)` is a cumulative sum.
+  win(e, nqwCumulativeEval, expr, i = minSamples.int64)
+
+proc roundSigFigs*(e: Expr, digits: int): Expr = win(e, nqwRoundSigFigs, i = digits.int64)
+  ## Rounds to `digits` significant figures.
+
+proc century*(d: DtNameSpace): Expr = win(Expr(d), nqwCentury)
+  ## The century (2001-2100 is the 21st).
+proc millennium*(d: DtNameSpace): Expr = win(Expr(d), nqwMillennium)
+  ## The millennium (2001-3000 is the 3rd).
+proc dstOffset*(d: DtNameSpace): Expr = win(Expr(d), nqwDstOffset)
+  ## The daylight saving time offset of a zoned datetime, as a Duration.
+proc baseUtcOffset*(d: DtNameSpace): Expr = win(Expr(d), nqwBaseUtcOffset)
+  ## The base offset from UTC of a zoned datetime, as a Duration.
+
+proc escapeRegex*(s: StrNameSpace): Expr = win(Expr(s), nqwEscapeRegex)
+  ## The strings with regex metacharacters escaped.
+
+proc timeRange*(start, stop: TimeOfDay | Expr, interval: string | TimeInterval = "1h",
+                closed = ClosedWindow.Both): Expr =
+  ## One time of day per `interval` from `start` to `stop`.
+  wrap nq_expr_time_range(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                          NqClosedWindow(ord(closed)), false)
+proc timeRanges*(start, stop: TimeOfDay | Expr, interval: string | TimeInterval = "1h",
+                 closed = ClosedWindow.Both): Expr =
+  ## One list of times per row, from `start` to `stop` every `interval`.
+  wrap nq_expr_time_range(lit(start).raw, lit(stop).raw, toInterval(interval).cstring,
+                          NqClosedWindow(ord(closed)), true)
+
+proc concatArr*(exprs: varargs[Expr]): Expr =
+  ## Fixed-size arrays from the values (or arrays) of several columns, per row.
+  let raws = exprs.mapIt(it.raw)
+  wrap nq_expr_concat_arr(raws.firstOrNil, raws.len.csize_t)
+
+proc isClose*[T](e: Expr, other: T, absTol = 0.0, relTol = 1e-9, nansEqual = false): Expr =
+  ## True where `abs(a - b) <= max(relTol * max(abs(a), abs(b)), absTol)`.
+  win(e, nqwIsClose, lit(other), x = absTol, y = relTol, flag = nansEqual)
+
+proc reinterpret*(e: Expr, signed = true): Expr = win(e, nqwReinterpret, flag = signed)
+  ## The bits of 64-bit integers read as signed (`Int64`) or unsigned (`UInt64`).
+
+type
+  UnicodeForm* {.pure.} = enum
+    ## Unicode normal forms for `str.normalize`.
+    NFC, NFKC, NFD, NFKD
+
+proc normalize*(s: StrNameSpace, form = UnicodeForm.NFC): Expr =
+  ## The strings in a Unicode normal form.
+  win(Expr(s), nqwNormalize, i = ord(form).int64)
+
+type
+  Roll* {.pure.} = enum
+    ## What `addBusinessDays` does with a start date that is not a business day.
+    Raise, Forward, Backward
+
+const workweek* = [true, true, true, true, true, false, false]
+  ## Monday to Friday, the default `weekMask`.
+
+proc maskBits(m: array[7, bool]): int64 =
+  for i, d in m:
+    if d: result = result or (1'i64 shl i)
+
+proc holidaysExpr(holidays: openArray[Date]): Expr =
+  lit(series("", holidays)).implode
+
+proc addBusinessDays*(d: DtNameSpace, n: int | Expr, weekMask = workweek,
+                      holidays: openArray[Date] = [], roll = Roll.Raise): Expr =
+  ## Adds `n` business days (Monday to Friday by default, minus `holidays`).
+  win(Expr(d), nqwAddBusinessDays, lit(n), holidaysExpr(holidays), maskBits(weekMask),
+      ord(roll).int64)
+
+proc isBusinessDay*(d: DtNameSpace, weekMask = workweek,
+                    holidays: openArray[Date] = []): Expr =
+  ## True on business days.
+  win(Expr(d), nqwIsBusinessDay, b = holidaysExpr(holidays), i = maskBits(weekMask))
+
+proc businessDayCount*(start, stop: Date | Expr, weekMask = workweek,
+                       holidays: openArray[Date] = []): Expr =
+  ## Business days from `start` (included) to `stop` (excluded).
+  let h = holidaysExpr(holidays)
+  wrap nq_expr_business_day_count(lit(start).raw, lit(stop).raw, maskBits(weekMask), h.raw)
+
+# Frames
+
+type
+  QueryOptFlags* = object
+    ## Optimizations Polars applies when a query runs (Python's `pl.QueryOptFlags`).
+    ## All are on by default; `QueryOptFlags.none` turns them all off.
+    predicatePushdown* = true
+    projectionPushdown* = true
+    simplifyExpression* = true
+    slicePushdown* = true
+    commSubplanElim* = true
+    commSubexprElim* = true
+    clusterWithColumns* = true
+    typeCoercion* = true
+    typeCheck* = true
+
+proc none*(_: typedesc[QueryOptFlags]): QueryOptFlags =
+  ## Every optimization off (type coercion and checks stay on, as in Python).
+  QueryOptFlags(predicatePushdown: false, projectionPushdown: false,
+                simplifyExpression: false, slicePushdown: false, commSubplanElim: false,
+                commSubexprElim: false, clusterWithColumns: false)
+
+proc withOptimizations*(lf: LazyFrame, optimizations: QueryOptFlags): LazyFrame =
+  ## The query with these optimizations, for `collect`, `explain` and sinks.
+  let o = optimizations
+  var bits = 0'u32
+  for i, on in [o.predicatePushdown, o.projectionPushdown, o.simplifyExpression,
+                o.slicePushdown, o.commSubplanElim, o.commSubexprElim,
+                o.clusterWithColumns, o.typeCoercion, o.typeCheck]:
+    if on: bits = bits or (1'u32 shl i)
+  wrap nq_lf_with_optimizations(lf.raw, bits)
+
+proc collect*(lf: LazyFrame, optimizations: QueryOptFlags,
+              engine = Engine.Auto): DataFrame =
+  ## Runs the query with these optimizations: `collect(QueryOptFlags.none)`.
+  lf.withOptimizations(optimizations).collect(engine)
+
+proc cache*(lf: LazyFrame): LazyFrame = wrap nq_lf_cache(lf.raw)
+  ## Caches the result of this part of the query when it is used several times.
+
+proc mergeSorted*(lf, other: LazyFrame, key: string): LazyFrame =
+  ## Merges two frames sorted by `key` into one sorted frame (same columns).
+  wrap nq_lf_merge_sorted(lf.raw, other.raw, key.cstring)
+proc mergeSorted*(df, other: DataFrame, key: string): DataFrame =
+  df.lazy.mergeSorted(other.lazy, key).collectEager
+
+type
+  MissingColumns* {.pure.} = enum
+    ## `matchToSchema`: what to do with a column of the schema the frame lacks.
+    Raise, Insert
+  ExtraColumns* {.pure.} = enum
+    ## `matchToSchema`: what to do with a column the schema lacks.
+    Raise, Ignore
+  CastPolicy* {.pure.} = enum
+    ## `matchToSchema`: whether numbers may be cast to a wider type.
+    Forbid, Upcast
+
+proc matchToSchema*(lf: LazyFrame, schema: openArray[(string, DataType)],
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): LazyFrame =
+  ## Brings the frame to `schema`: its columns in that order and with those types,
+  ## raising when they do not match unless told to insert missing columns (as
+  ## nulls), drop extra ones, or upcast integers and floats.
+  var names: seq[cstring]
+  var ts: seq[DataType]
+  for p in schema:
+    names.add p[0].cstring
+    ts.add p[1]
+  let sp = toSpecs(ts)
+  wrap nq_lf_match_to_schema(lf.raw, names.firstOrNil, sp.specs.firstOrNil,
+                             names.len.csize_t, ord(missingColumns).int32,
+                             ord(extraColumns).int32, ord(integerCast).int32,
+                             ord(floatCast).int32)
+proc matchToSchema*(lf: LazyFrame, schema: Schema,
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): LazyFrame =
+  lf.matchToSchema(toSeq(schema.pairs), missingColumns, extraColumns, integerCast, floatCast)
+proc matchToSchema*(df: DataFrame, schema: openArray[(string, DataType)],
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): DataFrame =
+  df.lazy.matchToSchema(schema, missingColumns, extraColumns, integerCast,
+                        floatCast).collect
+proc matchToSchema*(df: DataFrame, schema: Schema,
+                    missingColumns = MissingColumns.Raise,
+                    extraColumns = ExtraColumns.Raise, integerCast = CastPolicy.Forbid,
+                    floatCast = CastPolicy.Forbid): DataFrame =
+  df.lazy.matchToSchema(schema, missingColumns, extraColumns, integerCast,
+                        floatCast).collect
+
+proc rechunk*(df: DataFrame): DataFrame = wrap nq_df_rechunk(df.raw)
+  ## The frame with each column in one contiguous chunk.
+proc shrinkToFit*(df: DataFrame): DataFrame = wrap nq_df_shrink_to_fit(df.raw)
+  ## The frame with no spare capacity in its buffers.
+proc nChunks*(df: DataFrame): int = nq_df_n_chunks(df.raw).int
+  ## The largest number of chunks of any column (1 after `rechunk`).
+
+proc readOds*(path: string, sheetName = "", sheetId = 1, hasHeader = true, headerRow = 0,
+              skipRows = 0, columns: openArray[string] = [],
+              schemaOverrides: openArray[(string, DataType)] = []): DataFrame =
+  ## Reads one sheet of an OpenDocument spreadsheet (.ods), as `readExcel`.
+  readExcel(path, sheetName, sheetId, hasHeader, headerRow, skipRows, columns,
+            schemaOverrides)
+
+proc readIpcStream*(path: string): DataFrame =
+  ## Reads an Arrow IPC stream (not the IPC file format of `readIpc`).
+  wrap nq_read_ipc_stream(path.cstring, nil, 0)
+proc readIpcStream*(source: Stream): DataFrame =
+  ## Reads Arrow IPC stream bytes from a stream.
+  var data = source.readAll
+  wrap nq_read_ipc_stream(nil, cast[ptr uint8](data.cstring), data.len.csize_t)
+proc writeIpcStream*(df: DataFrame, path: string, compression = IpcCompression.Uncompressed) =
+  ## Writes `df` as an Arrow IPC stream.
+  if not nq_df_write_ipc_stream(df.raw, path.cstring, NqIpcCompression(ord(compression))):
+    raiseLast()

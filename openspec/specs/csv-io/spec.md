@@ -157,3 +157,53 @@ shape: (2, 2)
 #### Scenario: Empty stream
 - **WHEN** an empty stream is read
 - **THEN** `NoDataError` is raised
+
+### Requirement: Quoting, encoding and new column names
+`readCsv` and `scanCsv` SHALL take `quoteChar = some('"')` (`none(char)` turns quoting off), `encoding = CsvEncoding.Utf8` (`Utf8Lossy` replaces invalid UTF-8 instead of raising) and `newColumns`, which renames the first columns.
+
+```nim
+import std/os
+let path = getTempDir() / "lines.txt"
+writeFile(path, "a \"quoted, line\nplain\n")
+echo readCsv(path, separator = '\x01', hasHeader = false, quoteChar = none(char),
+             newColumns = ["line"])
+```
+
+```text
+shape: (2, 1)
+┌─────────────────┐
+│ line            │
+│ ---             │
+│ str             │
+╞═════════════════╡
+│ a "quoted, line │
+│ plain           │
+└─────────────────┘
+```
+
+#### Scenario: Invalid UTF-8
+- **WHEN** a line holds the byte 0xFF and `encoding = CsvEncoding.Utf8Lossy`
+- **THEN** the line is read, with a replacement character
+
+### Requirement: Comment lines
+`readCsv` and `scanCsv` SHALL skip lines starting with `commentPrefix` (none when empty).
+
+```nim
+import std/streams
+echo readCsv(newStringStream("# measured 2026\nbear,kg\nAda,410\n"), commentPrefix = "#")
+```
+
+```text
+shape: (1, 2)
+┌──────┬─────┐
+│ bear ┆ kg  │
+│ ---  ┆ --- │
+│ str  ┆ i64 │
+╞══════╪═════╡
+│ Ada  ┆ 410 │
+└──────┴─────┘
+```
+
+#### Scenario: No prefix
+- **WHEN** a CSV starting with "# note" is read without `commentPrefix`
+- **THEN** "# note" is the first column name
