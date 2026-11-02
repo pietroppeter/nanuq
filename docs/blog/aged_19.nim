@@ -4,16 +4,8 @@ import nanuq
 import ../nanuqtheme
 
 nbInit
-nb.title = "Aged 19"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-aged-19.html"
-nb.useNanuqTheme(
-  titleHtml = "Aged <em>19</em>",
-  eyebrow = "Nanuq dev log · 1 November 2026",
-  epigraph = "A teenager's season, and 130 years of the records he chased.",
-  meta = "Nanuq 0.3 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "Paul Seixas's 2026 season and the history of cycling's age and speed records, told with everything new in Nanuq 0.3.",
-)
+nb.useDevlogPost("aged-19",
+  epigraph = "A teenager's season, and 130 years of the records he chased.")
 
 # nimib runs from docs/ (see nimib.toml); the data lives in blog/aged19, and the code
 # below reads it with paths relative to that folder.
@@ -456,8 +448,9 @@ goal now to dethrone Pogačar? Next season's data will tell.
   `Expr.filter` inside an aggregation, `Expr.nullCount`, `rank` with ties, and `/` as a
   true division.
 
-The same analysis in Python Polars, which wrote the outputs this page is checked
-against, is in [blog/aged19/aged19.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/aged19/aged19.py).
+The Python twin of this post, which recorded the outputs it is checked against, is
+[blog/aged19/aged19.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/aged19/aged19.py).
+How these APIs were chosen is in [Designing Nanuq 0.3](2026-10-31-designing-0-3.html).
 """
 
 setCurrentDir(siteDir)

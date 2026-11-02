@@ -2,7 +2,7 @@
 ## release. A living page, not a dated post: the data is docs/coverage/polars.json,
 ## refreshed in each release PR (see the dev-log spec). Nothing here needs Nanuq.
 import nimib
-import std/[json, strutils, tables, algorithm]
+import std/[json, strutils, tables, algorithm, times]
 import nanuqtheme
 
 nbInit
@@ -13,11 +13,26 @@ let latest = versions[^1]
 nb.title = "Polars coverage"
 nb.useNanuqTheme(
   titleHtml = "Polars features and what <em>Nanuq</em> covers",
-  eyebrow = "Nanuq · coverage map · updated " & data["updated"].getStr,
+  eyebrow = """<a href="index.html">Nanuq dev log</a> · Coverage map · updated """ &
+    data["updated"].getStr.parse("yyyy-MM-dd").format("d MMMM yyyy"),
   epigraph = "Watch out where the queries go, and process well that rusty data.",
-  meta = "Compared with " & data["polars"].getStr & " · rendered with nimib",
+  meta = "Living page, refreshed with each release · Nanuq " & latest & " · " &
+    data["polars"].getStr & " · rendered with nimib",
   summary = "Every Polars feature group and its status in each Nanuq release.",
+  sourcePath = "docs/polars_coverage.nim",
 )
+# Footer like the posts': the API design post of each release on the page, the index,
+# and this page's source (the data file too).
+block:
+  var design: seq[string]
+  for p in devlogPosts:
+    if p.kind == ApiDesign and p.release in versions:
+      design.add "<a href=\"blog/" & p.fileName & "\">" & p.plainTitle & "</a>"
+  nb.doc.context["devlog_nav"] = %("""<nav class="devlog" aria-label="More from the dev log">""" &
+    (if design.len > 0: """<p class="rel"><span>How these APIs were chosen:</span> """ &
+      design.join(", ") & "</p>" else: "") &
+    """<span class="links"><a href="index.html">All posts</a> · """ &
+    """<a href="https://github.com/pietroppeter/nanuq/blob/main/docs/coverage/polars.json">The data on GitHub</a></span></nav>""" & "\n")
 
 proc esc(s: string): string =
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))

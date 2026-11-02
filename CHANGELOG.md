@@ -12,6 +12,15 @@ its OpenSpec change is archived. Format based on
   release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.
   (add-polars-coverage-page, #60)
 
+### Changed
+- Dev log: one list of posts (`docs/devlog.nim`) drives every post's title, date,
+  eyebrow and meta line, the index and the summaries. Each post now ends with links to
+  the previous and next posts, related posts (each release's design post and its
+  explainer), the index, and its own source file on GitHub. The index shows each post's
+  kind and release, and its build fails if a post is missing from the list or the
+  README. Stale notes fixed: "not implemented yet" in posts whose plans have shipped,
+  and "on its way" for explainers that are out. The README list gains "Designing Nanuq 0.6".
+
 ## [0.6.0] - 2026-11-01
 
 Nanuq 0.6 is "engine and edges": the streaming engine and sinks, saving query plans,

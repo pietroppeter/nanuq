@@ -6,17 +6,8 @@ import ../nanuqtheme
 import el_nino/plots
 
 nbInit
-nb.title = "Counting El Niños"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-counting-el-ninos.html"
-nb.useNanuqTheme(
-  titleHtml = "Counting <em>El Niños</em>",
-  eyebrow = "Nanuq dev log · November 2026",
-  epigraph = "A warm patch of ocean, and the weather of the whole world.",
-  meta = "Nanuq 0.4 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "What El Niño is, how NOAA counts it, and what it does to rain in Peru and " &
-            "to the temperature of the planet, told with everything new in Nanuq 0.4.",
-)
+nb.useDevlogPost("counting-el-ninos",
+  epigraph = "A warm patch of ocean, and the weather of the whole world.")
 
 # nimib runs from docs/ (see nimib.toml); the data lives in blog/el_nino, and the code
 # below reads it with paths relative to that folder.
@@ -796,6 +787,7 @@ The Python twin of this post, which recorded the outputs it is checked against, 
 [blog/el_nino/el_nino.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/el_nino.py);
 the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/plots.nim)
 and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/src/figs.py).
+How these APIs were chosen is in [Designing Nanuq 0.4](2026-11-01-designing-0-4.html).
 
 *Sources: NOAA CPC (ONI, RONI, Niño indices, SOI, ENSO Diagnostic Discussion of 8
 October 2026, RONI announcement); NASA GISS, GISTEMP v4; NOAA NCEI, GHCN-Daily station

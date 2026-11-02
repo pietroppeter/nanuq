@@ -3,16 +3,8 @@ import std/os
 import ../nanuqtheme
 
 nbInit
-nb.title = "Designing Nanuq 0.5"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-designing-0-5.html"
-nb.useNanuqTheme(
-  titleHtml = "Designing Nanuq <em>0.5</em>",
-  eyebrow = "Nanuq dev log · 1 November 2026",
-  epigraph = "Lists, structs, JSON, SQL and Nim procs that Polars calls back: the API choices 0.5 had to make, and what we picked.",
-  meta = "API design · runs on Nanuq 0.5 · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.5: nested data types, the list, struct and arr namespaces, JSON, SQL, Nim callbacks, and the smaller functions the book asked for.",
-)
+nb.useDevlogPost("designing-0-5",
+  epigraph = "Lists, structs, JSON, SQL and Nim procs that Polars calls back: the API choices 0.5 had to make, and what we picked.")
 
 nbText: """
 Nanuq 0.5 is the release the roadmap called "nested data and user code". Until now a
@@ -289,7 +281,8 @@ nbText: """
 ## What's next
 
 0.6 is the "production" release: streaming sinks, cloud storage, Arrow interop,
-decimals and binary columns. And the 0.5 explainer, "Above 4000", is on its way.
+decimals and binary columns ([Designing Nanuq 0.6](2026-11-01-designing-0-6.html)). The
+0.5 explainer is [Above 4000](2026-11-01-above-4000.html).
 """
 
 nbSave

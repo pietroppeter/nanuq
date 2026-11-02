@@ -42,9 +42,11 @@ from [Datamancer](https://github.com/SciNim/Datamancer) DataFrames (`toDatamance
 ## Documentation
 
 The development log, written with [nimib](https://github.com/pietroppeter/nimib)
-(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>, which lists
-the posts newest first:
+(`docs/blog/`), is published at <https://pietroppeter.github.io/nanuq/>. Its
+[index](https://pietroppeter.github.io/nanuq/) lists the posts newest first, and each
+post links to the previous and next ones, to related posts and to its source:
 
+- [Designing Nanuq 0.6](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-6.html) (1 November 2026)
 - [Above 4000](https://pietroppeter.github.io/nanuq/blog/2026-11-01-above-4000.html) (1 November 2026)
 - [Designing Nanuq 0.5](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-5.html) (1 November 2026)
 - [Counting El Niños](https://pietroppeter.github.io/nanuq/blog/2026-11-01-counting-el-ninos.html) (1 November 2026)
@@ -53,9 +55,12 @@ the posts newest first:
 - [Designing Nanuq 0.3](https://pietroppeter.github.io/nanuq/blog/2026-10-31-designing-0-3.html) (31 October 2026)
 - [Designing Nanuq 0.2](https://pietroppeter.github.io/nanuq/blog/2026-10-31-designing-0-2.html) (31 October 2026)
 - [The great polar bear census](https://pietroppeter.github.io/nanuq/blog/2026-10-31-bear-census.html) (31 October 2026)
-- [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
-- [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
 - [Shipping the Rust half](https://pietroppeter.github.io/nanuq/blog/2026-10-27-shipping-rust-binaries.html) (27 October 2026)
+- [Plotting with ggplotnim](https://pietroppeter.github.io/nanuq/blog/2026-10-27-plotting-with-ggplotnim.html) (27 October 2026)
+- [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
+
+Next to the posts, the [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html)
+lists every Polars feature group and its status in each release.
 
 [The Nanuq Book](https://pietroppeter.github.io/nanuq-book/)
 ([source](https://github.com/pietroppeter/nanuq-book)) ports public Polars tutorials to

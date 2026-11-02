@@ -6,18 +6,8 @@ import ../nanuqtheme
 import mountains/plots
 
 nbInit
-nb.title = "Above 4000"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-above-4000.html"
-nb.useNanuqTheme(
-  titleHtml = "Above <em>4000</em>",
-  eyebrow = "Nanuq dev log · November 2026",
-  epigraph = "Eighty-two summits, eight treks, and every mountain range on Earth.",
-  meta = "Nanuq 0.5 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "The Alpine four-thousanders, the great hut-to-hut treks around them and the " &
-            "world's 8000-metre peaks, told with the lists, structs, JSON, SQL and Nim " &
-            "callbacks new in Nanuq 0.5.",
-)
+nb.useDevlogPost("above-4000",
+  epigraph = "Eighty-two summits, eight treks, and every mountain range on Earth.")
 
 # nimib runs from docs/ (see nimib.toml); the data lives in blog/mountains, and the code
 # below reads it with paths relative to that folder.
@@ -872,6 +862,7 @@ The Python twin of this post, which recorded the outputs it is checked against, 
 the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/plots.nim)
 and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/src/figs.py);
 the data preparation scripts are in [src/](https://github.com/pietroppeter/nanuq/tree/main/docs/blog/mountains/src).
+How these APIs were chosen is in [Designing Nanuq 0.5](2026-11-01-designing-0-5.html).
 
 *Sources: the UIAA list of Alpine four-thousanders as published on English Wikipedia;
 Wikidata; Camptocamp; OpenStreetMap contributors (ODbL), through Waymarked Trails;

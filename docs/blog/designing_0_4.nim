@@ -3,16 +3,8 @@ import std/os
 import ../nanuqtheme
 
 nbInit
-nb.title = "Designing Nanuq 0.4"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-designing-0-4.html"
-nb.useNanuqTheme(
-  titleHtml = "Designing Nanuq <em>0.4</em>",
-  eyebrow = "Nanuq dev log · 1 November 2026",
-  epigraph = "Rolling windows, reshaping, a real Series and rows as objects: the API choices 0.4 had to make, and what we picked.",
-  meta = "API design · runs on Nanuq 0.4 · rendered with nimib",
-  summary = "The API decisions behind Nanuq 0.4: math, rolling windows, pivot, time windows, Series, row objects, Arraymancer, and what the explainer and the book ports changed.",
-)
+nb.useDevlogPost("designing-0-4",
+  epigraph = "Rolling windows, reshaping, a real Series and rows as objects: the API choices 0.4 had to make, and what we picked.")
 
 nbText: """
 Nanuq 0.4 is the release the roadmap called "a real Series, and shaping". It adds about
@@ -420,7 +412,8 @@ backlog.
 
 0.5 is about nested data: List, Array and Struct columns (`explode`, `unnest`,
 `str.split`, `Expr.valueCounts`), JSON, and calling Nim from Polars (`mapElements`).
-And the 0.4 explainer, "Counting El Niños", is on its way.
+The 0.4 explainer is [Counting El Niños](2026-11-01-counting-el-ninos.html), and 0.5 is
+designed in [Designing Nanuq 0.5](2026-11-01-designing-0-5.html).
 """
 
 nbSave
