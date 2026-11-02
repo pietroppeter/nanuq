@@ -1,68 +1,19 @@
 # Backlog
 
-Ideas and possible next steps for Nanuq.
+Ideas for future development of Nanuq. This is a loose list, not a roadmap: entries
+can be stale, and nothing here is committed. For what Polars has and Nanuq still lacks,
+see the [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html).
 
-Lifecycle of an idea:
-1. It starts here.
-2. When it is picked up, it becomes an OpenSpec change (`/opsx:propose`, under
-   `openspec/changes/`). The entry stays here, marked *in progress* with the change name.
-3. When the change is implemented and archived (`/opsx:archive`), the entry is removed
-   from this file and a line is added to [CHANGELOG.md](CHANGELOG.md).
+When an idea is picked up it becomes an OpenSpec change (`/opsx:propose`) and is marked
+*in progress* here with the change name. Once implemented and archived, its entry is
+removed and a line goes to [CHANGELOG.md](CHANGELOG.md).
 
-Each entry says what the idea is and why it matters. Rough size: S (hours), M (a day or
-two), L (more).
+Rough size: S (hours), M (a day or two), L (more).
 
 ## Distribution
 
 - **Shared library option** (M). Ship `.so` / `.dylib` / `.dll` instead of the static
   lib (about 300 MB unstripped), with runtime loading.
-
-## Performance
-
-- **Build the prebuilt lib with nightly Rust, the `nightly` Polars feature and jemalloc**
-  (S-M, *planned for 0.3*). Nanuq 0.2 is 2.5-4.5x slower than Python Polars on the same
-  queries (nanuq-book benchmarks, PDS-H SF1 from CSV), with up to 2 s extra on every query
-  that reads `lineitem.csv`. Python Polars is built with a nightly toolchain and the
-  `nightly` feature, which turns on `simd` (among others the portable-SIMD CSV parser in
-  `polars-io`), and with jemalloc as global allocator. Measured on 2026-10-31, `dist`
-  profile, total of 13 queries, best of 3:
-
-  | lib | Linux sandbox (4-core Xeon) | M3 Pro |
-  |---|---|---|
-  | prebuilt lib-v0.2.0 | 27.8 s | 13.6 s |
-  | nightly + `nightly` | 13.0 s | 3.56 s |
-  | + jemalloc (`#[global_allocator]`) | | 3.20 s |
-  | Python Polars 2.1, in-memory | 11.2 s | 3.07 s |
-
-  `performant`, `streaming`/`cse`, the streaming engine and Polars built from git at
-  py-2.1.0 made no measurable difference; jemalloc via `LD_PRELOAD` did nothing on
-  Linux. The work: opt-in crate features `nightly = ["polars/nightly"]` and `jemalloc`
-  (stable cargo fallback and CI unchanged), release-lib.yml builds with a pinned nightly
-  and both features, check all release targets. The rest of the gap is q21, where the
-  Nim port needs an extra group-by and join until Nanuq has `Expr.filter`.
-
-## Bridge
-
-- **Generate `ffi.nim` with nbindgen** (S-M). Generate the Nim declarations from the
-  Rust code instead of writing them by hand, and add a CI check that the generated file
-  is up to date. Pietro said yes, but not yet (2026-10-27). Weighed on 2026-10-28, from
-  nbindgen's source and test expectations (master, last commit 2023-10-20, rebased on
-  cbindgen 0.26; crates.io only has 0.0.1 from 2020, so it would be built from git):
-  - *Not a blocker for 0.1.* The generated file would only replace the declarations at
-    the end of `ffi.nim`; the linking logic stays hand-written, and neither users nor
-    the prebuilt archives would see a difference. nbindgen would run in CI only, never
-    on a user's machine.
-  - *Its output needs fixing first.* Enum discriminants are dropped (the code writing
-    them is commented out), `*const c_char` becomes `ptr char` instead of `cstring`, and
-    procs get `importc` without `cdecl`. Our enums start at 0 with no holes, so today
-    only the `cstring` mapping matters, but it touches most of the API. Options: a small
-    post-processing step, or patching nbindgen (a fork, or upstream).
-  - *What it buys.* The ~70 declarations can't drift from `lib.rs` (types, argument
-    order, enum order, which today only a comment keeps in sync). A cheaper guard
-    without nbindgen: a test that every `importc` name in `ffi.nim` is exported by
-    `libnanuq_ffi.a` (`nm`), plus a Rust test of the enum values.
-  - *Decided (Pietro, 2026-10-28).* Not now: `ffi.nim` stays hand-written. If taken up
-    later, nbindgen would be used from our own fork, so fixes don't wait on upstream.
 - **Smaller libraries: Cargo features per area** (M). The 0.6 lib is a ~286 MB `.a`
   (fat LTO) and a stripped Nim program linked against it is about the size of
   py-polars' own library (178 MB `.so`). Every Polars feature in `Cargo.toml` is built
@@ -74,11 +25,23 @@ two), L (more).
   stripped, LTO-linked binary each release, next to py-polars. (Pietro asked about
   size and a separate Excel lib, 2026-11-01: a separate lib would link Polars twice.)
 
+## Bridge
+
+- **Generate `ffi.nim` with nbindgen** (S-M, *decided not now*, Pietro 2026-10-28).
+  Generating the Nim declarations from the Rust code would stop them drifting from
+  `lib.rs`, but nbindgen is unmaintained (last commit 2023) and its output needs fixing
+  first (enum discriminants dropped, `ptr char` instead of `cstring`, no `cdecl`). If
+  taken up, use our own fork and run it in CI only. A cheaper guard without it: a test
+  that every `importc` name in `ffi.nim` is exported by `libnanuq_ffi.a` (`nm`), plus a
+  Rust test of the enum values.
+
 ## API
 
-- **More IO** (M): cloud storage (S3, GCS, Azure; needs the `cloud` features and
-  credentials handling), writing to streams, databases other than SQLite. (CSV,
-  Parquet, IPC, JSON/NDJSON, Excel, SQLite, reading streams and sinks are done.)
+- **More IO** (M): databases other than SQLite (PostgreSQL, MySQL), Avro, writing to
+  Nim streams. (CSV, Parquet, IPC, JSON/NDJSON, Excel, ODS, SQLite, cloud storage,
+  reading streams and sinks are done.)
+- **Smaller coverage gaps** (S-M). The partial rows of the coverage map: `mapRows`
+  and `LazyFrame.mapBatches`, `concat` with `align`.
 - **Nim sugar for expressions** (M, design first). Considered for 0.6 as a formula
   macro and dropped (Pietro, 2026-11-01): Polars expressions are already expressive,
   and any Nim sugar should be Nanuq's own design, not Datamancer's `f{}` route. Revisit
@@ -86,8 +49,10 @@ two), L (more).
 
 ## Ecosystem
 
-- **Plotting with ggplotnim** (S-M). Checked in ggplotnim's source (2026-10-27): its
-  only entry point is `ggplot(data: DataFrame, aes)` with a Datamancer DataFrame, and
+- **Plotting** (S-M). The one feature group the coverage map gives priority P1. Today
+  plots go through `toSeq` (nim-plotly, used by the explainers) or `toDatamancer`
+  (ggplotnim); there is no `df.plot` namespace. For ggplotnim, checked in its source
+  (2026-10-27): its only entry point is `ggplot(data: DataFrame, aes)` with a Datamancer DataFrame, and
   ggplotnim depends on Datamancer and Arraymancer anyway. There is no seq-based input.
   Datamancer does build a DataFrame straight from seqs (`toDf({"x": xs, "y": ys})`),
   so options, from simplest to leanest:
