@@ -1051,7 +1051,7 @@ proc toHtml*(df: DataFrame, maxRows = 10, maxCols = 75): string =
   ## The HTML table Python Polars shows in notebooks (`_repr_html_`): shape,
   ## column names and dtypes, and cells formatted by Polars. Beyond `maxRows`
   ## rows or `maxCols` columns, the first and last ones are shown around `…`.
-  ## In nimib: `nbRawHtml: df.toHtml`.
+  ## In nimib, `nbShow df` renders it.
   let names = df.columns
   let rows = indices(df.height, maxRows, isRows = true)
   let cols = indices(df.width, maxCols, isRows = false)

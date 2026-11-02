@@ -58,8 +58,8 @@ column. Where Nim helps:
 `nanuq/datasets` bundles the [Palmer penguins](https://allisonhorst.github.io/palmerpenguins/)
 data (CC0) for examples and tests.
 
-For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter (in
-nimib: `nbRawHtml: df.toHtml`).
+For web pages, `df.toHtml` gives the HTML table Python Polars shows in Jupyter. In
+[nimib](https://github.com/pietroppeter/nimib), `nbShow df` renders it.
 
 Optional modules, each imported on its own so the core has no extra dependencies:
 
