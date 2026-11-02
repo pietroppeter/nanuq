@@ -192,13 +192,38 @@ hybrid where Nim first takes over the parts where it adds something.
   There is no complete GPU code generator in the repository yet: that is the part Araq
   means by "refine Nimony's GPU codegen strategy".
 
+## Through Nimony
+
+`nimony/` runs the six benchmark kernels (`bench_kernels.nif`) through Nimony 0.6.3
+(nim-lang/nimony at 6d55886, 2026-11-02), built with `nim c -r src/hastur/hastur build all`.
+`nif2nim --nimony` emits the variant: three differences only. Nimony pointers are not-nil by
+default, so the module uses `{.feature: "lenientnils".}` (validity pointers are nil for
+columns without nulls); there are no `overflowChecks`-style push pragmas (`-d:danger`
+turns checks off); kernels are linked into the program, not exported from a dynlib.
+
+```sh
+cd experiments/nif/nimony
+nimony c -r -d:danger harness.nim   # Nimony, C backend
+nim c -r -d:danger harness.nim      # Nim 2, same kernels (kn2.nim)
+nimony c -r -d:danger par.nim       # one kernel as a parallel for
+```
+
+Results on 10M synthetic rows: the same values and checksums from both compilers, and
+the same speed (within noise, 19-37 ms per kernel for both). The LLVM backend (`nimony l`)
+needs a newer clang than this sandbox has (LLVM 19 IR syntax); the native backend
+(`nimony n`) needs the separate nativenif tools; neither was tried further.
+
+`par.nim` writes the elementwise kernel `a * 2 + b` with Nimony's parallel for
+(`for i in 0 || (n - 1)`, `std/parfor`): 20.9 ms sequential, 6.9 ms on 4 cores, same
+checksum. Its plugin checks statically that the loop has no data races (it rejects a write
+to `x[i]` inside a nested loop), which suits generated code.
+
 ## What this experiment did not do
 
-- Nimony itself was not built or run. Compiling it (or just its `nifler` tool) was refused
-  by this sandbox's safety policy, so the NIF reader/writer here is a small stand-alone one
-  written against the [NIF 2027 spec](https://github.com/nim-lang/nifspec) and the code
-  generator emits Nim source for Nim 2.2.4. Running the typed NIF through Nimony is the next
-  step, and needs a machine where Nimony can be built.
+- The host side (`nifjit.nim`, Nanuq itself) is Nim 2; Nimony compiles the kernels only.
+  The NIF reader/writer here is a small stand-alone one written against the
+  [NIF 2027 spec](https://github.com/nim-lang/nifspec), and the typed NIF goes to Nimony as
+  generated Nim source, not as Nimony NIF directly.
 - No strings, dates, group-by or lazy plans, no multithreading, no integration with
   `LazyFrame.collect`.
 
