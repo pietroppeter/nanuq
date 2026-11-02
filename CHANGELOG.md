@@ -6,6 +6,12 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- The Polars coverage map, a page on the Nanuq site (`polars_coverage.html`, linked
+  from the dev-log index): every Polars feature group with its status in the latest
+  Nanuq release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.
+  (add-polars-coverage-page, #60)
+
 ### Changed
 - Dev log: one list of posts (`docs/devlog.nim`) drives every post's title, date,
   eyebrow and meta line, the index and the summaries. Each post now ends with links to
