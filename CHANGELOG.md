@@ -14,7 +14,7 @@ its OpenSpec change is archived. Format based on
 - The OpenSpec page, on the Nanuq site (`openspec.html`, linked from the README's "How
   development works", the index and the coverage map): specview's report of every spec
   and change, in the dev-log theme. CI rebuilds it on every merge to `main`, including
-  OpenSpec-only ones. (add-openspec-page, #PR)
+  OpenSpec-only ones. (add-openspec-page, #66)
 
 ### Changed
 - Dev log: one list of posts (`docs/devlog.nim`) drives every post's title, date,
