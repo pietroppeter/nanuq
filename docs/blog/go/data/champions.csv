@@ -1,0 +1,46 @@
+edition,year,city,winner,result,runner_up
+I,1980,Milano,Roberto Mercadante,,
+II,1981,Milano,Enzo Burlini,,
+III,1982,Milano,Sergio Parimbelli,,
+IV,1983,Milano,Enzo Burlini,,
+V,1984,Milano,Sergio Parimbelli,,
+VI,1985,Milano,Fulvio Savagnone,,
+VII,1986,Milano,Primo Garofalo,,
+VIII,1987,Milano,Enzo Burlini,,
+IX,1988,Milano,Sergio Parimbelli,,
+X,1989,Milano,Marco Vajani,,
+XI,1990,Milano,Primo Garofalo,,Ramon Soletti
+XII,1991,Milano,Ramon Soletti,2-0,Enzo Burlini
+XIII,1992,Milano,Enzo Burlini,2-1,Ramon Soletti
+XIV,1993,Milano,Ramon Soletti,,Enzo Pedrini
+XV,1994,Milano,Ramon Soletti,,Enzo Pedrini
+XVI,1995,Milano,Enzo Pedrini,,Ramon Soletti
+XVII,1996,Milano,Enzo Pedrini,3-2,Ramon Soletti
+XVIII,1997,Milano,Ramon Soletti,3-2,Enzo Pedrini
+XIX,1998,Milano,Ramon Soletti,3-0,Giacomo Baizini
+XX,1999,Milano,Ramon Soletti,3-0,Enzo Pedrini
+XXI,2000,Milano,Enzo Burlini,3-1,Paolo Montrasio
+XXII,2001,Pisa,Francesco Marigo,3-1,Ramon Soletti
+XXIII,2002,Bologna,Francesco Marigo,3-1,Ramon Soletti
+XXIV,2003,Torino,Francesco Marigo,3-1,Ramon Soletti
+XXV,2004,Milano,Francesco Marigo,3-0,Fausto Predieri
+XXVI,2005,Colleoli,Francesco Marigo,3-0,Ramon Soletti
+XXVII,2006,Carpi,Francesco Marigo,3-0,Ramon Soletti
+XXVIII,2007,Villorba,Davide Minieri,3-2,Francesco Marigo
+XXIX,2008,Milano,Davide Minieri,3-0,Giordano D'Obici
+XXX,2009,Bologna,Francesco Marigo,3-0,Carlo Metta
+XXXI,2010,Sestri Levante,Francesco Marigo,3-0,Carlo Metta
+XXXII,2011,Roma,Francesco Marigo,3-1,Carlo Metta
+XXXIII,2012,Pisa,Francesco Marigo,3-0,Carlo Metta
+XXXIV,2013,Venezia,Alessandro Pace,1-0,Francesco Marigo
+XXXV,2014,Cesena,Alessandro Pace,3-1,Matias Pankoke
+XXXVI,2015,Pisa,Matias Pankoke,2-0,Tashi Walde
+XXXVII,2016,Genova,Alessandro Pace,3-0,Matias Pankoke
+XXXVIII,2017,Pisa,Kim Shakhov,2-0,Carlo Metta
+XXXIX,2018,Firenze,Alessandro Pace,3-0,Alessandro Martinelli
+XL,2019,Roma,Alessandro Pace,3-0,Carlo Metta
+XLI,2020,Bologna (online),Alessandro Pace,3-2,Carlo Metta
+XLII,2021,Pisa,Davide Bernardis,3-2,Alessandro Pace
+XLIII,2022,Este,Davide Bernardis,5-0,Julian Van Den Busken
+XLIV,2023,Milano,Davide Bernardis,3-1,Kim Shakov
+XLVI,2025,Ravenna,Davide Bernardis,,Alessandro Pace

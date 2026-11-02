@@ -1,0 +1,14 @@
+shape: (7, 4)
+┌──────────────────┬─────────────────┬────────┬──────────────────────────┐
+│ winner           ┆ runner_up       ┆ finals ┆ years                    │
+│ ---              ┆ ---             ┆ ---    ┆ ---                      │
+│ str              ┆ str             ┆ i64    ┆ str                      │
+╞══════════════════╪═════════════════╪════════╪══════════════════════════╡
+│ Francesco Marigo ┆ Ramon Soletti   ┆ 5      ┆ 2001 2002 2003 2005 2006 │
+│ Francesco Marigo ┆ Carlo Metta     ┆ 4      ┆ 2009 2010 2011 2012      │
+│ Ramon Soletti    ┆ Enzo Pedrini    ┆ 4      ┆ 1993 1994 1997 1999      │
+│ Alessandro Pace  ┆ Carlo Metta     ┆ 2      ┆ 2019 2020                │
+│ Alessandro Pace  ┆ Matias Pankoke  ┆ 2      ┆ 2014 2016                │
+│ Davide Bernardis ┆ Alessandro Pace ┆ 2      ┆ 2021 2025                │
+│ Enzo Pedrini     ┆ Ramon Soletti   ┆ 2      ┆ 1995 1996                │
+└──────────────────┴─────────────────┴────────┴──────────────────────────┘
