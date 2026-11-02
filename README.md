@@ -105,6 +105,7 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 [index](https://pietroppeter.github.io/nanuq/) lists the posts newest first, and each
 post links to the previous and next ones, to related posts and to its source:
 
+- [CI in two minutes](https://pietroppeter.github.io/nanuq/blog/2026-11-02-two-minute-ci.html) (2 November 2026)
 - [Move 37](https://pietroppeter.github.io/nanuq/blog/2026-11-02-move-37.html) (2 November 2026)
 - [Designing Nanuq 0.6](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-6.html) (1 November 2026)
 - [Above 4000](https://pietroppeter.github.io/nanuq/blog/2026-11-01-above-4000.html) (1 November 2026)
@@ -164,7 +165,7 @@ Nim code ──► src/nanuq.nim      high level API: DataFrame, LazyFrame, Expr
   use `/opsx:propose`, `/opsx:apply` and `/opsx:archive`; with another tool, the
   `openspec` CLI (`npm i -g @fission-ai/openspec`).
 - **Specs are tested**: every API requirement has a Nim example with the full Polars
-  output, and `nimble specexamples` (run in CI) checks that it still prints that.
+  output, and the test suite (`tests/test_specs*.nim`) checks that it still prints that.
 - **Reviewing changes**: `nimble specview` writes `specview.html`, a page showing where
   each change is in the process, its proposal and tasks, its spec deltas (MODIFIED
   requirements as word diffs against the current spec) and the changed files. On PRs
@@ -227,9 +228,11 @@ Compile-time options:
 A clone uses the same prebuilt library as an installed package, so it needs no Rust:
 
 ```sh
-nimble test       # runs the tests
+nimble test       # runs the tests and the spec examples, as one program (tests/all.nim)
 nimble example    # runs examples/basic.nim
-nimble docs       # renders the dev log posts in docs/blog with nimib
+nimble docs       # renders the site with nimib, as one program (docs/all.nim)
+nim r tests/test_csv.nim       # one test file
+nim r docs/blog/move_37.nim    # one post
 ```
 
 Changing the Rust wrapper in `src/rust/` needs a Rust toolchain (`cargo`, stable):

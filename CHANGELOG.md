@@ -15,8 +15,17 @@ its OpenSpec change is archived. Format based on
   development works", the index and the coverage map): specview's report of every spec
   and change, in the dev-log theme. CI rebuilds it on every merge to `main`, including
   OpenSpec-only ones. (add-openspec-page, #66)
+- A folded "Table of contents" box under the title of every dev-log post and of the coverage map, built
+  from the page's `##` headings when it is rendered, with a "↑ contents" link on each
+  heading. (#67)
 
 ### Changed
+- CI is about 5x faster. The tests, the spec examples and the site each build as one
+  program (`tests/all.nim`, `docs/all.nim`) instead of one binary per file, and the
+  repository's builds link with lld, without the Polars library's debug info, when
+  lld is installed (9 s → 0.7 s per link). The spec examples are now unittest tests
+  in the suite (`tests/test_specs*.nim`). Test job 14 min → about 2 min.
+  (one-program-builds, #67)
 - Dev log: one list of posts (`docs/devlog.nim`) drives every post's title, date,
   eyebrow and meta line, the index and the summaries. Each post now ends with links to
   the previous and next posts, related posts (each release's design post and its

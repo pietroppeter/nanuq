@@ -84,6 +84,11 @@ const devlogPosts*: seq[DevlogPost] = @[
              "champions of Italian go, told with the streaming, sinks, Decimal, Binary, " &
              "bitwise, serialization, database and Excel features new in Nanuq 0.6.",
     related: @["designing-0-6"]),
+  DevlogPost(slug: "two-minute-ci", date: "2026-11-02", kind: Research, release: "0.6",
+    titleHtml: "CI in <em>two</em> minutes", source: "docs/blog/two_minute_ci.nim",
+    summary: "Where fifteen minutes of CI went (linking a 310 MB library ninety-two times) " &
+             "and how one program per suite and lld brought it to two and a half.",
+    related: @["shipping-rust-binaries"]),
 ]
 
 const

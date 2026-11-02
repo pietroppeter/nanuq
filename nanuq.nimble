@@ -19,24 +19,14 @@ requires "nim >= 2.0.0"
 task buildRust, "Build the Rust wrapper library (src/rust/target/release/libnanuq_ffi.a)":
   exec "cargo build --release --manifest-path src/rust/Cargo.toml"
 
-task test, "Run the tests (test_datamancer and test_arraymancer need Datamancer, which brings Arraymancer; test_database needs db_connector)":
-  for t in ["tests/test_basic.nim", "tests/test_nulls.nim", "tests/test_datatypes.nim",
-            "tests/test_combining.nim", "tests/test_verbs.nim", "tests/test_expressions.nim",
-            "tests/test_selectors.nim", "tests/test_csv.nim",
-            "tests/test_datasets.nim", "tests/test_html.nim", "tests/test_inspection.nim", "tests/test_strings.nim", "tests/test_temporal.nim", "tests/test_io.nim", "tests/test_categorical.nim", "tests/test_math.nim", "tests/test_cumulative.nim", "tests/test_rolling.nim", "tests/test_values.nim", "tests/test_horizontal.nim", "tests/test_reshaping.nim", "tests/test_timegroups.nim", "tests/test_series.nim", "tests/test_rows.nim", "tests/test_nested.nim", "tests/test_lists.nim", "tests/test_structs.nim", "tests/test_json.nim", "tests/test_sql.nim", "tests/test_callbacks.nim", "tests/test_utilities.nim", "tests/test_streaming.nim", "tests/test_serialization.nim", "tests/test_binary_decimal.nim", "tests/test_arrow.nim", "tests/test_excel.nim", "tests/test_testing.nim", "tests/test_utilities6.nim", "tests/test_bookneeds6.nim", "tests/test_explainer6.nim", "tests/test_easywins6.nim", "tests/test_cloud.nim",
-            "tests/test_datamancer.nim", "tests/test_arraymancer.nim", "tests/test_database.nim"]:
-    exec "nim r --hints:off " & t
+task test, "Run every test file in one program (tests/all.nim); test_datamancer, test_arraymancer and test_database run only when Datamancer and db_connector are installed. One file: nim r tests/test_csv.nim":
+  exec "nim r --hints:off tests/all.nim"
 
 task example, "Run the basic example":
   exec "nim r --hints:off examples/basic.nim"
 
-task docs, "Render the nimib dev log posts in docs/blog, then the index, the coverage map and the OpenSpec page (needs nimib, ggplotnim and Datamancer)":
-  for f in listFiles("docs/blog"):
-    if f.endsWith(".nim"):
-      exec "nim r --hints:off " & f
-  exec "nim r --hints:off docs/index.nim"
-  exec "nim r --hints:off docs/polars_coverage.nim"
-  exec "nim r --hints:off docs/openspec.nim"
+task docs, "Render the whole site in one program (docs/all.nim): the dev log posts, the index, the coverage map and the OpenSpec page (needs nimib, ggplotnim and Datamancer). One post: nim r docs/blog/move_37.nim":
+  exec "nim r --hints:off docs/all.nim"
 
 task specexamples, "Compile and run the Nim examples in openspec/specs and check their output":
   exec "nim r --hints:off tools/specexamples.nim"
