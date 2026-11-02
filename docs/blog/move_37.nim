@@ -8,18 +8,8 @@ import ../nanuqtheme
 import go/[goboard, plots]
 
 nbInit
-nb.title = "Move 37"
-# dated slug for the dev log (module names can't start with a digit)
-nb.doc.filename = nb.doc.filename.parentDir / "2026-11-01-move-37.html"
-nb.useNanuqTheme(
-  titleHtml = "Move <em>37</em>",
-  eyebrow = "Nanuq dev log · November 2026",
-  epigraph = "Four hundred years of go games, and the move that changed them.",
-  meta = "Nanuq 0.6 · Polars 0.55 · Nim " & NimVersion & " · rendered with nimib",
-  summary = "Ninety-eight thousand professional games, 2.8 million amateur ones and the " &
-            "champions of Italian go, told with the streaming, sinks, Decimal, Binary, " &
-            "bitwise, serialization, database and Excel features new in Nanuq 0.6.",
-)
+nb.useDevlogPost("move-37",
+  epigraph = "Four hundred years of go games, and the move that changed them.")
 
 # nimib runs from docs/ (see nimib.toml); the data lives in blog/go, and the code
 # below reads it with paths relative to that folder.

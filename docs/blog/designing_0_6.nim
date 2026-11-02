@@ -328,8 +328,8 @@ nbText: """
 
 ## What's next
 
-The 0.6 explainer, a story about the game of go told with the new features, is on
-its way. Then 0.7, "distribution": a shared library, leaner builds with
+The 0.6 explainer, [Move 37](2026-11-02-move-37.html), is a story about the game of
+go told with the new features. Then 0.7, "distribution": a shared library, leaner builds with
 only the Polars features you use, and the coverage groups still marked partial.
 """
 

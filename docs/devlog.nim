@@ -78,6 +78,12 @@ const devlogPosts*: seq[DevlogPost] = @[
     titleHtml: "Designing Nanuq <em>0.6</em>", source: "docs/blog/designing_0_6.nim",
     summary: "The API decisions behind Nanuq 0.6: streaming and sinks, plan serialization, Binary and Decimal, the Arrow C Data Interface, Excel, SQLite, testing helpers, the py-polars 2.1 pin, cloud storage, thirty functions from the coverage map, and what the book still asked for.",
     related: @["how-nanuq-works", "plotting-with-ggplotnim"]),
+  DevlogPost(slug: "move-37", date: "2026-11-02", kind: Explainer, release: "0.6",
+    titleHtml: "Move <em>37</em>", source: "docs/blog/move_37.nim",
+    summary: "Ninety-eight thousand professional games, 2.8 million amateur ones and the " &
+             "champions of Italian go, told with the streaming, sinks, Decimal, Binary, " &
+             "bitwise, serialization, database and Excel features new in Nanuq 0.6.",
+    related: @["designing-0-6"]),
 ]
 
 const
