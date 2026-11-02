@@ -2,17 +2,24 @@
 
 ### Requirement: Polars coverage page
 The site SHALL publish a Polars coverage page at `polars_coverage.html`, linked from the
-index, rendered from the data file `docs/coverage/polars.json`. The data SHALL list
-Polars feature groups by area with their Polars names, a status for each Nanuq version
-(has it, partly, missing, not planned) and a note naming what is still missing; a
-version left out of a row SHALL keep the previous version's status. The page SHALL show
-totals per version, counts by area, the groups still open in the newest version by
-priority, and the full catalogue. Each release PR SHALL refresh the data for that
-release. The page is not a dated post and is not listed among the posts.
+index and the README, rendered from the data file `docs/coverage/polars.json`. The page
+SHALL describe the latest Nanuq release only: the data names that release and lists
+Polars feature groups by area with their Polars names, a status (has it, partly,
+missing, not planned), a note naming what is still missing, a priority for open groups,
+and a mark on the groups whose status changed in that release. When the next release has
+a plan, the data MAY name it and mark the open groups it plans; the page SHALL then show
+them. The page SHALL show the release totals, counts by area, the open groups by priority
+and the full catalogue, with the dev log's header and footer. Each release PR SHALL
+refresh the data for that release. The page is not a dated post and is not listed among
+the posts.
 
-#### Scenario: A release adds a version
-- **WHEN** a release PR adds version `0.7` to `versions` and sets `"0.7": "done"` on the rows it completes
-- **THEN** the page shows a 0.7 column, the rows left unchanged show their 0.6 status under 0.7, and the changed rows are marked as new in 0.7
+#### Scenario: A release refreshes the data
+- **WHEN** the 0.7 release PR sets the release to 0.7, clears the old new-marks, and updates and marks the rows that 0.7 changed
+- **THEN** the page shows only 0.7 statuses, with the changed groups marked as new in 0.7
+
+#### Scenario: No plan for the next release
+- **WHEN** the data names no next release
+- **THEN** the page shows no Planned column
 
 #### Scenario: Index link
 - **WHEN** the site is rendered

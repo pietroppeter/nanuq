@@ -60,7 +60,7 @@ post links to the previous and next ones, to related posts and to its source:
 - [How Nanuq works](https://pietroppeter.github.io/nanuq/blog/2026-10-27-how-nanuq-works.html) (27 October 2026)
 
 Next to the posts, the [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html)
-lists every Polars feature group and its status in each release.
+lists every Polars feature group and its status in the latest release.
 
 [The Nanuq Book](https://pietroppeter.github.io/nanuq-book/)
 ([source](https://github.com/pietroppeter/nanuq-book)) ports public Polars tutorials to

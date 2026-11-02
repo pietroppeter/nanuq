@@ -8,8 +8,8 @@ its OpenSpec change is archived. Format based on
 
 ### Added
 - The Polars coverage map, a page on the Nanuq site (`polars_coverage.html`, linked
-  from the dev-log index): every Polars feature group with its status in each Nanuq
-  release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.
+  from the dev-log index): every Polars feature group with its status in the latest
+  Nanuq release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.
   (add-polars-coverage-page, #60)
 
 ### Changed

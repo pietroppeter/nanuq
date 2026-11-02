@@ -10,16 +10,17 @@ repo.
 
 ## What Changes
 
-- `docs/coverage/polars.json`: the catalogue, 128 feature groups in 14 areas, each with
-  the Polars names, a status per Nanuq version (has it, partly, missing, not planned), a
-  note on what is still missing and a priority for open groups. A version left out of a
-  row keeps the previous version's status, so a release only adds the rows that change.
+- `docs/coverage/polars.json`: the catalogue for the latest release, 128 feature groups
+  in 14 areas, each with the Polars names, a status (has it, partly, missing, not
+  planned), a note on what is still missing, a priority for open groups and a mark on
+  the groups new in that release. Older releases are not kept (Pietro, 2026-11-02);
+  once the next release has a plan, rows can name the release that plans them.
 - `docs/polars_coverage.nim`: renders it to `polars_coverage.html` with the Nanuq theme:
-  totals per version, a table by area, the groups still open by priority, and the
-  catalogue. It does not import Nanuq.
+  release totals, a table by area, the groups still open by priority, and the
+  catalogue, with the dev log's header and footer. It does not import Nanuq.
 - The dev-log index links to the page; CI and `nimble docs` render it and publish it at
   the site root.
-- Each release PR refreshes the data (a new version entry and the rows that changed).
+- Each release PR refreshes the data (the release, the changed rows and their new-marks).
 
 ## Capabilities
 
