@@ -261,7 +261,8 @@ func devlogNav(i: int): string =
     if abs(j - i) != 1: related.add postLink(devlogPosts[j])  # prev/next are already linked
   if related.len > 0:
     result.add """<p class="rel"><span>Related:</span> """ & related.join(", ") & "</p>"
-  result.add """<span class="links"><a href="../index.html">All posts</a></span></nav>""" & "\n"
+  result.add &"""<span class="links"><a href="../index.html">All posts</a> · """ &
+    &"""<a href="{sourceUrl}{devlogPosts[i].source}">This post's source on GitHub</a></span></nav>""" & "\n"
 
 proc useDevlogPost*(nb: var Nb, slug, epigraph: string) =
   ## Theme, title, dated file name, eyebrow, meta, summary and footer links of the
