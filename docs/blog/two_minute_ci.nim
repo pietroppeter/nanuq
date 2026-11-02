@@ -105,12 +105,69 @@ Measured locally (4 cores, cold cache) and on pull request runs of
 | site, 16 pages (local) | 4m46s | 1m25s |
 | CI test job | 14m05s | 1m16s |
 | CI docs job (`~/.nimble` now cached too) | 4m45s | 1m47s |
-| book full build (lld only) | 6m54s | 5m29s |
+| book full build, CI (lld only) | 6m54s | 5m29s |
+| book full build, one program (local) | 8m25s | 71 s |
 
-The book gained less. Its chapters also run Python (the other half of each tab) and
-are traced with strace to record which files they read, so linking is a smaller share
-of their time. Building the chapters as one program would also merge their traces.
-That is a separate design, for later.
+The book gained less from the linker alone. Its chapters run Python too (the other half
+of each tab), so linking was a smaller share of their time. One program helped there
+as well, next section.
+
+## The book, as one program
+
+The book keeps a record of what each chapter read, so a pull request rebuilds only the
+chapters whose inputs changed. The record has two halves: the files Nim compiled (from
+`-d:nimBetterRun`) and the files the chapter opened at run time (from strace). A
+single program for every chapter would merge both, and that is what made it look like a
+separate design. It turned out to need little:
+
+- `bookbuild.nim` writes a program that imports the stale chapters, in book order, and
+  runs it once under strace.
+- The trace splits cleanly. Each chapter starts by reading its own source file, because
+  `nbInit` does, so every open from there to the next chapter's source belongs to it.
+- The compile half is the program's file list minus the other chapters' sources.
+- A chapter that fails, or a program that doesn't compile, sends the chapters not yet
+  finished back to the old path, one program each, so the failing one still gets its
+  own log.
+
+Chapters share more state than posts do, and three kinds of it mattered: the display
+options of Nanuq and Polars, the Python namespace, and the working directory, which
+`nbInit` changes. `bookInit` and `bookSave` now reset all three. One chapter shows the
+codes behind categorical values, and those depend on every string Polars has seen in
+the process, so it keeps a program of its own. To check the rest, every page of a
+shared build was compared with a page-by-page build. The only differences were ones
+that also show up between two page-by-page builds: the row order of a Python
+`group_by` without `maintain_order`, object addresses, cache ids.
+
+A full build, which every Nanuq pin bump triggers, went from 505 seconds to 71 locally
+([book PR #13](https://github.com/pietroppeter/nanuq-book/pull/13)): 26 seconds to
+compile all 56 chapters at once, 13 to run them.
+
+## Why nimib doesn't mind
+
+nimib was never meant to have many documents in one program, yet the site and the book
+needed no changes to their pages. `nbInit` is a template, so everything that could
+confuse documents is resolved where it expands, in each page's own module:
+
+- `var nb {.inject.}` declares a module-level variable. Each page module gets its own
+  `nb`, private to it, so sixteen of them don't clash.
+- The page finds its own file with `instantiationInfo(-1, true)`, the file where the
+  template was expanded. That is the page, not `all.nim`. It reads that file as the
+  page's source, names the output after it, and places it under `srcDir`.
+- Code blocks show their code by reading the file named in the block's line info, so
+  they always quote the right page, whichever module imported it.
+- The renderer is a global (`nbToHtml`), but `nbInit` copies it into `nb.backend`, so
+  what one theme changes stays in its own page.
+
+The trouble you may remember comes from moving `nbInit` away from the page. Called
+from a helper in another file, `instantiationInfo` names the helper's file, and the page
+gets the wrong source and name. That is why `nbInit` takes `thisFileRel`, and why
+nimibook needs it for Markdown chapters. Wrapping a page in a proc fails for another
+reason: Nim allows `import` only at the top level. Importing whole modules avoids both.
+
+What doesn't stay per page is process state: the working directory (`nbInit` moves to
+`homeDir`, so the next page starts there), command-line options (every page parses the
+same ones, so `--nbFilename` would name them all alike), and whatever globals the
+page's own code touches, as above.
 
 ## What it costs
 
