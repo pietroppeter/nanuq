@@ -81,8 +81,9 @@ template inTabs(pySide: string, body: untyped) =
 
 template scene(name: string, body: untyped) =
   ## A step of the analysis: Nim code and output, Python code and output, checked equal.
-  inTabs(pythonCode(pyCells[name]) & "<pre class=\"nb-output\">" &
-         xmltree.escape(readFile("expected" / name & ".txt").strip(leading = false)) & "</pre>"):
+  let pyOut = readFile("expected" / name & ".txt").strip(leading = false)
+  inTabs(pythonCode(pyCells[name]) &
+         (if pyOut == "": "" else: "<pre class=\"nb-output\">" & xmltree.escape(pyOut) & "</pre>")):
     nbCode(body)
     checkOutput(name, nb.blk.NbCode.output)
 
@@ -104,7 +105,7 @@ proc sourceDetails(lang, code: string): string =
 proc pyFunction(call: string): string =
   ## figs.anomaly_maps(...) -> the source of `def anomaly_maps(`
   let name = call.split("figs.")[1].split("(")[0]
-  definition("src/figs.py", "def " & name & "(")
+  definition("figs.py", "def " & name & "(")
 
 proc nimProc(call: string): string =
   let name = call.split("plots.")[1].split("(")[0]
@@ -730,7 +731,7 @@ has lost its last liberty. That is a loop with a flood fill inside, the kind of 
 built-in expression covers, so it goes in a callback: a function called on each value.
 
 In Python this is `map_elements` with a function written in Python (it is in
-`src/goboard.py`, about forty lines), and it is slow, because Python runs the loop. In
+`goboard.py`, about forty lines), and it is slow, because Python runs the loop. In
 the Nim tab the same forty lines are Nim, compiled, and Nanuq 0.6 hands the bytes over
 through the Arrow C Data Interface without copying them.
 
@@ -923,9 +924,9 @@ nbText: """
 The Python twin of this post, which recorded the outputs it is checked against, is
 [blog/go/go.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/go.py);
 the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/plots.nim)
-and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/src/figs.py), the go
+and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/figs.py), the go
 engine in [goboard.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/goboard.nim)
-and [goboard.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/src/goboard.py);
+and [goboard.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/goboard.py);
 the data preparation scripts are in [src/](https://github.com/pietroppeter/nanuq/tree/main/docs/blog/go/src).
 
 *Sources: Andries Brouwer's database of professional go games

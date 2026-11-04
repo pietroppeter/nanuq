@@ -73,8 +73,9 @@ template inTabs(pySide: string, body: untyped) =
 
 template scene(name: string, body: untyped) =
   ## A step of the analysis: Nim code and output, Python code and output, checked equal.
-  inTabs(pythonCode(pyCells[name]) & "<pre class=\"nb-output\">" &
-         xmltree.escape(readFile("expected" / name & ".txt").strip(leading = false)) & "</pre>"):
+  let pyOut = readFile("expected" / name & ".txt").strip(leading = false)
+  inTabs(pythonCode(pyCells[name]) &
+         (if pyOut == "": "" else: "<pre class=\"nb-output\">" & xmltree.escape(pyOut) & "</pre>")):
     nbCode(body)
     checkOutput(name, nb.blk.NbCode.output)
 
@@ -96,7 +97,7 @@ proc sourceDetails(lang, code: string): string =
 proc pyFunction(call: string): string =
   ## figs.anomaly_maps(...) -> the source of `def anomaly_maps(`
   let name = call.split("figs.")[1].split("(")[0]
-  definition("src/figs.py", "def " & name & "(")
+  definition("figs.py", "def " & name & "(")
 
 proc nimProc(call: string): string =
   let name = call.split("plots.")[1].split("(")[0]
@@ -786,7 +787,7 @@ nbText: """
 The Python twin of this post, which recorded the outputs it is checked against, is
 [blog/el_nino/el_nino.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/el_nino.py);
 the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/plots.nim)
-and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/src/figs.py).
+and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/el_nino/figs.py).
 How these APIs were chosen is in [Designing Nanuq 0.4](2026-11-01-designing-0-4.html).
 
 *Sources: NOAA CPC (ONI, RONI, Niño indices, SOI, ENSO Diagnostic Discussion of 8

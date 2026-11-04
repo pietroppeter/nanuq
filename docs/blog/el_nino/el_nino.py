@@ -25,12 +25,12 @@
 # %%
 # id: setup
 import datetime as dt
+
 import polars as pl
 
-pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, float_precision=2);
-
-import sys; sys.path.insert(0, "src")
 import figs  # Plotly charts and maps; the Nim post redoes them with nim-plotly
+
+pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, float_precision=2);
 
 # %% [markdown]
 # ## 1. A box in the ocean

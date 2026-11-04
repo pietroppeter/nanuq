@@ -17,8 +17,9 @@
 
 # %%
 # id: setup
-import io
 import datetime as dt
+import io
+
 import polars as pl
 
 pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, fmt_str_lengths=60);

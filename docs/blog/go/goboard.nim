@@ -1,5 +1,5 @@
 ## A tiny go board: play the main line of a game, with captures, and return the final
-## position. The twin of src/goboard.py; in the post it is the callback.
+## position. The twin of goboard.py; in the post it is the callback.
 
 proc neighbours(p, size: int): seq[int] =
   let (x, y) = (p mod size, p div size)
