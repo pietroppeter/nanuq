@@ -4644,6 +4644,35 @@ proc mapBatches*(e: Expr, f: proc (s: Series): Series, returnDtype: DataType,
   mapBatchesImpl(e, proc (args: seq[Series]): Series = f(args[0]), some(returnDtype), returnsScalar)
 
 # ---------------------------------------------------------------------------
+# Expression plugins (0.7)
+# ---------------------------------------------------------------------------
+
+proc registerPluginFunction*(pluginPath, functionName: string, args: openArray[Expr],
+                             kwargs: openArray[byte] = [], isElementwise = false,
+                             changesLength = false, returnsScalar = false,
+                             castToSupertype = false, inputWildcardExpansion = false,
+                             passNameToApply = false, isDeterministic = true): Expr =
+  ## The function `functionName` of the Polars expression plugin at
+  ## `pluginPath` (a shared library, as Python Polars loads them: a Rust crate
+  ## built with pyo3-polars, or a Nim one) applied to `args`. `kwargs` are the
+  ## keyword arguments, already pickled (a dict, as Python's pickle writes it).
+  ## The flags tell Polars how the function behaves; wrong flags give wrong
+  ## results, and a broken library crashes the process.
+  let r = raws(args)
+  var flags = 0'u32
+  if isElementwise: flags = flags or 1
+  if changesLength: flags = flags or 2
+  if returnsScalar: flags = flags or 4
+  if castToSupertype: flags = flags or 8
+  if inputWildcardExpansion: flags = flags or 16
+  if passNameToApply: flags = flags or 32
+  if not isDeterministic: flags = flags or 64
+  let path = absolutePath(pluginPath)
+  wrap nq_expr_plugin(path.cstring, functionName.cstring, r.firstOrNil, r.len.csize_t,
+                      (if kwargs.len > 0: kwargs[0].unsafeAddr else: nil),
+                      kwargs.len.csize_t, flags)
+
+# ---------------------------------------------------------------------------
 # Arrow C Data Interface and zero-copy views (0.6)
 # ---------------------------------------------------------------------------
 

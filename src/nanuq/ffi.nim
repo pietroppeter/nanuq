@@ -819,6 +819,10 @@ proc nq_df_write_ipc_stream*(df: ptr NqDataFrame, path: cstring,
 proc nq_cloud_options_new*(uri: cstring, keys, values: ptr cstring,
                            n: csize_t): ptr NqCloudOptions
 proc nq_cloud_options_free*(p: ptr NqCloudOptions)
+
+# expression plugins (0.7)
+proc nq_expr_plugin*(lib, symbol: cstring, args: ptr ptr NqExpr, n: csize_t,
+                     kwargs: ptr uint8, kwargsLen: csize_t, flags: uint32): ptr NqExpr
 {.pop.}
 
 let compiledFor = nanuqLibVersion
