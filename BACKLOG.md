@@ -27,13 +27,15 @@ Rough size: S (hours), M (a day or two), L (more).
 
 ## Bridge
 
-- **Generate `ffi.nim` with nbindgen** (S-M, *decided not now*, Pietro 2026-10-28).
-  Generating the Nim declarations from the Rust code would stop them drifting from
-  `lib.rs`, but nbindgen is unmaintained (last commit 2023) and its output needs fixing
-  first (enum discriminants dropped, `ptr char` instead of `cstring`, no `cdecl`). If
-  taken up, use our own fork and run it in CI only. A cheaper guard without it: a test
-  that every `importc` name in `ffi.nim` is exported by `libnanuq_ffi.a` (`nm`), plus a
-  Rust test of the enum values.
+- **Check that `ffi.nim` matches the library** (S). `ffi.nim` is written by hand, so its
+  declarations can drift from `lib.rs`. A cheap guard: a test that every `importc` name
+  in `ffi.nim` is exported by `libnanuq_ffi.a` (`nm`), plus a Rust test of the enum
+  values. (Generating `ffi.nim` with nbindgen was considered and dropped, Pietro
+  2026-10-28: it is unmaintained and its output needs fixing.)
+- **Nim kernels in place of Polars** (L, research). Araq's suggestion on the forum:
+  turn a query into NIF and generate only the Nim code it needs, with Polars as the
+  fallback and the oracle. The experiment lives in its own repository,
+  [nanuqy](https://github.com/pietroppeter/nanuqy).
 
 ## API
 
@@ -89,7 +91,7 @@ Rough size: S (hours), M (a day or two), L (more).
   job caches its packages and renders the site as one program (`docs/all.nim`), but it
   still re-renders every post on each run, which grows with each post. Cache
   each post's HTML (and images) keyed by a hash of the post, `docs/nanuqtheme.nim`,
-  `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
+  `src/` (which holds the crate in `src/rust/`), and render only the posts whose key changed. Old posts keep acting
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
 - **Official documentation** (L). A reference and guides, separate from the dev log.

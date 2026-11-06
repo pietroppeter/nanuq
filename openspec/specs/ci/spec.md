@@ -10,11 +10,11 @@ CI SHALL build `libnanuq_ffi.a` in a single job whose cache key is a hash of the
 sources in `src/rust/`, and SHALL share the library with the other jobs, which compile
 with `-d:nanuqNoCargo`.
 
-#### Scenario: Change that does not touch rust/
+#### Scenario: Change that does not touch src/rust/
 - **WHEN** a push changes only Nim code or docs
 - **THEN** the library comes from cache and no Rust toolchain or cargo build runs
 
-#### Scenario: Change to rust/
+#### Scenario: Change to src/rust/
 - **WHEN** a push changes files in `src/rust/`
 - **THEN** the library is rebuilt, reusing cached compiled dependencies
 

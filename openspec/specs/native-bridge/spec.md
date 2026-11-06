@@ -1,7 +1,7 @@
 # native-bridge Specification
 
 ## Purpose
-How Nanuq reaches Polars: a Rust crate (`rust/`, `nanuq_ffi`) exports a C ABI, it is
+How Nanuq reaches Polars: a Rust crate (`src/rust/`, `nanuq_ffi`) exports a C ABI, it is
 linked as a static library, and `src/nanuq/ffi.nim` declares it to Nim.
 
 ## Requirements
@@ -47,7 +47,7 @@ cross the ABI as an `NqDtypeSpec` struct (code, time unit, time zone, categories
 the same field order on both sides.
 
 #### Scenario: ABI change
-- **WHEN** a function is added or changed in `rust/src/lib.rs`
+- **WHEN** a function is added or changed in `src/rust/src/lib.rs`
 - **THEN** `src/nanuq/ffi.nim` is updated in the same change
 
 ### Requirement: Linking the static library
