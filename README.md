@@ -129,6 +129,11 @@ changes.
 Nanuq, starting with chapters of the Polars user guide. Every chapter runs when the book
 is built, and each one names its source and licence.
 
+[nanuq-more](https://github.com/pietroppeter/nanuq-more) has Polars expression plugins
+written in Nim (ISO weeks as an extension type, and 14 probability distributions), which
+load both in Nanuq (`registerPluginFunction`) and in Python Polars. The explainer
+[Polars plugins, without the Rust](https://pietroppeter.github.io/nanuq-more/) tells how.
+
 Official documentation will come later.
 
 ## How it works
