@@ -1,4 +1,4 @@
-## Plotly figures for "Move 37", with nim-plotly. The twin of src/figs.py: same traces,
+## Plotly figures for "Move 37", with nim-plotly. The twin of figs.py: same traces,
 ## colours and layout (without Plotly's "plotly_white" template, which only Python
 ## ships). nim-plotly builds the traces (type, data, mode, name, marker, text) and the
 ## basic layout (title, size); what it has no field for (board lines as shapes, colour

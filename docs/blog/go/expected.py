@@ -1,10 +1,13 @@
 """Runs go.py cell by cell and writes each code cell's output to expected/<id>.txt.
 
-As in a notebook, a cell's last bare expression is printed. Figure cells (fig_*) save the
+As in a notebook, a cell's last bare expression is printed, unless the cell
+ends with a semicolon. Figure cells (fig_*) save the
 Plotly JSON instead. These files are what the Nim post must reproduce.
 Run from this folder: python3 -I expected.py"""
 import ast, contextlib, io, os, re
+import sys
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.getcwd())  # -I leaves this folder off the path; the post imports figs from it
 os.makedirs("expected", exist_ok=True)
 src = open("go.py").read()
 ns = {}
@@ -14,7 +17,7 @@ def run(code, name):
     exec(compile(tree, name, "exec"), ns)
     if last is not None:
         v = eval(compile(ast.Expression(last.value), name, "eval"), ns)
-        if v is not None: print(v)
+        if v is not None and not code.rstrip().endswith(";"): print(v)
 for cell in src.split("\n# %%")[1:]:
     if cell.startswith(" [markdown]"): continue
     cid = re.match(r"\n# id: (\S+)", cell).group(1)

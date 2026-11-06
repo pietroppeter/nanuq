@@ -81,8 +81,9 @@ template inTabs(pySide: string, body: untyped) =
 
 template scene(name: string, body: untyped) =
   ## A step of the analysis: Nim code and output, Python code and output, checked equal.
-  inTabs(pythonCode(pyCells[name]) & "<pre class=\"nb-output\">" &
-         xmltree.escape(readFile("expected" / name & ".txt").strip(leading = false)) & "</pre>"):
+  let pyOut = readFile("expected" / name & ".txt").strip(leading = false)
+  inTabs(pythonCode(pyCells[name]) &
+         (if pyOut == "": "" else: "<pre class=\"nb-output\">" & xmltree.escape(pyOut) & "</pre>")):
     nbCode(body)
     checkOutput(name, nb.blk.NbCode.output)
 
@@ -104,7 +105,7 @@ proc sourceDetails(lang, code: string): string =
 proc pyFunction(call: string): string =
   ## figs.anomaly_maps(...) -> the source of `def anomaly_maps(`
   let name = call.split("figs.")[1].split("(")[0]
-  definition("src/figs.py", "def " & name & "(")
+  definition("figs.py", "def " & name & "(")
 
 proc nimProc(call: string): string =
   let name = call.split("plots.")[1].split("(")[0]
@@ -165,7 +166,12 @@ window.addEventListener("load", function () {
   document.head.appendChild(s);
 });
 (function () {
-  function choose(lang) {
+  function choose(lang, anchor) {
+    // Every tab group on the page switches at once, and the two languages' snippets
+    // differ in length, so everything above the clicked group can grow or shrink.
+    // Keep the clicked group where it was on screen (the way Docusaurus' synced tabs
+    // do): measure it before the switch and scroll by however much it moved.
+    var before = anchor ? anchor.getBoundingClientRect().top : 0;
     document.querySelectorAll(".nq-tabs").forEach(function (t) {
       t.querySelectorAll(".nq-tab").forEach(function (b) {
         b.setAttribute("aria-selected", b.dataset.lang === lang ? "true" : "false"); });
@@ -175,11 +181,15 @@ window.addEventListener("load", function () {
           Plotly.Plots.resize(d); });
       });
     });
+    if (anchor) {
+      var moved = anchor.getBoundingClientRect().top - before;
+      if (moved) window.scrollTo({ top: window.scrollY + moved, behavior: "instant" });
+    }
     try { localStorage.setItem("nanuq-lang", lang); } catch (e) {}
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest && e.target.closest(".nq-tab");
-    if (b) choose(b.dataset.lang);
+    if (b) choose(b.dataset.lang, b.closest(".nq-tablist"));
   });
   try { var saved = localStorage.getItem("nanuq-lang"); if (saved) choose(saved); } catch (e) {}
 })();
@@ -860,7 +870,7 @@ nbText: """
 The Python twin of this post, which recorded the outputs it is checked against, is
 [blog/mountains/mountains.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/mountains.py);
 the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/plots.nim)
-and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/src/figs.py);
+and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/figs.py);
 the data preparation scripts are in [src/](https://github.com/pietroppeter/nanuq/tree/main/docs/blog/mountains/src).
 How these APIs were chosen is in [Designing Nanuq 0.5](2026-11-01-designing-0-5.html).
 

@@ -26,13 +26,15 @@
 
 # %%
 # id: setup
-import math, os, tempfile
+import math
+import os
+import tempfile
+
 import polars as pl
 
-pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, fmt_str_lengths=40, float_precision=1);
-
-import sys; sys.path.insert(0, "src")
 import figs  # Plotly charts and maps; the Nim post redoes them with nim-plotly
+
+pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, fmt_str_lengths=40, float_precision=1);
 
 # %% [markdown]
 # ## Part 1: The Alps

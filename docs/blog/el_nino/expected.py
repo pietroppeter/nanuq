@@ -3,7 +3,9 @@
 Those files are the outputs the Nim post shows, and later its acceptance test.
 Run from this folder: python3 -I expected.py"""
 import contextlib, io, os, re
+import sys
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.getcwd())  # -I leaves this folder off the path; the post imports figs from it
 os.makedirs("expected", exist_ok=True)
 src = open("el_nino.py").read()
 ns = {}

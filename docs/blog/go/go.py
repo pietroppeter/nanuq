@@ -39,10 +39,9 @@
 # id: setup
 import polars as pl
 
-pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, fmt_str_lengths=40, float_precision=3);
-
-import sys; sys.path.insert(0, "src")
 import figs  # Plotly charts and boards; the Nim post redoes them with nim-plotly
+
+pl.Config(tbl_rows=12, tbl_cols=10, tbl_width_chars=120, fmt_str_lengths=40, float_precision=3);
 
 # %% [markdown]
 # ## Part 1: Ninety-eight thousand professional games
@@ -591,7 +590,7 @@ figs.lines(side_by_side.filter(pl.col("year") <= 2024), "year",
 # built-in expression covers, so it goes in a callback: a function called on each value.
 #
 # In Python this is `map_elements` with a function written in Python (it is in
-# `src/goboard.py`, about forty lines), and it is slow, because Python runs the loop. In
+# `goboard.py`, about forty lines), and it is slow, because Python runs the loop. In
 # the Nim tab the same forty lines are Nim, compiled, and Nanuq 0.6 hands the bytes over
 # through the Arrow C Data Interface without copying them.
 #
