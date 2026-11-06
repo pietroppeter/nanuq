@@ -158,7 +158,12 @@ window.addEventListener("load", function () {
   document.head.appendChild(s);
 });
 (function () {
-  function choose(lang) {
+  function choose(lang, anchor) {
+    // Every tab group on the page switches at once, and the two languages' snippets
+    // differ in length, so everything above the clicked group can grow or shrink.
+    // Keep the clicked group where it was on screen (the way Docusaurus' synced tabs
+    // do): measure it before the switch and scroll by however much it moved.
+    var before = anchor ? anchor.getBoundingClientRect().top : 0;
     document.querySelectorAll(".nq-tabs").forEach(function (t) {
       t.querySelectorAll(".nq-tab").forEach(function (b) {
         b.setAttribute("aria-selected", b.dataset.lang === lang ? "true" : "false"); });
@@ -168,11 +173,15 @@ window.addEventListener("load", function () {
           Plotly.Plots.resize(d); });
       });
     });
+    if (anchor) {
+      var moved = anchor.getBoundingClientRect().top - before;
+      if (moved) window.scrollTo({ top: window.scrollY + moved, behavior: "instant" });
+    }
     try { localStorage.setItem("nanuq-lang", lang); } catch (e) {}
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest && e.target.closest(".nq-tab");
-    if (b) choose(b.dataset.lang);
+    if (b) choose(b.dataset.lang, b.closest(".nq-tablist"));
   });
   try { var saved = localStorage.getItem("nanuq-lang"); if (saved) choose(saved); } catch (e) {}
 })();
