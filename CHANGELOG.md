@@ -6,7 +6,17 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-06
+
+Nanuq 0.6.1 adds expression plugins, and the site and CI work done since 0.6.0.
+
 ### Added
+- Expression plugins: `registerPluginFunction(pluginPath, functionName, args, kwargs,
+  isElementwise, ...)` calls a Polars expression plugin (a shared library implementing
+  the Polars plugin ABI 0.1) as Python's `register_plugin_function` does; the result can
+  be an extension type (`ext[...]`). Plugins written in Nim, such as those of
+  [nanuq-more](https://github.com/pietroppeter/nanuq-more), or in plain Rust load
+  directly. Needs lib-v0.6.1. (add-expression-plugins, #70)
 - The Polars coverage map, a page on the Nanuq site (`polars_coverage.html`, linked
   from the dev-log index): every Polars feature group with its status in the latest
   Nanuq release, rendered from `docs/coverage/polars.json` and refreshed in each release PR.

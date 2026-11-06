@@ -19,6 +19,7 @@
 ## Extra arguments limit the run to those capabilities (e.g. `expressions`).
 
 import std/[os, osproc, strutils, parseopt, algorithm, tables]
+import ../tests/pluginfixture
 
 const prelude = "import nanuq, nanuq/datasets, std/[options, os, strutils]\n"
 const marker = "@@nanuq-example@@"
@@ -104,6 +105,7 @@ proc main() =
     if findExe("ld.lld").len > 0 and "nanuqKeepDebugInfo" notin flags:
       flags.add " --passL:-fuse-ld=lld --passL:-Wl,--strip-debug"
   let root = currentSourcePath.parentDir.parentDir
+  discard doubleItLib()   # the plugin the expression-plugins example loads
   let tmp = getTempDir() / "nanuq-specexamples"
   createDir tmp
   var failures = 0

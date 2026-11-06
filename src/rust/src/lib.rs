@@ -6115,3 +6115,49 @@ pub unsafe extern "C" fn nq_cloud_options_free(p: *mut CloudOptions) {
 unsafe fn cloud(p: *const CloudOptions) -> Option<CloudOptions> {
     p.as_ref().cloned()
 }
+
+/// An expression plugin call, as Python Polars' `register_plugin_function`:
+/// `symbol` in the shared library at `lib` (an absolute path), on `args`,
+/// with `kwargs` pickled the way py-polars pickles them. `flags` bits:
+/// 1 elementwise, 2 changes length, 4 returns scalar, 8 cast to supertype,
+/// 16 input wildcard expansion, 32 pass name to apply, 64 non-deterministic.
+#[no_mangle]
+pub unsafe extern "C" fn nq_expr_plugin(
+    lib: *const c_char,
+    symbol: *const c_char,
+    args: *const *const Expr,
+    n: usize,
+    kwargs: *const u8,
+    kwargs_len: usize,
+    flags: u32,
+) -> *mut Expr {
+    use polars_plan::dsl::FunctionExpr;
+    use polars_plan::prelude::{CastingRules, FunctionFlags, FunctionOptions};
+    boxed(guard(|| {
+        let input = exprs(args, n)?;
+        let kw: Vec<u8> = slice(kwargs, kwargs_len)?.to_vec();
+        let mut f = FunctionFlags::default();
+        if flags & 1 != 0 {
+            f.set_elementwise();
+        }
+        f.set(FunctionFlags::LENGTH_PRESERVING, flags & 2 == 0);
+        f.set(FunctionFlags::RETURNS_SCALAR, flags & 4 != 0);
+        f.set(FunctionFlags::INPUT_WILDCARD_EXPANSION, flags & 16 != 0);
+        f.set(FunctionFlags::PASS_NAME_TO_APPLY, flags & 32 != 0);
+        let options = FunctionOptions {
+            cast_options: if flags & 8 != 0 { Some(CastingRules::cast_to_supertypes()) } else { None },
+            flags: f,
+            ..Default::default()
+        };
+        Ok(Expr::Function {
+            input,
+            function: FunctionExpr::FfiPlugin {
+                flags: options,
+                is_deterministic: flags & 64 == 0,
+                lib: cstr(lib)?.into(),
+                symbol: cstr(symbol)?.into(),
+                kwargs: kw.into(),
+            },
+        })
+    }))
+}

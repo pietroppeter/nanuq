@@ -1,8 +1,8 @@
 {
  "title": "Polars coverage",
- "updated": "2026-11-02",
- "polars": "Polars 2.1 (Python); Nanuq 0.6 builds Polars from the same py-2.1.0 tag",
- "release": {"version": "0.6", "tag": "v0.6.0", "date": "2026-11-02"},
+ "updated": "2026-11-06",
+ "polars": "Polars 2.1 (Python); Nanuq 0.6.1 builds Polars from the same py-2.1.0 tag",
+ "release": {"version": "0.6.1", "tag": "v0.6.1", "date": "2026-11-06"},
  "areas": [
   {
    "id": "dtypes",
@@ -211,7 +211,7 @@
    "rows": [
     {"feature": "Elementwise UDF", "polars": "Expr.map_elements, Series.map_elements", "status": "done", "note": "Since 0.5, 2 to 10 times faster than py-polars' map_elements; 0.6 reads numeric columns through a zero-copy view."},
     {"feature": "Batch UDF", "polars": "map_batches, map_groups, map_rows, LazyFrame.map_batches", "status": "partial", "priority": "P3", "note": "mapBatches and mapGroups since 0.5; mapRows and LazyFrame.map_batches are missing."},
-    {"feature": "Expression plugins", "polars": "register_plugin_function", "status": "no", "note": "A Rust-only mechanism; Nim users would write Rust."},
+    {"feature": "Expression plugins", "polars": "register_plugin_function", "status": "done", "new": true, "note": "registerPluginFunction since 0.6.1. Plugins written in Nim (see nanuq-more) or in plain Rust load directly; Rust plugins built with pyo3 need libpython preloaded."},
     {"feature": "Formula-style sugar", "polars": "(none; Datamancer's f{})", "status": "no", "note": "Dropped from 0.6: Polars expressions are expressive enough. Any Nim sugar would be its own design (BACKLOG)."}
    ]
   },
