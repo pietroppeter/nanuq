@@ -1,13 +1,9 @@
-import std/[options, os, osproc, strutils, unittest]
+import std/[options, unittest]
 import nanuq
+import pluginfixture
 
 # A tiny plugin written against the plugin C ABI, built once for these tests.
-let pluginSrc = currentSourcePath.parentDir / "data" / "plugins" / "double_it.nim"
-let pluginLib = getTempDir() / (DynlibFormat % "nanuq_test_double_it")
-let (buildOutput, buildCode) = execCmdEx("nim c --app:lib -d:useMalloc --threads:on --hints:off " &
-  "--nimcache:" & quoteShell(getTempDir() / "nanuq_test_plugin_cache") & " --out:" &
-  quoteShell(pluginLib) & " " & quoteShell(pluginSrc))
-doAssert buildCode == 0, buildOutput
+let pluginLib = doubleItLib()
 
 suite "expression plugins":
   test "registerPluginFunction calls the plugin on each column":

@@ -8,5 +8,5 @@
 - [x] 2.1 `registerPluginFunction` in src/nanuq.nim
 - [x] 2.2 tests/test_plugins.nim with the double_it fixture plugin
 - [x] 2.3 Spec delta for `expression-plugins`, with an example
-- [ ] 2.4 Before archiving: the spec suite builds tests/data/plugins/double_it.nim so the example runs
-- [ ] 2.5 README and coverage map (`register_plugin_function`)
+- [x] 2.4 Before archiving: the spec suite builds tests/data/plugins/double_it.nim so the example runs
+- [x] 2.5 README and coverage map (`register_plugin_function`)

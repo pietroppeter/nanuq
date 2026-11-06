@@ -4,8 +4,8 @@
 
 Nanuq (Inuit for "polar bear") brings [Polars](https://pola.rs) DataFrames to Nim.
 
-> **Status: mostly feature complete, needs use and polish.** Nanuq 0.6.0 (2 November
-> 2026) covers 115 of the 128 feature groups of Python Polars 2.1. What it needs now is
+> **Status: mostly feature complete, needs use and polish.** Nanuq 0.6.1 (6 November
+> 2026) covers 116 of the 128 feature groups of Python Polars 2.1. What it needs now is
 > real use and polishing, which is the likely focus of 0.7. The API can still change
 > before 1.0.
 
@@ -75,11 +75,11 @@ Optional modules, each imported on its own so the core has no extra dependencies
 
 The [Polars coverage map](https://pietroppeter.github.io/nanuq/polars_coverage.html)
 lists every Polars feature group and its status in the latest release (data in
-[`docs/coverage/polars.json`](docs/coverage/polars.json)). In 0.6.0, 115 of 128 groups
+[`docs/coverage/polars.json`](docs/coverage/polars.json)). In 0.6.1, 116 of 128 groups
 are done: building and inspecting frames, expressions, every column type (strings,
 dates and times, categoricals and enums, lists, structs, binary, decimal), lazy queries
 with the streaming engine and sinks, joins, reshaping, rolling and time windows, SQL,
-Nim callbacks, CSV, Parquet, IPC, JSON, Excel and cloud storage, and the Arrow C Data
+Nim callbacks and expression plugins, CSV, Parquet, IPC, JSON, Excel and cloud storage, and the Arrow C Data
 Interface.
 
 What is not there yet:
@@ -94,8 +94,7 @@ What is not there yet:
 | Avro | missing | Not started. |
 
 Some Polars features have no place in Nim and are not planned: `Object` columns
-(Python objects), Delta Lake, Iceberg and catalogs (Python-only), expression plugins
-(a Rust mechanism), the GPU engine (cuDF), and formula-style sugar (Polars expressions
+(Python objects), Delta Lake, Iceberg and catalogs (Python-only), the GPU engine (cuDF), and formula-style sugar (Polars expressions
 already read well).
 
 ## Documentation

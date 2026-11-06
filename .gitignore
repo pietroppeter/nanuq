@@ -20,3 +20,6 @@ nimcache/
 /tests/test_io
 /tests/test_categorical
 __pycache__/
+/tests/data/plugins/*.so
+/tests/data/plugins/*.dylib
+/tests/data/plugins/*.dll

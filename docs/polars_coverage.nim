@@ -9,6 +9,7 @@ import nanuqtheme
 nbInit
 let data = parseFile("coverage/polars.json")  # nimib runs from docs/ (see nimib.toml)
 let release = data["release"]["version"].getStr
+let line = release.split('.')[0 .. 1].join(".")  # "new" marks the minor line: 0.6.1 -> 0.6
 let next = if data.hasKey("next"): data["next"]["version"].getStr else: ""
 proc longDate(iso: string): string = iso.parse("yyyy-MM-dd").format("d MMMM yyyy")
 nb.title = "Polars coverage"
@@ -27,7 +28,7 @@ nb.useNanuqTheme(
 block:
   var design: seq[string]
   for p in devlogPosts:
-    if p.kind == ApiDesign and p.release == release:
+    if p.kind == ApiDesign and p.release == line:
       design.add "<a href=\"blog/" & p.fileName & "\">" & p.plainTitle & "</a>"
   nb.doc.context["devlog_nav"] = %("""<nav class="devlog" aria-label="More from the dev log">""" &
     (if design.len > 0: """<p class="rel"><span>How these APIs were chosen:</span> """ &
@@ -116,7 +117,7 @@ var tiles = "<div class=\"cov-tiles\"><div class=\"cov-tile\"><h3>Nanuq " & rele
   longDate(data["release"]["date"].getStr) & "</div>"
 tiles.add "<div class=\"n\">" & $c["done"] & " <span class=\"l\">of " & $total &
   " groups</span></div><div class=\"l\">" & $c["partial"] & " partly · " & $c["missing"] &
-  " missing · " & $c["no"] & " not planned · " & $c["new"] & " new in " & release & "</div>"
+  " missing · " & $c["no"] & " not planned · " & $c["new"] & " new in " & line & "</div>"
 tiles.add "<div class=\"cov-bar\" role=\"img\" aria-label=\"" & $c["done"] & " of " & $total & " done\">"
 for s in order:
   tiles.add "<span class=\"" & s & "\" style=\"width:" & formatFloat(100 * c[s] / total, ffDecimal, 1) & "%\"></span>"
@@ -131,7 +132,7 @@ nbRawHtml: tiles
 nbText: "## By area"
 var byArea = "<table class=\"cov\"><thead><tr><th>Area</th><th class=\"st\">Groups</th>" &
   "<th class=\"st\">Has it</th><th class=\"st\">Partly</th><th class=\"st\">Missing</th>" &
-  "<th class=\"st\">New in " & release & "</th></tr></thead><tbody>"
+  "<th class=\"st\">New in " & line & "</th></tr></thead><tbody>"
 for a in data["areas"]:
   var rows: seq[JsonNode]
   for r in a["rows"]: rows.add r
@@ -167,7 +168,7 @@ nbRawHtml: openHtml
 nbText: "## Catalogue"
 var legend = "<div class=\"legend\">"
 for s in order: legend.add pill(%*{"status": s})
-legend.add pill(%*{"status": "done", "new": true}) & "<span>new in " & release & "</span></div>"
+legend.add pill(%*{"status": "done", "new": true}) & "<span>new in " & line & "</span></div>"
 var toc = "<ol class=\"toc\">"
 for a in data["areas"]:
   toc.add "<li><a href=\"#" & a["id"].getStr & "\">" & esc(a["title"].getStr) & "</a></li>"
