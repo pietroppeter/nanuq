@@ -83,9 +83,10 @@ Rough size: S (hours), M (a day or two), L (more).
   readers (validity bitmaps, string and list offsets); (2) builders, so Nim UDF results,
   strings and plugin outputs could be handed to Polars without a copy (today only numeric
   no-null input is zero-copy, through `view`). Not full Arrow (IPC, compute): Polars,
-  DuckDB and arrow-glib cover that. Existing Nim attempts (`nimarrow` over arrow-glib)
-  look inactive; check before starting. Prompted by a forum question on zero-copy
-  (forum.nim-lang.org/t/14258, 2026-11-09).
+  DuckDB and arrow-glib cover that. Others to talk to first:
+  [narrow](https://github.com/BontaVlad/narrow) (Arrow GLib bindings, active in 2026) and
+  [NimDrake](https://github.com/BontaVlad/NimDrake) (DuckDB), which define the same
+  structs. Scenarios in the dev-log post "What about Arrow?".
 
 ## Datasets
 

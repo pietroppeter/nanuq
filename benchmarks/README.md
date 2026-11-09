@@ -30,3 +30,25 @@ Nanuq 0.6, same machine, best of 3: numeric columns without nulls are now read i
 through the Arrow C Data Interface (`view`), so the int → float callback takes 4.6-5.1 ms
 (native 1.6-2.7 ms). Strings (52-62 ms) and struct rows (102-120 ms) still copy each
 value into a Nim `string` or object.
+
+## Copy vs view
+
+`arrow_views.nim` reads a 10,000,000-value Float64 column from Nim in different ways:
+Polars' own sum, a zero-copy `view`, a copy with `toList`, building a Series from a
+`seq`, and `mapElements` (view in, `seq` out).
+
+```sh
+nim r -d:release benchmarks/arrow_views.nim
+```
+
+Linux sandbox (4 cores), Nanuq 0.6.1 prebuilt, best of 5, 2026-11-09:
+
+| Reading the column | Time |
+|---|---|
+| Polars `sum` | 1.6 ms |
+| `view`, Nim loop | 8.3 ms |
+| `toList`, Nim loop | 63 ms |
+| `series(name, seq)` | 61 ms |
+| `mapElements(x * 2)` | 91 ms |
+
+Used in the dev-log post "What about Arrow?".
