@@ -75,6 +75,18 @@ Rough size: S (hours), M (a day or two), L (more).
   Open questions:
   is it compile-time (concepts and generics) or runtime (variant/ref), which subset of
   operations goes in, and how expressions are represented.
+- **An Arrow C Data Interface package for Nim** (M, exploratory). The standard
+  `ArrowSchema`/`ArrowArray`/`ArrowArrayStream` structs are defined twice today, in
+  `src/nanuq/ffi.nim` and in nanuq-more's `polarsplugin/arrow.nim`. A small standalone
+  pure-Nim package (a Nim take on nanoarrow) could hold them for both, and for any Nim
+  code talking to DuckDB or other Arrow libraries. Layers: (1) the structs plus safe typed
+  readers (validity bitmaps, string and list offsets); (2) builders, so Nim UDF results,
+  strings and plugin outputs could be handed to Polars without a copy (today only numeric
+  no-null input is zero-copy, through `view`). Not full Arrow (IPC, compute): Polars,
+  DuckDB and arrow-glib cover that. Others to talk to first:
+  [narrow](https://github.com/BontaVlad/narrow) (Arrow GLib bindings, active in 2026) and
+  [NimDrake](https://github.com/BontaVlad/NimDrake) (DuckDB), which define the same
+  structs. Scenarios in the dev-log post "What about Arrow?".
 
 ## Datasets
 

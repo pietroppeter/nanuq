@@ -104,6 +104,7 @@ The development log, written with [nimib](https://github.com/pietroppeter/nimib)
 [index](https://pietroppeter.github.io/nanuq/) lists the posts newest first, and each
 post links to the previous and next ones, to related posts and to its source:
 
+- [What about Arrow?](https://pietroppeter.github.io/nanuq/blog/2026-11-09-what-about-arrow.html) (9 November 2026)
 - [CI in two minutes](https://pietroppeter.github.io/nanuq/blog/2026-11-02-two-minute-ci.html) (2 November 2026)
 - [Move 37](https://pietroppeter.github.io/nanuq/blog/2026-11-02-move-37.html) (2 November 2026)
 - [Designing Nanuq 0.6](https://pietroppeter.github.io/nanuq/blog/2026-11-01-designing-0-6.html) (1 November 2026)

@@ -89,6 +89,12 @@ const devlogPosts*: seq[DevlogPost] = @[
     summary: "Where fifteen minutes of CI went (linking a 310 MB library ninety-two times) " &
              "and how one program per suite and lld brought it to two and a half.",
     related: @["shipping-rust-binaries"]),
+  DevlogPost(slug: "what-about-arrow", date: "2026-11-09", kind: Research, release: "0.6",
+    titleHtml: "What about <em>Arrow</em>?", source: "docs/blog/what_about_arrow.nim",
+    summary: "What Apache Arrow is, why the data world speaks it, how Polars and Nanuq " &
+             "use it today, what copies and what doesn't, and what an Arrow layer could " &
+             "do for Nanuq and for Nim's data libraries.",
+    related: @["designing-0-6", "how-nanuq-works"]),
 ]
 
 const
