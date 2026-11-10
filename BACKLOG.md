@@ -92,6 +92,11 @@ Rough size: S (hours), M (a day or two), L (more).
   `src/` and `rust/`, and render only the posts whose key changed. Old posts keep acting
   as a compile check when the API changes. (Freezing old posts as committed HTML is
   simpler but loses that check.)
+- **Explainer on the FOSDEM data post in tabelline** (M). Tabelline's FOSDEM story
+  (2001–2027 data, [pietroppeter/tabelline#34](https://github.com/pietroppeter/tabelline/pull/34))
+  uses Nanuq heavily to prepare its data: the first use of Nanuq in the wild, outside
+  this repo. Once that post is out, write a dev-log explainer on how Nanuq made the data,
+  linking the tabelline post.
 - **Official documentation** (L). A reference and guides, separate from the dev log.
 - **One shared repo for the docs theme and the Nim/Python machinery** (M). The same
   pieces now live twice: the dev-log theme (`docs/nanuqtheme.nim`) and the nanuq-book
