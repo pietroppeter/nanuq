@@ -13,7 +13,7 @@
 ## file name the text shows in code (`ffi.nim`, `src/nanuq/ffi.nim`) to its fold; a link to
 ## a fold opens it.
 
-import std/[json, os, strutils, strformat]
+import std/[json, os, strutils, strformat, xmltree]
 import nimib
 
 func esc(s: string): string = s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
@@ -27,6 +27,52 @@ func foldId*(path: string): string =
     elif c in {'A'..'Z'}: result.add c.toLowerAscii
     elif result[^1] != '-': result.add '-'
   result = result.strip(chars = {'-'}, leading = false)
+
+# Python is highlighted when the page is built (after nanuq-more's docs/blocks.nim), so a
+# folded Python file reads well without highlight.js.
+const
+  pyKeywords = ["False", "None", "True", "and", "as", "assert", "class", "def", "del", "elif",
+    "else", "except", "for", "from", "if", "import", "in", "is", "lambda", "not", "or", "pass",
+    "raise", "return", "try", "while", "with", "yield"]
+  pyBuiltins = ["print", "str", "int", "float", "dict", "zip", "tuple", "type", "isinstance", "len"]
+
+func highlightPython(code: string): string =
+  ## Python with highlight.js classes, so it is highlighted without loading anything.
+  var i = 0
+  template span(cls: string, a, b: int) =
+    result.add "<span class=\"hljs-" & cls & "\">" & xmltree.escape(code[a ..< b]) & "</span>"
+  while i < code.len:
+    let c = code[i]
+    if c == '#':
+      let j = (let e = code.find('\n', i); if e < 0: code.len else: e)
+      span("comment", i, j); i = j
+    elif c in {'"', '\''} or (c in {'f', 'r', 'b'} and i + 1 < code.len and code[i + 1] in {'"', '\''} and
+         (i == 0 or code[i - 1] notin IdentChars)):
+      let start = i
+      if c notin {'"', '\''}: inc i
+      let q = code[i]
+      let triple = code.continuesWith($q & $q & $q, i)
+      let close = if triple: $q & $q & $q else: $q
+      i += close.len
+      while i < code.len and not code.continuesWith(close, i):
+        if code[i] == '\\': inc i
+        inc i
+      i = min(code.len, i + close.len)
+      span("string", start, i)
+    elif c in Digits and (i == 0 or code[i - 1] notin IdentChars):
+      var j = i
+      while j < code.len and code[j] in Digits + {'.', '_', 'e'}: inc j
+      span("number", i, j); i = j
+    elif c in IdentStartChars:
+      var j = i
+      while j < code.len and code[j] in IdentChars: inc j
+      let w = code[i ..< j]
+      if w in pyKeywords: span("keyword", i, j)
+      elif w in pyBuiltins: span("built_in", i, j)
+      else: result.add w
+      i = j
+    else:
+      result.add xmltree.escape($c); inc i
 
 proc langOf(file: string): string =
   case file.splitFile.ext
@@ -50,6 +96,7 @@ newNbBlock(NbFoldCode):
     let name = if blk.title.len > 0: inline(blk.title) else: "<code>" & esc(blk.path) & "</code>"
     let body =
       if blk.lang == "nim": "<pre><code class=\"nohighlight nim hljs\">" & highlightNim(blk.code) & "</code></pre>"
+      elif blk.lang == "python": "<pre><code class=\"nohighlight python hljs\">" & highlightPython(blk.code) & "</code></pre>"
       else: &"""<pre><code class="language-{blk.lang}">{esc(blk.code)}</code></pre>"""
     &"""<details class="foldcode" id="{blk.id}"><summary><span class="fc-name">{name}</span> """ &
       &"""<span class="fc-lines">{lines} lines</span></summary>{body}""" &
