@@ -285,4 +285,8 @@ decimals and binary columns ([Designing Nanuq 0.6](2026-11-01-designing-0-6.html
 0.5 explainer is [Above 4000](2026-11-01-above-4000.html).
 """
 
+nbSourceFiles:
+  nbFoldCode "benchmarks/map_elements.nim", title = "`benchmarks/map_elements.nim`: the Nim side"
+  nbFoldCode "benchmarks/map_elements.py", title = "`benchmarks/map_elements.py`: the Python side"
+
 nbSave

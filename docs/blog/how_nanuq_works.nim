@@ -236,4 +236,18 @@ and Parquet in 0.3 ([Aged 19](2026-11-01-aged-19.html)); and the Arrow C Data In
 in 0.6 ([Designing Nanuq 0.6](2026-11-01-designing-0-6.html)).
 """
 
+nbSourceFiles:
+  nbFoldCode "src/rust/src/lib.rs", start = "/// Runs `f`, catching", stop = "/// Converts a Polars error",
+    title = "`lib.rs`: `guard` and `boxed`"
+  nbFoldCode "src/rust/src/lib.rs", start = "pub unsafe extern \"C\" fn nq_lf_filter(", stop = "#[no_mangle]",
+    title = "`lib.rs`: `nq_lf_filter`"
+  nbFoldCode "src/nanuq/ffi.nim", start = "  NqDataFrame* {.incompleteStruct.}", stop = "  NqBinOp*",
+    title = "`ffi.nim`: the opaque types"
+  nbFoldCode "src/nanuq/ffi.nim", start = "{.push importc, cdecl.}", stop = "{.pop.}",
+    title = "`ffi.nim`: every Rust function, declared"
+  nbFoldCode "src/nanuq.nim", start = "  DataFrameObj = object", stop = "  GroupKind",
+    title = "`nanuq.nim`: the ref types"
+  nbFoldCode "src/nanuq.nim", start = "# Polars objects are immutable", stop = "proc takeString",
+    title = "`nanuq.nim`: destructors, errors and `wrap`"
+
 nbSave

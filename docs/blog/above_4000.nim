@@ -868,10 +868,10 @@ nbText: """
 - Nim callbacks: `mapElements` with a proc on a typed tuple, and on a `seq[string]`.
 
 The Python twin of this post, which recorded the outputs it is checked against, is
-[blog/mountains/mountains.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/mountains.py);
-the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/plots.nim)
-and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/mountains/figs.py);
-the data preparation scripts are in [src/](https://github.com/pietroppeter/nanuq/tree/main/docs/blog/mountains/src).
+[blog/mountains/mountains.py](#src-docs-blog-mountains-mountains-py);
+the figures are in [plots.nim](#src-docs-blog-mountains-plots-nim)
+and [figs.py](#src-docs-blog-mountains-figs-py);
+the data preparation scripts are in [src/](#source-files).
 How these APIs were chosen is in [Designing Nanuq 0.5](2026-11-01-designing-0-5.html).
 
 *Sources: the UIAA list of Alpine four-thousanders as published on English Wikipedia;
@@ -881,6 +881,16 @@ the AWS Terrain Tiles (Mapzen/Tilezen terrain); the GMBA Mountain Inventory v2
 """
 
 nbRawHtml: tabsScript()
+
+nbSourceFiles:
+  nbFoldCode "docs/blog/mountains/mountains.py"
+  nbFoldCode "docs/blog/mountains/figs.py"
+  nbFoldCode "docs/blog/mountains/plots.nim"
+  nbFoldCode "docs/blog/mountains/expected.py"
+  nbFoldCode "docs/blog/mountains/src/gmba_prep.py"
+  nbFoldCode "docs/blog/mountains/src/peaks_prep.py"
+  nbFoldCode "docs/blog/mountains/src/relief_prep.py"
+  nbFoldCode "docs/blog/mountains/src/treks_prep.py"
 
 setCurrentDir(siteDir)
 nbSave
