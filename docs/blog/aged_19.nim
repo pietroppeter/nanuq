@@ -449,9 +449,13 @@ goal now to dethrone Pogačar? Next season's data will tell.
   true division.
 
 The Python twin of this post, which recorded the outputs it is checked against, is
-[blog/aged19/aged19.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/aged19/aged19.py).
+[blog/aged19/aged19.py](#src-docs-blog-aged19-aged19-py).
 How these APIs were chosen is in [Designing Nanuq 0.3](2026-10-31-designing-0-3.html).
 """
+
+nbSourceFiles:
+  nbFoldCode "docs/blog/aged19/aged19.py"
+  nbFoldCode "docs/blog/aged19/expected.py"
 
 setCurrentDir(siteDir)
 nbSave

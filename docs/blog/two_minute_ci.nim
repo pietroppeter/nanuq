@@ -216,4 +216,10 @@ them back for that build. It is the right trade for a test suite that is built f
 more often than it is debugged.
 """
 
+nbSourceFiles:
+  nbFoldCode "config.nims", title = "`config.nims`: lld, when it is there"
+  nbFoldCode "docs/all.nim", title = "`docs/all.nim`: the whole site in one program"
+  nbFoldCode "tests/all.nim", title = "`tests/all.nim`: every test file in one program"
+  nbFoldCode "tests/specsuite.nim", title = "`tests/specsuite.nim`: the spec examples as tests"
+
 nbSave

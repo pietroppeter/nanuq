@@ -9,9 +9,9 @@
 import std/[json, os, strformat, strutils]
 import nimib
 from nimib/themes import mainToHtml
-import devlog
+import devlog, review, foldcode
 from nanuq import resetConfig
-export devlog
+export devlog, foldcode
 
 const nanuqHead = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -161,6 +161,16 @@ nav.table_of_contents li { margin: .15rem 0; }
 h2 a.to-toc { margin-left: .6rem; font: 500 .65rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
   color: var(--mute); text-decoration: none; vertical-align: middle; white-space: nowrap; }
 h2 a.to-toc:hover { color: var(--fjord); }
+/* the review mode (review.nim): its colours from the pack-ice palette, its version line in the masthead */
+:root { --paper: var(--floe); --surface: var(--ice); --line: var(--rule); --shade: var(--rule); --muted: var(--mute);
+  --secondary: var(--fjord); --secondary-soft: color-mix(in oklab, var(--fjord) 22%, var(--floe));
+  --primary-text: #a3332b; --neutral-1: var(--out-bg); --font: var(--display); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --primary-text: #f08a7e; } }
+:root[data-theme="dark"] { --primary-text: #f08a7e; }
+.mast .rv-enter { margin: .2rem 0 0; font: .8rem/1.4 var(--mono); }
+.mast .rv-toggle { font: 600 .75rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fjord);
+  background: var(--floe); border-radius: 6px; min-height: 44px; }
+mark.rv-mark { color: inherit; }
 footer .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: .8rem/1.5 var(--mono); color: var(--mute); }
 </style>
 """
@@ -170,7 +180,9 @@ const nanuqScripts = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/nim.min.js"></script>
 <script>
-  if (window.hljs) document.querySelectorAll("code.language-rust, code.language-nim").forEach(el => {
+  // Rust and Nim snippets, and the Python, shell, TOML and YAML files folded under "Source files"
+  if (window.hljs) document.querySelectorAll("code.language-rust, code.language-nim, code.language-python, " +
+      "code.language-bash, code.language-ini, code.language-yaml, code.language-javascript, code.language-json").forEach(el => {
     try { hljs.highlightElement(el); } catch (e) {}
   });
 </script>
@@ -180,11 +192,13 @@ func nanuqHeader(blk: JsonNode, nb: Nb): string =
   let c = nb.doc.context
   let (eyebrow, title, epigraph, meta) = (c{"eyebrow"}.getStr, c{"title_html"}.getStr,
                                           c{"epigraph"}.getStr, c{"meta"}.getStr)
+  # the review mode's version line and ✎ Review button (review.js fills it in)
+  let review = if c{"review"}.getBool: "\n  <p class=\"rv-enter\"></p>" else: ""
   &"""<header class="mast">
   <span class="eyebrow">{eyebrow}</span>
   <h1>{title}</h1>
   <p class="epigraph">{epigraph}</p>
-  <span class="meta">{meta}</span>
+  <span class="meta">{meta}</span>{review}
 </header>"""
 
 func nanuqFooter(blk: JsonNode, nb: Nb): string =
@@ -200,7 +214,7 @@ func nanuqFooter(blk: JsonNode, nb: Nb): string =
     "</code></pre></details>\n") &
   """<div class="foot">Made with <a href="https://github.com/pietroppeter/nimib">nimib</a>.
 Blocks marked "nim · ran" were executed when this page was built.
-Source: """ & sourceLink & ".</div></footer>" & nanuqScripts
+Source: """ & sourceLink & ".</div></footer>" & nanuqScripts & foldJs
 
 func emptyPartial(blk: JsonNode, nb: Nb): string = ""
 
@@ -255,7 +269,14 @@ func nanuqDocToHtml(blk: NbBlock, nb: Nb): string =
   let docJson = %[]
   var (main, toc) = (mainToHtml(blk, nb), "")
   if nb.doc.context{"toc"}.getBool: (main, toc) = withContents(main)
+  # file names in the text lead to their folds in "Source files" (foldcode.nim)
+  main = linkMentions(main, nb.doc.context{"folds"})
+  if "id=\"source-files\"" notin main:  # a page without contents still needs the anchor
+    main = main.replace("<h2>Source files</h2>", "<h2 id=\"source-files\">Source files</h2>")
   var header = nb.renderPartial("header", docJson)
+  if nb.doc.context{"source_files"}.getBool:
+    toc.add "\n  <p class=\"source-files-note\">The code this page talks about is folded under " &
+      "<a href=\"#source-files\">Source files</a>, at the end.</p>"
   if toc.len > 0: header = header.replace("</header>", "  " & toc & "\n</header>")
   "<!DOCTYPE html>\n<html lang=\"en-us\">\n" & nb.renderPartial("head", docJson) & "\n<body>\n" &
     header & "\n" & main & "\n" & nb.renderPartial("footer", docJson) & "\n</body>\n</html>"
@@ -270,15 +291,17 @@ proc escapeAttr(s: string): string =
     else: result.add c
 
 proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summary = "",
-                    sourcePath = "", tableOfContents = false) =
+                    sourcePath = "", tableOfContents = false, review = true) =
   ## `titleHtml` may contain `<em>` for the accented word. `summary` becomes the
   ## description meta tag. `sourcePath` (from the repo root) is linked in the footer.
   ## `tableOfContents` puts a folded "Table of contents" box, built from the page's `##` headings, under the
-  ## title, and a "back to contents" link on each heading.
+  ## title, and a "back to contents" link on each heading. `review` turns on the review mode
+  ## (review.nim): a version line from git and **✎ Review** in the masthead, to comment on the
+  ## page and export the comments for a coding agent.
   let description =
     if summary.len > 0: "<meta name=\"description\" content=\"" & escapeAttr(summary) & "\">\n"
     else: ""
-  nb.doc.context["stylesheet"] = %(description & nanuqHead)
+  nb.doc.context["stylesheet"] = %(description & nanuqHead & "<style>" & foldCss & "</style>\n")
   nb.doc.context["highlight"] = %""
   nb.doc.context["nb_style"] = %""
   nb.doc.context["disableHighlightJs"] = %true
@@ -293,6 +316,8 @@ proc useNanuqTheme*(nb: var Nb, titleHtml, eyebrow, epigraph, meta: string, summ
   nb.backend.partials["left"] = emptyPartial
   nb.backend.partials["right"] = emptyPartial
   nb.backend.funcs["NbDoc"] = nanuqDocToHtml
+  nb.doc.context["review"] = %review
+  if review: nb.review()
 
 const
   repoRoot = currentSourcePath.parentDir.parentDir

@@ -246,4 +246,9 @@ author already wrote the same structs. The other is how far into scenario 2 it s
 go before it has a second user.
 """
 
+nbSourceFiles:
+  nbFoldCode "src/nanuq/ffi.nim", start = "# Arrow C Data Interface (0.6)", stop = "{.push importc, cdecl.}",
+    title = "`ffi.nim`: the Arrow C Data Interface structs"
+  nbFoldCode "benchmarks/arrow_views.nim", title = "`benchmarks/arrow_views.nim`: the benchmark"
+
 nbSave

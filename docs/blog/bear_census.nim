@@ -396,10 +396,13 @@ Everything on this page, in the order it appeared:
 - column selectors: several names, Nim type classes, `exclude`, and `name.suffix`.
 
 The Python twin of this post, which recorded the outputs it is checked against, is
-[blog/census/expected.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/census/expected.py).
+[blog/census/expected.py](#src-docs-blog-census-expected-py).
 How these APIs were chosen is in [Designing Nanuq 0.2](2026-10-31-designing-0-2.html).
 """
 
+
+nbSourceFiles:
+  nbFoldCode "docs/blog/census/expected.py"
 
 setCurrentDir(siteDir)
 nbSave

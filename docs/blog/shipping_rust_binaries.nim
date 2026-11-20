@@ -185,4 +185,11 @@ One more thing turned up while writing the OpenSpec change: `nimble install` cop
 `src/rust/`, which also keeps the cargo fallback working in installed packages.
 """
 
+nbSourceFiles:
+  nbFoldCode "src/nanuq/ffi.nim", stop = "\ntype\n",
+    title = "`ffi.nim`: where the library comes from, as it works today"
+  nbFoldCode "src/nanuq/lib-sums.txt", title = "`lib-sums.txt`: the committed SHA-256 sums"
+  nbFoldCode ".github/workflows/release-lib.yml", title = "`release-lib.yml`: the workflow that builds the archives"
+  nbFoldCode "src/rust/Cargo.toml", title = "`Cargo.toml`: the crate and its version"
+
 nbSave

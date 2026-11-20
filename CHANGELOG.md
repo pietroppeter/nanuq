@@ -6,6 +6,14 @@ its OpenSpec change is archived. Format based on
 
 ## [Unreleased]
 
+### Added
+- Review mode on every page of the site, from tabelline until nimib has it: a version line
+  from git and **✎ Review** in the masthead; select text, comment, and export the comments
+  as Markdown for a coding agent (add-review-mode, #75)
+- Source files on the site, folded like tabelline's `nbFoldCode`: a post that names a file
+  of the repository folds it in a "Source files" section at its end, and the file's name in
+  the text links there (add-review-mode, #75)
+
 ## [0.6.1] - 2026-11-06
 
 Nanuq 0.6.1 adds expression plugins, and the site and CI work done since 0.6.0.

@@ -70,9 +70,13 @@ process.
 Below, first the changes (open ones first; tick the box to see the archived ones, each
 with its proposal, spec deltas and revisions), then every spec in full. Ideas not yet
 picked up wait in
-[BACKLOG.md](https://github.com/pietroppeter/nanuq/blob/main/BACKLOG.md).
+[BACKLOG.md](https://github.com/pietroppeter/nanuq/blob/main/BACKLOG.md). The page is
+rendered by `tools/specview.nim`.
 """
 
 nbRawHtml: "<div class=\"specview\">" & renderNav(report) & renderReport(report) & "</div>" & toggleJs
+
+nbSourceFiles:
+  nbFoldCode "tools/specview.nim", title = "`tools/specview.nim`: the report on this page"
 
 nbSave

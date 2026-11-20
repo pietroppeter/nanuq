@@ -931,12 +931,12 @@ nbText: """
 - a Nim callback with `mapElements` on Binary values, returning an object as a struct.
 
 The Python twin of this post, which recorded the outputs it is checked against, is
-[blog/go/go.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/go.py);
-the figures are in [plots.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/plots.nim)
-and [figs.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/figs.py), the go
-engine in [goboard.nim](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/goboard.nim)
-and [goboard.py](https://github.com/pietroppeter/nanuq/blob/main/docs/blog/go/goboard.py);
-the data preparation scripts are in [src/](https://github.com/pietroppeter/nanuq/tree/main/docs/blog/go/src).
+[blog/go/go.py](#src-docs-blog-go-go-py);
+the figures are in [plots.nim](#src-docs-blog-go-plots-nim)
+and [figs.py](#src-docs-blog-go-figs-py), the go
+engine in [goboard.nim](#src-docs-blog-go-goboard-nim)
+and [goboard.py](#src-docs-blog-go-goboard-py);
+the data preparation scripts are in [src/](#source-files).
 
 *Sources: Andries Brouwer's database of professional go games
 (homepages.cwi.nl/~aeb/go/games); all public games on online-go.com, collected by Zachary
@@ -946,6 +946,18 @@ Federazione Italiana Giuoco Go (figg.org); the player list of the European Go Da
 """
 
 nbRawHtml: tabsScript()
+
+nbSourceFiles:
+  nbFoldCode "docs/blog/go/go.py"
+  nbFoldCode "docs/blog/go/figs.py"
+  nbFoldCode "docs/blog/go/goboard.nim"
+  nbFoldCode "docs/blog/go/goboard.py"
+  nbFoldCode "docs/blog/go/plots.nim"
+  nbFoldCode "docs/blog/go/expected.py"
+  nbFoldCode "docs/blog/go/src/ogs_prep.py"
+  nbFoldCode "docs/blog/go/src/prep_pro.py"
+  nbFoldCode "docs/blog/go/src/prep_small.py"
+  nbFoldCode "docs/blog/go/src/stream_ogs.py"
 
 setCurrentDir(siteDir)
 nbSave
